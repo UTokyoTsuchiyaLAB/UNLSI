@@ -1,0 +1,14 @@
+ ++ Running A502, version: i00
+ version id = ht2 (12 feb 92) boeing ver i00  
+  real length, integer length, ratio:    8   4   2
+ initialz   cpu time:     0.047
+ input      cpu time:     0.078
+ init       cpu time:     0.078
+ abtmsg    abtdue: vorticity matching not assigned 
+ a502ms abtabodetached leading edge on type 18 wake
+ ixtrns called with lth.le.0, irec:    63     0
+ ixtrns called with lth.le.0, irec:    64     0
+ a502ms abtidn errors in abmt identification       
+ geometry   cpu time:     0.344
+ a502er flow  a502 abort, datacheck-2.  see above  
+ ABORT called by a502bd. PanAir is stopping.

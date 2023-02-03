@@ -1,0 +1,37 @@
+ Prepare input for PanAir
+  Version 1.0 (4Jan2000)
+ Ralph L. Carmichael, Public Domain Aeronautical Software
+ Enter the name of the auxiliary file: 
+          17  records copied from auxiliary file.
+          17  records in the internal data file.
+  Geometry data to be read from NAC0012.wgs                                                                     
+ Reading WGS file...
+ Reading network wing1
+ Reading network wing2
+ Reading network wingwall
+ Reading network wing_wake
+ Reading network wingwall
+ Reading network wingwall
+ Reading network wingwall
+ Reading network wingwall
+ Reading input file instructions...
+ Command  1 MACH 0.000000
+ Command 11 ALPHA 0.000000
+ Command  9 ALPC 0.000000
+ Command 12 BETA 0.000000
+ Command 10 BETC 0.000000
+ Command  7 SPAN 6.000000
+ Command  6 CBAR 1.000000
+ Command  2 SREF 6.000000
+ Command  3 XREF 0.000000
+ Command  4 YREF 0.000000
+ Command  5 ZREF 0.000000
+ Command 15 IGEOMP 1
+ Command 13 SYMM 0
+ Command 27 EAT 0.001
+ Command 35 BOUN
+ Writing PanAir input file...
+  Files a502.in added to your directory.
+ Also, file panin.dbg
+ Normal termination of panin, version 1.0 (4Jan2000)
+ Normal termination of panin

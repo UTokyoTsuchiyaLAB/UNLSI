@@ -1,0 +1,36 @@
+ Debug output from panin on                
+ Reading auxiliary data from pin.aux
+ Reading wgs file general title:Created by Naoto Morita from make_wgs
+ Completed reading network:wing1
+ Completed reading network:wing2
+ Completed reading network:wingwall
+ Completed reading network:wing_wake
+ Completed reading network:wingwall
+ Completed reading network:wingwall
+ Completed reading network:wingwall
+ Completed reading network:wingwall
+ There are            8  networks.
+ Command  1 MACH 0.000000
+ Mach=   0.00000000    
+ Command 11 ALPHA 0.000000
+ Command  9 ALPC 0.000000
+ Command 12 BETA 0.000000
+ Command 10 BETC 0.000000
+ Command  7 SPAN 6.000000
+ Command  6 CBAR 1.000000
+ Command  2 SREF 6.000000
+ Command  3 XREF 0.000000
+ Command  4 YREF 0.000000
+ Command  5 ZREF 0.000000
+ Command 15 IGEOMP 1
+ Command 13 SYMM 0
+ Command 27 EAT 0.001
+ Command 35 BOUN
+ Net            1    kt=           1
+ Net            2    kt=           1
+ Net            3    kt=           1
+ Net            4    kt=          18
+ Net            5    kt=           1
+ Net            6    kt=           1
+ Net            7    kt=           1
+ Net            8    kt=           1

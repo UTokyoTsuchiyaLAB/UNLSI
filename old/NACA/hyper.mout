@@ -1,0 +1,18 @@
+ hyper1
+ Version 0.7 (31 Dec 2002)
+ Ralph L. Carmichael, Public Domain Aeronautical Software
+ Modified by none
+ Enter the name of the input file: 
+ Reading from NAC0012h.inp
+ Scanning network wing
+ Scanning network wingwall
+ The general title of the WGS file is
+ Created by Naoto Morita from make_wgs
+ Reading network wing
+ Reading network wingwall
+           2  networks have been read.
+ After local imaging, there are           2  networks.
+ After global imaging, there are           2  networks.
+         585  panels created.
+ Computing solution   1 of   1 at alpha= 15.00  and beta=  0.00
+ Normal termination.
