@@ -1,0 +1,59 @@
+classdef UNLSI
+
+    properties
+        verts
+        tri
+        surfID
+        wakeline
+        paneltype
+        flow %各flowconditionが格納されたセル配列
+    end
+
+    methods(Access = public)
+        function obj = UNLSI(verts,tri,surfID,wakeline)
+            %Constructor
+            obj.verts = verts;
+            obj.tri = tri;
+            obj.surfID = surfID;
+            obj.wakeline = wakeline;
+            obj.paneltype = ones(size(tri,1),1);
+            obj.flow = {};
+            %クラスターの作成
+
+            %
+        end
+
+        function obj = setVerts(obj,verts)
+            obj.verts = verts;
+        end
+
+        function obj = setPanelType(obj,ID,typename)
+            %paneltypeの指定関数
+            %panelname : body 1 機体表面パネル
+            %panelname : base 2 ベース面パネル
+            %panelname : structure 3 構造パネル 
+            if strcmpi(typename,"body")
+                obj.paneltype(obj.surfID==ID,1) = 1;
+            elseif strcmpi(typename,"base")
+                obj.paneltype(obj.surfID==ID,1) = 2;
+            elseif strcmpi(typename,"structure")
+                obj.paneltype(obj.surfID==ID,1) = 3;    
+            end
+        end
+        
+        function obj = addFlowCondition(obj,Mach,newtoniantype)
+            if nargin < 3
+                newtoniantype = "OldTangentCone";
+            end
+            nFlow = numel(obj.flow);
+            obj.flow{nFlow+1}.Mach = Mach;
+            obj.flow{nFlow+1}.newtoniantype = newtoniantype;
+            if obj.flow{nFlow+1}.Mach > 1
+
+                obj.flow{nFlow+1}.pp = griddedInterpolant(delta,X2,prop{i},'makima','makima');
+            end
+        end
+
+
+    end
+end
