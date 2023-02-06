@@ -1,17 +1,11 @@
 clear;
 
-verts = [0,0,0;
-         1,0,0;
-         0,1,0;
-         0,0,1];
-tri = [1,2,3;
-       2,3,4;
-       1,3,4];
-surfID = [1;1;1;];
-wakeline = [];
-test = UNLSI(verts,tri,surfID,wakeline);
+
+[con, p, uv1, uv2, uv3, wedata, id] = readvspgeom( "test.vspgeom", 0 );
+test = UNLSI(p',con',id',wedata);
 test = test.addFlowCondition(2);
 test = test.addFlowCondition(5);
+test = test.makeCluster(10);
 clf;
 plot(test.flow{1}.pp.GridVectors{1},test.flow{1}.pp.Values);
 hold on;

@@ -1,30 +1,27 @@
 classdef UNLSI
 
     properties
-        verts
         tri
         surfID
         wakeline
         paneltype
         flow %各flowconditionが格納されたセル配列
+        cluster
     end
 
     methods(Access = public)
-        function obj = UNLSI(verts,tri,surfID,wakeline)
+        function obj = UNLSI(verts,connectivity,surfID,wakeline)
             %Constructor
-            obj.verts = verts;
-            obj.tri = tri;
+            obj.tri = triangulation(connectivity,verts);
             obj.surfID = surfID;
             obj.wakeline = wakeline;
-            obj.paneltype = ones(size(tri,1),1);
+            obj.paneltype = ones(size(connectivity,1),1);
             obj.flow = {};
-            %クラスターの作成
-
-            %
+            obj.cluster = cell([1,numel(obj.paneltype)]);
         end
 
         function obj = setVerts(obj,verts)
-            obj.verts = verts;
+            obj.tri.Points = verts;
         end
 
         function obj = setPanelType(obj,ID,typename)
@@ -39,6 +36,24 @@ classdef UNLSI
             elseif strcmpi(typename,"structure")
                 obj.paneltype(obj.surfID==ID,1) = 3;    
             end
+        end
+
+        function obj = makeCluster(obj,nCluster)
+           for i = 1:numel(obj.paneltype)
+                if obj.paneltype(i) == 1 %表面パネルであれば
+                    obj.cluster{i} = i;
+                    index = 1;
+                    while(1)
+                        neighbor = obj.tri.neighbors(obj.cluster{i}(index));
+                        diffcluster = setdiff(neighbor,obj.cluster{i});
+                        if isempty(diffcluster) || numel(obj.cluster{i})>nCluster
+                            break;
+                        end
+                        obj.cluster{i} = [obj.cluster{i},diffcluster];
+                        index = index + 1;
+                    end
+                end
+           end
         end
         
         function obj = addFlowCondition(obj,Mach,newtoniantype)
