@@ -15,6 +15,7 @@ classdef UNLSI
         BREF
         XYZREF
         paneltype
+        IndexPanel2Solver
         normal
         center
         area
@@ -38,6 +39,7 @@ classdef UNLSI
                 obj.wakeline{i}.edge = wakelineID{i};
             end
             obj.paneltype = ones(size(connectivity,1),1);
+            obj.IndexPanel2Solver = 1:numel(obj.paneltype);
             obj.halfmesh = halfmesh;
             obj.flow = {};
             obj.SREF = 1;
@@ -140,6 +142,14 @@ classdef UNLSI
             elseif strcmpi(typename,"structure")
                 obj.paneltype(obj.surfID==ID,1) = 3;    
             end
+            index = 1;
+            obj.IndexPanel2Solver = zeros(numel(obj.paneltype),1);
+            for i = 1:numel(obj.paneltype)
+                if obj.paneltype(i) == 1
+                    obj.IndexPanel2Solver(i) = index;
+                    index = index+1;
+                end
+            end
         end
 
         function obj = makeCluster(obj,nCluster,edgeAngleThreshold)
@@ -178,48 +188,56 @@ classdef UNLSI
             if nargin == 3
                 n_devide = 1;
             end
+            nPanel = numel(obj.paneltype);
             nbPanel = sum(obj.paneltype == 1);
             
             %パネル微分行列の作成
-            obj.mu2v{1} = sparse(nbPanel,nbPanel);
-            obj.mu2v{2} = sparse(nbPanel,nbPanel);
-            obj.mu2v{3} = sparse(nbPanel,nbPanel);
+            obj.mu2v{1} = sparse(nPanel,nbPanel);
+            obj.mu2v{2} = sparse(nPanel,nbPanel);
+            obj.mu2v{3} = sparse(nPanel,nbPanel);
             
-            for i = 1:nbPanel
-                CPmat =obj.center(obj.cluster{i},1:3);
-                pnt = obj.center(i,:);
-                m = obj.tri.Points(obj.tri.ConnectivityList(i,1),:)'-pnt(:);
-                m = m./norm(m);
-                l = cross(m,obj.normal(i,:)');
-                Minv = [l,m,obj.normal(i,:)'];
-                lmnMat = (Minv\(CPmat-repmat(pnt,[size(CPmat,1),1]))')';
-                bb = [lmnMat(1:end,1),lmnMat(1:end,2),lmnMat(1:end,3),ones(size(lmnMat,1),1)];
-                Bmat=pinv(bb,sqrt(eps));
-                Vnmat = Minv(:,[1,2])*[1,0,0,0;0,1,0,0]*Bmat;
-                for iter = 1:3
-                    obj.mu2v{iter}(i,obj.cluster{i}) = Vnmat(iter,:);
+            for i = 1:nPanel
+                if obj.paneltype(i) == 1
+                    CPmat =obj.center(obj.cluster{i},1:3);
+                    pnt = obj.center(i,:);
+                    m = obj.tri.Points(obj.tri.ConnectivityList(i,1),:)'-pnt(:);
+                    m = m./norm(m);
+                    l = cross(m,obj.normal(i,:)');
+                    Minv = [l,m,obj.normal(i,:)'];
+                    lmnMat = (Minv\(CPmat-repmat(pnt,[size(CPmat,1),1]))')';
+                    bb = [lmnMat(1:end,1),lmnMat(1:end,2),lmnMat(1:end,3),ones(size(lmnMat,1),1)];
+                    Bmat=pinv(bb,sqrt(eps));
+                    Vnmat = Minv(:,[1,2])*[1,0,0,0;0,1,0,0]*Bmat;
+                    for iter = 1:3
+                        obj.mu2v{iter}(i,obj.IndexPanel2Solver(obj.cluster{i})) = Vnmat(iter,:);
+                    end
                 end
             end
-
-            pntX = [obj.tri.Points(obj.tri.ConnectivityList(:,1),1),obj.tri.Points(obj.tri.ConnectivityList(:,2),1),obj.tri.Points(obj.tri.ConnectivityList(:,3),1)];
-            pntY = [obj.tri.Points(obj.tri.ConnectivityList(:,1),2),obj.tri.Points(obj.tri.ConnectivityList(:,2),2),obj.tri.Points(obj.tri.ConnectivityList(:,3),2)];
-            pntZ = [obj.tri.Points(obj.tri.ConnectivityList(:,1),3),obj.tri.Points(obj.tri.ConnectivityList(:,2),3),obj.tri.Points(obj.tri.ConnectivityList(:,3),3)];
+            
+            
+            pntX = [obj.tri.Points(obj.tri.ConnectivityList(obj.paneltype==1,1),1),obj.tri.Points(obj.tri.ConnectivityList(obj.paneltype==1,2),1),obj.tri.Points(obj.tri.ConnectivityList(obj.paneltype==1,3),1)];
+            pntY = [obj.tri.Points(obj.tri.ConnectivityList(obj.paneltype==1,1),2),obj.tri.Points(obj.tri.ConnectivityList(obj.paneltype==1,2),2),obj.tri.Points(obj.tri.ConnectivityList(obj.paneltype==1,3),2)];
+            pntZ = [obj.tri.Points(obj.tri.ConnectivityList(obj.paneltype==1,1),3),obj.tri.Points(obj.tri.ConnectivityList(obj.paneltype==1,2),3),obj.tri.Points(obj.tri.ConnectivityList(obj.paneltype==1,3),3)];
             
             si = floor(nbPanel/n_devide).*(0:n_devide-1)+1;
             ei = [floor(nbPanel/n_devide).*(1:n_devide-1),nbPanel];
             obj.LHS = zeros(nbPanel);
             obj.RHS = zeros(nbPanel);
             for i= 1:n_devide
-                clear c n N1 N2 N3 POI 
-                POI.X(:,1) = obj.center(obj.paneltype == 1,1);
-                POI.Y(:,1) = obj.center(obj.paneltype == 1,2);
-                POI.Z(:,1) = obj.center(obj.paneltype == 1,3);
-                c.X(1,:) = obj.center(si(i):ei(i),1)';
-                c.Y(1,:) = obj.center(si(i):ei(i),2)';
-                c.Z(1,:) = obj.center(si(i):ei(i),3)';
-                n.X(1,:) = obj.normal(si(i):ei(i),1)';
-                n.Y(1,:) = obj.normal(si(i):ei(i),2)';
-                n.Z(1,:) = obj.normal(si(i):ei(i),3)';
+                clear c n N1 N2 N3 POI
+                
+                sCenter = obj.center(obj.paneltype == 1,:);
+                sNormal = obj.normal(obj.paneltype == 1,:);
+                POI.X(:,1) = sCenter(:,1);
+                POI.Y(:,1) = sCenter(:,2);
+                POI.Z(:,1) = sCenter(:,3);
+                
+                c.X(1,:) = sCenter(si(i):ei(i),1)';
+                c.Y(1,:) = sCenter(si(i):ei(i),2)';
+                c.Z(1,:) = sCenter(si(i):ei(i),3)';
+                n.X(1,:) = sNormal(si(i):ei(i),1)';
+                n.Y(1,:) = sNormal(si(i):ei(i),2)';
+                n.Z(1,:) = sNormal(si(i):ei(i),3)';
                 N1.X(1,:) = pntX(si(i):ei(i),1)';
                 N1.Y(1,:) = pntY(si(i):ei(i),1)';
                 N1.Z(1,:) = pntZ(si(i):ei(i),1)';
@@ -229,7 +247,7 @@ classdef UNLSI
                 N3.X(1,:) = pntX(si(i):ei(i),3)';
                 N3.Y(1,:) = pntY(si(i):ei(i),3)';
                 N3.Z(1,:) = pntZ(si(i):ei(i),3)';
-    
+                clear sCenter sNomal
                 POI.X = repmat(POI.X,[1,ei(i)-si(i)+1]);
                 POI.Y = repmat(POI.Y,[1,ei(i)-si(i)+1]);
                 POI.Z = repmat(POI.Z,[1,ei(i)-si(i)+1]);
@@ -529,8 +547,8 @@ classdef UNLSI
                     end
                 end
                 influence = VortexA;
-                interpID(1) = (obj.wakeline{iter}.upperID(j));
-                interpID(2) = (obj.wakeline{iter}.lowerID(j));
+                interpID(1) = obj.IndexPanel2Solver(obj.wakeline{iter}.upperID(j));
+                interpID(2) = obj.IndexPanel2Solver(obj.wakeline{iter}.lowerID(j));
                 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
                 obj.LHS(:,interpID(1)) = obj.LHS(:,interpID(1)) - influence;
                 obj.LHS(:,interpID(2)) = obj.LHS(:,interpID(2)) + influence;
@@ -542,7 +560,7 @@ classdef UNLSI
         end
         
         function obj = flowCondition(obj,flowNo,Mach,newtoniantype)
-            if nargin < 3
+            if nargin == 3
                 newtoniantype = "OldTangentCone";
             end
             obj.flow{flowNo}.Mach = Mach;
@@ -631,6 +649,7 @@ classdef UNLSI
         end
 
         function obj = solveFlow(obj,flowNo,alpha,beta,omega)
+            nPanel = numel(obj.paneltype);
             nbPanel = sum(obj.paneltype == 1);
             T(1,1) = cosd(alpha)*cosd(beta);
             T(1,2) = cosd(alpha)*sind(beta);
@@ -642,10 +661,10 @@ classdef UNLSI
             T(3,2) = sind(alpha)*sind(beta);
             T(3,3) = cosd(alpha);
             if nargin < 5
-                Vinf = repmat((T*[1;0;0])',[nbPanel,1]);
+                Vinf = repmat((T*[1;0;0])',[nPanel,1]);
             else
-                Vinf = zeros(nbPanel,3);
-                for i = 1:nbPanel
+                Vinf = zeros(nPanel,3);
+                for i = 1:nPanel
                    rvec = obj.center(i,:)'-obj.XYZREF(:);
                    Vinf(i,:) = (T*[1;0;0])'-(cross(omega(:),rvec(:)))';
                 end
@@ -659,7 +678,7 @@ classdef UNLSI
             if obj.flow{flowNo}.Mach < 1
                 sigmas = zeros(nbPanel,1);
                 iter = 1;
-                for i = 1:size(obj.tri.ConnectivityList,1)
+                for i = 1:nPanel
                     if obj.paneltype(i) == 1
                         sigmas(iter,1) = -dot(Vinf(i,:)',obj.normal(i,:)');
                         iter = iter+1;
@@ -673,18 +692,18 @@ classdef UNLSI
                     dv(:,i) = obj.mu2v{i}*(potential);
                 end
             
-                obj.Cp(obj.paneltype==1,1) = (1-sum(dv.^2,2))./sqrt(1-obj.flow{flowNo}.Mach^2);
+                obj.Cp(obj.paneltype==1,1) = (1-sum(dv(obj.paneltype==1,:).^2,2))./sqrt(1-obj.flow{flowNo}.Mach^2);
             else
                 %tyouonnsoku
                 delta = zeros(nbPanel,1);
                 iter = 1;
                 for i = 1:size(obj.tri.ConnectivityList,1)
                     if obj.paneltype(i) == 1
-                        delta(iter,1) = acos(dot(obj.nominal(i,:)',Vinf(i,:)')/norm(Vinf(i,:)))-pi/2;%パネル角度
+                        delta(iter,1) = acos(dot(obj.normal(i,:)',Vinf(i,:)')/norm(Vinf(i,:)))-pi/2;%パネル角度
                         iter = iter+1;
                     end
                 end
-                obj.flow{flowNo}.pp
+                 obj.Cp(obj.paneltype==1,1) = obj.flow{flowNo}.pp(delta);%Cp
                 
             end
             dCA_p = (-obj.Cp.*obj.normal(:,1)).*obj.area./obj.SREF;
@@ -731,7 +750,7 @@ classdef UNLSI
             end
             %Cp = (-2.*dv(:,1))./sqrt(1-obj.flow{flowNo}.Mach^2);
             obj.AERODATA = [beta,obj.flow{flowNo}.Mach,alpha,0,CL,CDo,CDi,CDtot,0,0,0,CL/CDtot,0,CAp+CAf,CYp+CYf,CNp+CNf,CMX,CMY,CMZ,0,0,0,0];
-            disp([CL,CDo,CDi,CDtot,CY]);
+            disp([CL,CDo,CDi,CDtot,CMY]);
         end
     end
 
