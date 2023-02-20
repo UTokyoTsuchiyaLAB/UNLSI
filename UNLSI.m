@@ -32,6 +32,11 @@ classdef UNLSI
     methods(Access = public)
         function obj = UNLSI(verts,connectivity,surfID,wakelineID,halfmesh)
             %Constructor
+            %verts:頂点座標
+            %conectivity:各パネルの頂点ID
+            %surfID:パネルのID
+            %wakelineID:wakeをつけるエッジ上の頂点ID配列を要素にもつセル配列
+            %halfmesh:半裁メッシュの場合に1を指定
             obj.tri = triangulation(connectivity,verts);
             obj.surfID = surfID;
             for i = 1:numel(wakelineID)
@@ -62,8 +67,9 @@ classdef UNLSI
                 for iter = 1:numel(obj.wakeline)
                     deletelist = [];
                     for j = 1:numel(obj.wakeline{iter}.edge)-1
+                        %ウェークエッジに接するパネルのIDを取得
                         attachpanel = obj.tri.edgeAttachments(obj.wakeline{iter}.edge(j),obj.wakeline{iter}.edge(j+1));
-                        if numel(attachpanel{1}) < 2
+                        if numel(attachpanel{1}) < 2%接しているパネルが1枚以下の場合は削除
                             deletelist = [deletelist,j];
                         end
                     end
@@ -119,6 +125,9 @@ classdef UNLSI
         end
 
         function obj = checkMesh(obj,tol,outType)
+            %パネル面積の確認
+            %tol:最小許容面積
+            %outType:"warning"を指定するとエラーの代わりに警告を表示する
             if any(obj.area<tol)
                 if strcmpi(outType,'warning')
                     warning("some panel areas are too small");
@@ -143,13 +152,16 @@ classdef UNLSI
         end
 
         function obj = makeCluster(obj,nCluster,edgeAngleThreshold)
+            %パネルをクラスター化
+            %nCluster:クラスターの最大要素数
+            %edgeAngleThreshold:クラスター内の隣接パネル同士がなす角度の最大値[deg]
            for i = 1:numel(obj.paneltype)
                 if obj.paneltype(i) == 1 %表面パネルであれば
                     obj.cluster{i} = i;
                     index = 1;
                     while(1)
                         neighbor = obj.tri.neighbors(obj.cluster{i}(index));
-                        neighbor(isnan(neighbor)) = [];
+                        neighbor(isnan(neighbor)) = [];%隣接するパネルがない場合は空集合
                         %角度が厳しいところは削除
                         deletelist = [];
                         for j = 1:numel(neighbor)
@@ -159,14 +171,14 @@ classdef UNLSI
                             end
                         end
                         neighbor(deletelist) = [];
-                        diffcluster = setdiff(neighbor,obj.cluster{i});
+                        diffcluster = setdiff(neighbor,obj.cluster{i});%neighborに含まれていてcluster{i}に含まれていない要素の集合
 
-                        if numel(obj.cluster{i})>nCluster
+                        if numel(obj.cluster{i})>nCluster%クラスターの要素数がnClusterに達したら
                             break;
                         end
                         obj.cluster{i} = [obj.cluster{i},diffcluster];
                         index = index + 1;
-                        if numel(obj.cluster{i})<index
+                        if numel(obj.cluster{i})<index%クラスター内の全てのパネルの隣接を調べ終えたら
                             break;
                         end
                     end
@@ -174,9 +186,12 @@ classdef UNLSI
            end
         end
 
-        function obj = makeEquation(obj,wakepanellength,nwake,n_devide)
+        function obj = makeEquation(obj,wakepanellength,nwake,n_divide)
+            %wakepanellength:ウェークパネル1枚の流れ方向に沿ったの長さ
+            %nwake:ウェークパネルの流れ方向に沿った数
+            %n_divide:計算時の行列分割数
             if nargin == 3
-                n_devide = 1;
+                n_divide = 1;
             end
             nbPanel = sum(obj.paneltype == 1);
             
@@ -205,11 +220,11 @@ classdef UNLSI
             pntY = [obj.tri.Points(obj.tri.ConnectivityList(:,1),2),obj.tri.Points(obj.tri.ConnectivityList(:,2),2),obj.tri.Points(obj.tri.ConnectivityList(:,3),2)];
             pntZ = [obj.tri.Points(obj.tri.ConnectivityList(:,1),3),obj.tri.Points(obj.tri.ConnectivityList(:,2),3),obj.tri.Points(obj.tri.ConnectivityList(:,3),3)];
             
-            si = floor(nbPanel/n_devide).*(0:n_devide-1)+1;
-            ei = [floor(nbPanel/n_devide).*(1:n_devide-1),nbPanel];
+            si = floor(nbPanel/n_divide).*(0:n_divide-1)+1;
+            ei = [floor(nbPanel/n_divide).*(1:n_divide-1),nbPanel];
             obj.LHS = zeros(nbPanel);
             obj.RHS = zeros(nbPanel);
-            for i= 1:n_devide
+            for i= 1:n_divide
                 clear c n N1 N2 N3 POI 
                 POI.X(:,1) = obj.center(obj.paneltype == 1,1);
                 POI.Y(:,1) = obj.center(obj.paneltype == 1,2);
@@ -542,6 +557,9 @@ classdef UNLSI
         end
         
         function obj = flowCondition(obj,flowNo,Mach,newtoniantype)
+            %flowNo:作成する流れのID
+            %Mach:マッハ数
+            %超音速解析(修正ニュートン流理論)の手法:"OldTangentCone"(デフォルト),"TangentConeEdwards","TangentWedge"
             if nargin == 3
                 newtoniantype = "OldTangentCone";
             end
@@ -602,6 +620,14 @@ classdef UNLSI
         end
 
         function obj = setCf(obj,flowNo,Re,Lch,k,LTratio,coefficient)
+            %Cf計算における設定
+            %Cf計算の詳細はhttps://openvsp.org/wiki/doku.php?id=parasitedragが詳しい
+            %flowNo:流れのID
+            %Re:レイノルズ数
+            %Lch:代表長さ
+            %k:skin roughness value
+            %LTratio:層流の割合
+            %coefficient:調整用の係数(デフォルト:1)
             if nargin == 6
                 coefficient = 1;
             end
@@ -625,12 +651,15 @@ classdef UNLSI
             if Re>Re_Cut
                 Re = Re_Cut;
             end
-            Cf_L = 1.328./sqrt(Re);
-            Cf_T = 0.455/((log10(Re).^(2.58))*((1+0.144*obj.flow{flowNo}.Mach*obj.flow{flowNo}.Mach)^0.65));
+            Cf_L = 1.328./sqrt(Re);%Blasiusの方法
+            Cf_T = 0.455/((log10(Re).^(2.58))*((1+0.144*obj.flow{flowNo}.Mach*obj.flow{flowNo}.Mach)^0.65));%Schlichtingの方法
             obj.Cfe(obj.paneltype==1,1) =(LTratio*Cf_L + (1-LTratio)*Cf_T)*coefficient;
         end
 
         function obj = solveFlow(obj,flowNo,alpha,beta,omega)
+            %flowNo:解きたい流れのID
+            %alpha:迎角[deg]
+            %beta:横滑り角[deg]
             nbPanel = sum(obj.paneltype == 1);
             T(1,1) = cosd(alpha)*cosd(beta);
             T(1,2) = cosd(alpha)*sind(beta);
@@ -675,16 +704,18 @@ classdef UNLSI
             
                 obj.Cp(obj.paneltype==1,1) = (1-sum(dv.^2,2))./sqrt(1-obj.flow{flowNo}.Mach^2);
             else
-                %tyouonnsoku
+                %超音速
                 delta = zeros(nbPanel,1);
                 iter = 1;
+                %各パネルが主流となす角度を求める
                 for i = 1:size(obj.tri.ConnectivityList,1)
                     if obj.paneltype(i) == 1
-                        delta(iter,1) = acos(dot(obj.normal(i,:)',Vinf(i,:)')/norm(Vinf(i,:)))-pi/2;%パネル角度
+                        delta(iter,1) = acos(dot(obj.normal(i,:)',Vinf(i,:)')/norm(Vinf(i,:)))-pi/2;
                         iter = iter+1;
                     end
                 end
-                 obj.Cp(obj.paneltype==1,1) = obj.flow{flowNo}.pp(delta);%Cp
+                %用意された応答曲面をもちいてパネルの角度からCpを求める
+                 obj.Cp(obj.paneltype==1,1) = obj.flow{flowNo}.pp(delta);
                 
             end
             dCA_p = (-obj.Cp.*obj.normal(:,1)).*obj.area./obj.SREF;
