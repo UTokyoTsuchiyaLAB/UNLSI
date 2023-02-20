@@ -60,37 +60,8 @@ end
 
 
 
-frame.infA = zeros(frame.nbPanel);
-frame.infB = zeros(frame.nbPanel);
-POI.X = zeros(frame.nbPanel,1);
-POI.Y = zeros(frame.nbPanel,1);
-POI.Z = zeros(frame.nbPanel,1);
-Amat = zeros(1,frame.nbPanel);
-c.X = zeros(1,frame.nbPanel);
-c.Y = zeros(1,frame.nbPanel);
-c.Z = zeros(1,frame.nbPanel);
-n.X = zeros(1,frame.nbPanel);
-n.Y = zeros(1,frame.nbPanel);
-n.Z = zeros(1,frame.nbPanel);
-POI.X(:,1) = frame.center(frame.isBody==1,1);
-POI.Y(:,1) = frame.center(frame.isBody==1,2);
-POI.Z(:,1) = frame.center(frame.isBody==1,3);
-Amat(1,:) = frame.area(frame.isBody==1,1)';
-c.X(1,:) = frame.center(frame.isBody==1,1)';
-c.Y(1,:) = frame.center(frame.isBody==1,2)';
-c.Z(1,:) = frame.center(frame.isBody==1,3)';
-n.X(1,:) = frame.n(frame.isBody==1,1)';
-n.Y(1,:) = frame.n(frame.isBody==1,2)';
-n.Z(1,:) = frame.n(frame.isBody==1,3)';
-N1.X(1,:) = frame.pntX(frame.isBody==1,1)';
-N1.Y(1,:) = frame.pntY(frame.isBody==1,1)';
-N1.Z(1,:) = frame.pntZ(frame.isBody==1,1)';
-N2.X(1,:) = frame.pntX(frame.isBody==1,2)';
-N2.Y(1,:) = frame.pntY(frame.isBody==1,2)';
-N2.Z(1,:) = frame.pntZ(frame.isBody==1,2)';
-N3.X(1,:) = frame.pntX(frame.isBody==1,3)';
-N3.Y(1,:) = frame.pntY(frame.isBody==1,3)';
-N3.Z(1,:) = frame.pntZ(frame.isBody==1,3)';
+
+
 %çsóÒÇ…ägí£tf
 POI.X = repmat(POI.X,[1,size(POI.X,1)]);
 POI.Y = repmat(POI.Y,[1,size(POI.Y,1)]);

@@ -1,0 +1,11 @@
+# VSPGEOM Tag Key File
+C:\Users\Naoto\Dropbox\research\UNLSI\Zeph.vspgeom
+6
+
+# tag#,geom#,surf#,gname,gid,ssname1,ssname2,...,ssid1,ssid2,...
+1,4,0,WingGeom,FNQAKMRCAM
+2,1,0,WingGeom,PXENYZRZYY
+3,2,0,WingGeom,MELDXGSRVL
+4,5,0,WingGeom,ENMDPBNILR
+5,3,0,FuselageGeom,HIDKACETNZ
+6,0,0,FuselageGeom,YONQILKGQJ

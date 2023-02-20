@@ -1,13 +1,17 @@
+%
+
 clear;
-
-
 [con, p, uv1, uv2, uv3, wedata, id] = readvspgeom( "test.vspgeom", 0 );
-test = UNLSI(p',con',id',wedata);
-test = test.addFlowCondition(2);
-test = test.addFlowCondition(5);
-test = test.makeCluster(10);
-clf;
-plot(test.flow{1}.pp.GridVectors{1},test.flow{1}.pp.Values);
-hold on;
-plot(test.flow{2}.pp.GridVectors{1},test.flow{2}.pp.Values);
-hold off;
+%
+test = UNLSI(p',con',id',wedata,1);
+test.checkMesh(sqrt(eps));
+test = test.flowCondition(1,0.001);
+test = test.makeCluster(50,50);
+test = test.makeEquation(20,5,10);
+%}
+test = test.setREFS(22.812,1.78,14.4);
+test = test.setMomentCenter([14.4*0.6,0,0]);
+test = test.setCf(1,500000,0.2,0.052*(10^-5),0);
+test = test.solveFlow(1,5,0);
+test.plotGeometry(1,test.Cp,[-0.3,0.3]);
+%test.plotGeometry(1);

@@ -1,13 +1,17 @@
-clear;
+%{
 
-verts = [0,0,0;
-         1,0,0;
-         0,1,0;
-         0,0,1];
-tri = [1,2,3;
-       2,3,4;
-       1,3,4];
-surfID = [1;1;1;];
-wakeline = [];
-test = UNLSI(verts,tri,surfID,wakeline);
-test = test.addFlowCondition(2);
+clear;
+[con, p, uv1, uv2, uv3, wedata, id] = readvspgeom( "Zeph.vspgeom", 0 );
+%
+test = UNLSI(p',con',id',wedata,1);
+test.checkMesh(sqrt(eps));
+test = test.flowCondition(1,0.001);
+test = test.makeCluster(50,50);
+test = test.makeEquation(20,5,10);
+%}
+test = test.setREFS(22.812,1.78,14.4);
+test = test.setMomentCenter([14.4*0.6,0,0]);
+test = test.setCf(1,500000,0.2,0.052*(10^-5),0);
+test = test.solveFlow(1,5,0);
+test.plotGeometry(1,test.Cp,[-2,1]);
+%test.plotGeometry(1);

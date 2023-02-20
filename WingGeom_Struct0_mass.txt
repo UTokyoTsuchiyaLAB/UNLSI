@@ -1,0 +1,18 @@
+...FEA Mesh...
+Mass_Unit: kg
+Num_Els: 192
+Num_Tris: 0
+Num_Quads: 192
+Num_Beams: 0
+
+FeaPart_Name         Mass_Shells   Mass_Beams
+Skin                 138.1233    0.0000     
+Rib0                 0.0000      0.0000     
+Rib1                 0.0000      0.0000     
+Rib2                 0.0000      0.0000     
+Rib3                 0.0000      0.0000     
+Rib4                 0.0000      0.0000     
+Rib5                 0.0000      0.0000     
+
+FeaStruct_Name       Total_Mass
+WingGeom_Struct0     138.1233
