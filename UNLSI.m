@@ -542,7 +542,7 @@ classdef UNLSI
         end
         
         function obj = flowCondition(obj,flowNo,Mach,newtoniantype)
-            if nargin < 3
+            if nargin == 3
                 newtoniantype = "OldTangentCone";
             end
             obj.flow{flowNo}.Mach = Mach;
@@ -675,6 +675,16 @@ classdef UNLSI
             
                 obj.Cp(obj.paneltype==1,1) = (1-sum(dv.^2,2))./sqrt(1-obj.flow{flowNo}.Mach^2);
             else
+                %tyouonnsoku
+                delta = zeros(nbPanel,1);
+                iter = 1;
+                for i = 1:size(obj.tri.ConnectivityList,1)
+                    if obj.paneltype(i) == 1
+                        delta(iter,1) = acos(dot(obj.normal(i,:)',Vinf(i,:)')/norm(Vinf(i,:)))-pi/2;%パネル角度
+                        iter = iter+1;
+                    end
+                end
+                 obj.Cp(obj.paneltype==1,1) = obj.flow{flowNo}.pp(delta);%Cp
                 
             end
             dCA_p = (-obj.Cp.*obj.normal(:,1)).*obj.area./obj.SREF;

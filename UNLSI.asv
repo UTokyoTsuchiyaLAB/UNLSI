@@ -601,7 +601,10 @@ classdef UNLSI
             end
         end
 
-        function obj = setCf(obj,flowNo,Re,Lch,k,LTratio)
+        function obj = setCf(obj,flowNo,Re,Lch,k,LTratio,coefficient)
+            if nargin == 6
+                coefficient = 1;
+            end
             %{
                 %Camouflage paint on aluminium
                 k = 1.015*(10^-5); 
@@ -624,7 +627,7 @@ classdef UNLSI
             end
             Cf_L = 1.328./sqrt(Re);
             Cf_T = 0.455/((log10(Re).^(2.58))*((1+0.144*obj.flow{flowNo}.Mach*obj.flow{flowNo}.Mach)^0.65));
-            obj.Cfe(obj.paneltype==1,1) =LTratio*Cf_L + (1-LTratio)*Cf_T;
+            obj.Cfe(obj.paneltype==1,1) =(LTratio*Cf_L + (1-LTratio)*Cf_T)*coefficient;
         end
 
         function obj = solveFlow(obj,flowNo,alpha,beta,omega)
@@ -671,52 +674,64 @@ classdef UNLSI
                 end
             
                 obj.Cp(obj.paneltype==1,1) = (1-sum(dv.^2,2))./sqrt(1-obj.flow{flowNo}.Mach^2);
-                dCA_p = (-obj.Cp.*obj.normal(:,1)).*obj.area./obj.SREF;
-                dCY_p = (-obj.Cp.*obj.normal(:,2)).*obj.area./obj.SREF;
-                dCN_p = (-obj.Cp.*obj.normal(:,3)).*obj.area./obj.SREF;
-                dCA_f = (+obj.Cfe.*s(:,1)).*obj.area./obj.SREF;
-                dCY_f = (+obj.Cfe.*s(:,2)).*obj.area./obj.SREF;
-                dCN_f = (+obj.Cfe.*s(:,3)).*obj.area./obj.SREF;
-                dCM = cross(obj.center-repmat(obj.XYZREF,[size(obj.center,1),1]),[dCA_p+dCA_f,dCY_p+dCY_f,dCN_p+dCN_f]);
-                dCMX = dCM(:,1)./obj.BREF;
-                dCMY = dCM(:,2)./obj.CREF;
-                dCMZ = dCM(:,3)./obj.BREF;
-                if obj.halfmesh == 1
-                    CNp = sum(dCN_p)*2;
-                    CAp = sum(dCA_p)*2;
-                    CYp = 0;
-                    CNf = sum(dCN_f)*2;
-                    CAf = sum(dCA_f)*2;
-                    CYf = 0;
-                    CMX = 0;
-                    CMY = sum(dCMY)*2;
-                    CMZ = 0;
-
-                else
-                    CNp = sum(dCN_p);
-                    CAp = sum(dCA_p);
-                    CYp = sum(dCY_p);
-                    CNf = sum(dCN_f);
-                    CAf = sum(dCA_f);
-                    CYf = sum(dCY_f);
-                    CMX = sum(dCMX);
-                    CMY = sum(dCMY);
-                    CMZ = sum(dCMZ);
+            else
+                %tyouonnsoku
+                delta = zeros(nbPanel,1);
+                iter = 1;
+                for i = 1:size(obj.tri.ConnectivityList,1)
+                    if obj.paneltype(i) == 1
+                        delta(iter,1) = acos(dot(obj.nominal(i,:)',Vinf(i,:)')/norm(Vinf(i,:)))-pi/2;%パネル角度
+                        iter = iter+1;
+                    end
                 end
-
-                CL = T(:,3)'*[CAp+CAf;CYp+CYf;CNp+CNf];
-                CDi = T(:,1)'*[CAp;CYp;CNp];
-                CDo = T(:,1)'*[CAf;CYf;CNf];
-                CDtot = CDi+CDo;
-                if obj.halfmesh == 1
-                    CY = 0;
-                else
-                    CY = T(:,2)'*[CAp+CAf;CYp+CYf;CNp+CNf];
-                end
-                %Cp = (-2.*dv(:,1))./sqrt(1-obj.flow{flowNo}.Mach^2);
-                obj.AERODATA = [beta,obj.flow{flowNo}.Mach,alpha,0,CL,CDo,CDi,CDtot,0,0,0,CL/CDtot,0,CAp+CAf,CYp+CYf,CNp+CNf,CMX,CMY,CMZ,0,0,0,0];
-                disp([CL,CDo,CDi,CDtot,CY]);
+                obj.flow{flowNo}.pp
+                
             end
+            dCA_p = (-obj.Cp.*obj.normal(:,1)).*obj.area./obj.SREF;
+            dCY_p = (-obj.Cp.*obj.normal(:,2)).*obj.area./obj.SREF;
+            dCN_p = (-obj.Cp.*obj.normal(:,3)).*obj.area./obj.SREF;
+            dCA_f = (+obj.Cfe.*s(:,1)).*obj.area./obj.SREF;
+            dCY_f = (+obj.Cfe.*s(:,2)).*obj.area./obj.SREF;
+            dCN_f = (+obj.Cfe.*s(:,3)).*obj.area./obj.SREF;
+            dCM = cross(obj.center-repmat(obj.XYZREF,[size(obj.center,1),1]),[dCA_p+dCA_f,dCY_p+dCY_f,dCN_p+dCN_f]);
+            dCMX = dCM(:,1)./obj.BREF;
+            dCMY = dCM(:,2)./obj.CREF;
+            dCMZ = dCM(:,3)./obj.BREF;
+            if obj.halfmesh == 1
+                CNp = sum(dCN_p)*2;
+                CAp = sum(dCA_p)*2;
+                CYp = 0;
+                CNf = sum(dCN_f)*2;
+                CAf = sum(dCA_f)*2;
+                CYf = 0;
+                CMX = 0;
+                CMY = sum(dCMY)*2;
+                CMZ = 0;
+
+            else
+                CNp = sum(dCN_p);
+                CAp = sum(dCA_p);
+                CYp = sum(dCY_p);
+                CNf = sum(dCN_f);
+                CAf = sum(dCA_f);
+                CYf = sum(dCY_f);
+                CMX = sum(dCMX);
+                CMY = sum(dCMY);
+                CMZ = sum(dCMZ);
+            end
+
+            CL = T(:,3)'*[CAp+CAf;CYp+CYf;CNp+CNf];
+            CDi = T(:,1)'*[CAp;CYp;CNp];
+            CDo = T(:,1)'*[CAf;CYf;CNf];
+            CDtot = CDi+CDo;
+            if obj.halfmesh == 1
+                CY = 0;
+            else
+                CY = T(:,2)'*[CAp+CAf;CYp+CYf;CNp+CNf];
+            end
+            %Cp = (-2.*dv(:,1))./sqrt(1-obj.flow{flowNo}.Mach^2);
+            obj.AERODATA = [beta,obj.flow{flowNo}.Mach,alpha,0,CL,CDo,CDi,CDtot,0,0,0,CL/CDtot,0,CAp+CAf,CYp+CYf,CNp+CNf,CMX,CMY,CMZ,0,0,0,0];
+            disp([CL,CDo,CDi,CDtot,CY]);
         end
     end
 
