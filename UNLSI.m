@@ -1,37 +1,43 @@
 classdef UNLSI
 
     %%%%%残タスク
-
+    %
     %%%%%
 
     properties
-        tri
-        surfID
-        wakeline
-        halfmesh
-        SREF
-        CREF
-        BREF
-        XYZREF
-        paneltype
-        IndexPanel2Solver
-        normal
-        center
-        area
-        volume
+        tri %MATLAB triangulationクラス
+        surfID %各パネルのタグ番号
+        wakeline %wakeパネルの設定
+        halfmesh %半裁かどうか(半裁:1)
+        SREF %基準面積
+        CREF %縦方向基準長
+        BREF %横方向基準長
+        XYZREF %回転中心
+        paneltype %各パネルのタイプ 1:body 2:base 3:structure
+        IndexPanel2Solver %パネルのインデックス⇒ソルバー上でのインデックス
+        normal %各パネルの法線ベクトル
+        center %各パネルの中心
+        area %各パネルの面積
         flow %各flowconditionが格納されたセル配列
-        cluster
-        LHS
-        RHS
-        mu2v
-        Cp
-        Cfe
-        AERODATA
+        cluster %パネルクラスターの情報
+        LHS %パネル法連立方程式の左辺行列
+        RHS %パネル法連立方程式の右辺行列
+        mu2v %ポテンシャル⇒機体表面速度への変換行列
+        Cp %圧力係数
+        Cfe %表面摩擦係数
+        AERODATA %結果の格納
     end
 
     methods(Access = public)
         function obj = UNLSI(verts,connectivity,surfID,wakelineID,halfmesh)
-            %Constructor
+            %%%%%%%%%%%Constructor%%%%%%%%%%%%%
+            %verts:頂点座標
+            %conectivity:各パネルの頂点ID
+            %surfID:パネルのID
+            %wakelineID:wakeをつけるエッジ上の頂点ID配列を要素にもつセル配列
+            %halfmesh:半裁メッシュの場合に1を指定
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            %データの格納、パネル法線、面積の計算
             obj.tri = triangulation(connectivity,verts);
             obj.surfID = surfID;
             for i = 1:numel(wakelineID)
@@ -46,17 +52,16 @@ classdef UNLSI
             obj.BREF = 1;
             obj.XYZREF = [0,0,0];
             obj.cluster = cell([1,numel(obj.paneltype)]);
-            dvolume = zeros(1,numel(obj.paneltype));
             obj.area = zeros(numel(obj.paneltype),1);
             obj.normal = zeros(numel(obj.paneltype),3);
             obj.center = zeros(numel(obj.paneltype),3);
             obj.Cp = zeros(numel(obj.paneltype),1);
             obj.Cfe = zeros(numel(obj.paneltype),1);
             for i = 1:numel(obj.paneltype)
-                [obj.area(i,1),dvolume(i) , obj.normal(i,:)] = obj.vertex(verts(connectivity(i,1),:),verts(connectivity(i,2),:),verts(connectivity(i,3),:));
+                [obj.area(i,1),~ , obj.normal(i,:)] = obj.vertex(verts(connectivity(i,1),:),verts(connectivity(i,2),:),verts(connectivity(i,3),:));
                 obj.center(i,:) = [mean(verts(obj.tri.ConnectivityList(i,:),1)),mean(verts(obj.tri.ConnectivityList(i,:),2)),mean(verts(obj.tri.ConnectivityList(i,:),3))];
             end
-            obj.volume = sum(dvolume);
+
             
             %半裁メッシュの境界表面上のwakeを削除
             if halfmesh == 1
@@ -75,16 +80,29 @@ classdef UNLSI
         end
 
         function obj = setREFS(obj,SREF,BREF,CREF)
+            %%%%%%%%%%%Referentials Setting%%%%%%%%%%%%%
+            %SREF:基準面積
+            %BREF:横方向基準長(eg.翼幅)
+            %CREF:縦方向基準長(eg.MAC,機体全長
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             obj.SREF = SREF;
             obj.CREF = CREF;
             obj.BREF = BREF;
         end
 
-        function obj = setMomentCenter(obj,XYZREF)
+        function obj = setRotationCenter(obj,XYZREF)
+            %%%%%%%%%%%Rotation Center Setting%%%%%%%%%%%%%
+            %回転中心を設定する。
+            %回転中心：モーメント計算の基準位置,主流角速度の回転中心
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             obj.XYZREF = XYZREF(:)';
         end
 
-        function plotGeometry(obj,figureNo,triColor,colorlim)
+        function plotGeometry(obj,figureNo,triColor,colorlim,method,extrapmethod)
+            %%%%%%%%%%%plotting%%%%%%%%%%%%%
+            %機体メッシュもしくは状態量をプロットする。
+            %カラー値は各パネルごとの値（例えばCp）を入れると、sccatteredInterpを用いて接点の値に補間しプロットする
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             figure(figureNo);clf;
             if nargin<3
                 trisurf(obj.tri);
@@ -94,7 +112,11 @@ classdef UNLSI
                     hold off;
                 end
             else
-                F = scatteredInterpolant(obj.center,triColor,'linear','linear');
+                if nargin == 4
+                    method = "linear";
+                    extrapmethod = "linear";
+                end
+                F = scatteredInterpolant(obj.center,triColor,method,extrapmethod);
                 c = F(obj.tri.Points);
                 trisurf(obj.tri,c);
                 if obj.halfmesh == 1
@@ -109,17 +131,25 @@ classdef UNLSI
         end
 
         function obj = setVerts(obj,verts)
+            %%%%%%%%%%%%%%%%%接点座標の変更%%%%%%%%%%%%%%%
+            %三角形の接続関係を変えずに、接点の座標のみ変更する
+            %変更時したときに代わる値は全てここで計算しなおす。
+            %最適化を行うときに、設計変数の勾配を計算するとき等に使用する
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             obj.tri.Points = verts;
             for i = 1:numel(obj.paneltype)
-                [obj.area(i,1),dvolume(i) , obj.normal(i,:)] = vartex(verts(obj.tri(i,1),:),verts(obj.tri(i,2),:),verts(obj.tri(i,3),:));
+                [obj.area(i,1),~ , obj.normal(i,:)] = vartex(verts(obj.tri(i,1),:),verts(obj.tri(i,2),:),verts(obj.tri(i,3),:));
                 obj.center(i,:) = [mean(verts(obj.tri.ConnectivityList(i,:),1)),mean(verts(obj.tri.ConnectivityList(i,:),2)),mean(verts(obj.tri.ConnectivityList(i,:),3))];
             end
-            obj.volume = sum(dvolume);
             obj.checkMesh(sqrt(eps),"warning");
             
         end
 
         function obj = checkMesh(obj,tol,outType)
+            %%%%%%%%%%%%%%%%パネル面積の確認%%%%%%%%%%%%%%%
+            %tol:最小許容面積
+            %outType:"warning"を指定するとエラーの代わりに警告を表示する
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             if any(obj.area<tol)
                 if strcmpi(outType,'warning')
                     warning("some panel areas are too small");
@@ -130,10 +160,11 @@ classdef UNLSI
         end
 
         function obj = setPanelType(obj,ID,typename)
-            %paneltypeの指定関数
+            %%%%%%%%%%%%%%%%paneltypeの指定関数%%%%%%%%%%%%%%%%
             %panelname : body 1 機体表面パネル
             %panelname : base 2 ベース面パネル
             %panelname : structure 3 構造パネル 
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             if strcmpi(typename,"body")
                 obj.paneltype(obj.surfID==ID,1) = 1;
             elseif strcmpi(typename,"base")
@@ -142,6 +173,7 @@ classdef UNLSI
                 obj.paneltype(obj.surfID==ID,1) = 3;    
             end
             index = 1;
+            %パネルタイプによってはパネル法連立方程式に含まれないので、連立方程式上でのインデックスと全体のインデックスを関連付ける
             obj.IndexPanel2Solver = zeros(numel(obj.paneltype),1);
             for i = 1:numel(obj.paneltype)
                 if obj.paneltype(i) == 1
@@ -152,6 +184,14 @@ classdef UNLSI
         end
 
         function obj = makeCluster(obj,nCluster,edgeAngleThreshold)
+            %%%%%%%%%%%%%パネルクラスターの作成%%%%%%%%%%%%%%%%%%
+            %各パネルの近隣パネルを指定の数集める
+            %クラスター内のIDは統一（TODO：統一しないオプションをつけるか検討）
+            %パネル法連立方程式を解いて得られるポテンシャルから機体表面に沿った微分を計算するための準備
+            %nCluster:クラスターの目標数（達成できなければそこで打ち切り）
+            %edgeAngleThreshold(deg):この角度以下であれば近隣パネルとして登録する（角度差が大きすぎるモノをはじくため）
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
            for i = 1:numel(obj.paneltype)
                 if obj.paneltype(i) == 1 %表面パネルであれば
                     obj.cluster{i} = i;
@@ -184,6 +224,13 @@ classdef UNLSI
         end
 
         function obj = makeEquation(obj,wakepanellength,nwake,n_devide)
+            %%%%%%%%%%%%%パネル法連立方程式行列の作成%%%%%%%%%%%%
+            %パネル法の根幹
+            %表面微分行列も併せて作成している
+            %wakepanellength:各wakeパネルの長さ
+            %nwake:wakeパネルの数　つまりwakepanellength*nwakeがwakeの長さ、機体長の100倍以上あれば十分
+            %n_devide:この関数は各パネル数×各パネル数サイズの行列を扱うため、莫大なメモリが必要となる。一度に計算する列をn_devide分割してメモリの消費量を抑えている。
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             if nargin == 3
                 n_devide = 1;
             end
@@ -213,7 +260,8 @@ classdef UNLSI
                 end
             end
             
-            
+            %パネル方連立方程式行列の作成
+            %機体パネル⇒機体パネルへの影響
             pntX = [obj.tri.Points(obj.tri.ConnectivityList(obj.paneltype==1,1),1),obj.tri.Points(obj.tri.ConnectivityList(obj.paneltype==1,2),1),obj.tri.Points(obj.tri.ConnectivityList(obj.paneltype==1,3),1)];
             pntY = [obj.tri.Points(obj.tri.ConnectivityList(obj.paneltype==1,1),2),obj.tri.Points(obj.tri.ConnectivityList(obj.paneltype==1,2),2),obj.tri.Points(obj.tri.ConnectivityList(obj.paneltype==1,3),2)];
             pntZ = [obj.tri.Points(obj.tri.ConnectivityList(obj.paneltype==1,1),3),obj.tri.Points(obj.tri.ConnectivityList(obj.paneltype==1,2),3),obj.tri.Points(obj.tri.ConnectivityList(obj.paneltype==1,3),3)];
@@ -317,7 +365,8 @@ classdef UNLSI
                 srcV = (obj.matrix_dot(n,obj.matrix_cross(s,a))).*(1./obj.matrix_norm(s).*log(((obj.matrix_norm(a)+obj.matrix_norm(b)+obj.matrix_norm(s))./(obj.matrix_norm(a)+obj.matrix_norm(b)-obj.matrix_norm(s)))))-(obj.matrix_dot(pjk,n)).*phiV;
                 VortexA = VortexA+phiV;
                 VortexB = VortexB+srcV;
-                
+
+                %半裁の考慮
                 if obj.halfmesh == 1
                     POI.Y = -POI.Y;
                     pjk.X = POI.X-c.X;
@@ -367,16 +416,16 @@ classdef UNLSI
                     VortexB = VortexB+srcV;
                 end
     
-                %}
+
                 obj.LHS(:,si(i):ei(i)) = VortexA; 
                 obj.RHS(:,si(i):ei(i)) = VortexB;
             end
             eyeR = eye(nbPanel);
             obj.LHS(eyeR==1) = -2*pi;
-            %RHS(eyeR==1) = 0;
             
             clear POI c N1 N2 N3 srcV
-            %wakeの影響
+
+            %wakeパネル⇒機体パネルへの影響
             xwake = wakepanellength;
             for iter = 1:numel(obj.wakeline)
             for j = 1:numel(obj.wakeline{iter}.edge)-1
@@ -450,8 +499,7 @@ classdef UNLSI
                     s.Y = Nw2.Y-Nw1.Y;
                     s.Z = Nw2.Z-Nw1.Z;
                     phiV = atan2(obj.matrix_dot(s,obj.getUnitVector(c,n12)).*obj.matrix_dot(pjk,n).*(obj.matrix_norm(b).*(obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-obj.matrix_norm(a).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))),((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s)))).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))+obj.matrix_dot(pjk,n).^2.*obj.matrix_norm(a).*obj.matrix_norm(b).*(obj.matrix_dot(s,obj.getUnitVector(c,n12))).^2));
-                    %srcV = (obj.matrix_dot(n,obj.matrix_cross(s,a))).*(1./obj.matrix_norm(s).*log(((obj.matrix_norm(a)+obj.matrix_norm(b)+obj.matrix_norm(s))./(obj.matrix_norm(a)+obj.matrix_norm(b)-obj.matrix_norm(s)))))-(obj.matrix_dot(pjk,n)).*phiV;
-                    VortexA = VortexA+phiV;
+                    
                     %2回目
                     a.X = POI.X-Nw2.X;
                     a.Y = POI.Y-Nw2.Y;
@@ -488,6 +536,8 @@ classdef UNLSI
                     s.Z = Nw1.Z-Nw4.Z;
                     phiV = atan2(obj.matrix_dot(s,obj.getUnitVector(c,n12)).*obj.matrix_dot(pjk,n).*(obj.matrix_norm(b).*(obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-obj.matrix_norm(a).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))),((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s)))).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))+obj.matrix_dot(pjk,n).^2.*obj.matrix_norm(a).*obj.matrix_norm(b).*(obj.matrix_dot(s,obj.getUnitVector(c,n12))).^2));
                     VortexA = VortexA+phiV;
+
+                    %半裁
                     if obj.halfmesh == 1
                         POI.Y = -POI.Y;
                         pjk.X = POI.X-c.X;
@@ -548,17 +598,24 @@ classdef UNLSI
                 influence = VortexA;
                 interpID(1) = obj.IndexPanel2Solver(obj.wakeline{iter}.upperID(j));
                 interpID(2) = obj.IndexPanel2Solver(obj.wakeline{iter}.lowerID(j));
-                %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
                 obj.LHS(:,interpID(1)) = obj.LHS(:,interpID(1)) - influence;
                 obj.LHS(:,interpID(2)) = obj.LHS(:,interpID(2)) + influence;
-                %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
             end
             end
             
         end
         
         function obj = flowCondition(obj,flowNo,Mach,newtoniantype)
+            %%%%%%%%%%%%%%%%主流の設定%%%%%%%%%%%%%%%%%%%%%%
+            %UNLSIでは流れの状態の変化によって不連続的な変化を起こさないよう（設計変数の微分が連続になるよう）考慮されている。
+            %特に超音速流解析では主流の状態によって各パネルの膨張と圧縮が切り替わるため、特別な考慮が必要となる。
+            %UNLSIでは各マッハ数に応じてパネル角度-180deg~180degにて事前に圧力係数を計算し、実際の計算ではgriddedInterpolantを用いて値を求めている。
+            %したがって、主流状態と補間関数を事前につくる必要がある。
+            
+            %flowNo:作成する流れのID
+            %Mach:マッハ数
+            %超音速解析(修正ニュートン流理論)の手法:"OldTangentCone"(デフォルト),"TangentConeEdwards","TangentWedge"
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             if nargin == 3
                 newtoniantype = "OldTangentCone";
             end
@@ -619,20 +676,30 @@ classdef UNLSI
         end
 
         function obj = setCf(obj,flowNo,Re,Lch,k,LTratio,coefficient)
+            %%%%%%%%%%%%%%%%%%%%%Cf計算における設定%%%%%%%%%%%%%%%%%%%
+            %Cf計算の詳細はhttps://openvsp.org/wiki/doku.php?id=parasitedragが詳しい
+            %flowNo:流れのID
+            %Re:レイノルズ数
+            %Lch:代表長さ
+            %k:skin roughness value
+                %Camouflage paint on aluminium
+                %k = 1.015*(10^-5); 
+                %Smooth paint
+                %k = 0.634*(10^-5);
+                %Produciton sheet metal
+                %k = 0.405*(10^-5);
+                %Polished sheet metal
+                %k = 0.152*(10^-5);
+                %Smooth molded composite
+                %k = 0.052*(10^-5);
+            %LTratio:層流の割合
+            %coefficient:調整用の係数(デフォルト:1)
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             if nargin == 6
                 coefficient = 1;
             end
             %{
-                %Camouflage paint on aluminium
-                k = 1.015*(10^-5); 
-                %Smooth paint
-                k = 0.634*(10^-5);
-                %Produciton sheet metal
-                k = 0.405*(10^-5);
-                %Polished sheet metal
-                k = 0.152*(10^-5);
-                %Smooth molded composite
-                k = 0.052*(10^-5);
+
             %}
             if(obj.flow{flowNo}.Mach<0.9)
                 Re_Cut = 38.21*((Lch/k)^1.053);
@@ -648,6 +715,15 @@ classdef UNLSI
         end
 
         function obj = solveFlow(obj,flowNo,alpha,beta,omega)
+            %%%%%%%%%%%%%LSIの求解%%%%%%%%%%%%%%%%%%%%%
+            %結果はobj.AERODATAに格納される。
+            %Beta      Mach       AoA      Re/1e6     CL         CDo       CDi      CDtot      CS        L/D        E        CFx       CFy       CFz       CMx       CMy       CMz       CMl       CMm       CMn      FOpt 
+            %上記で求めていないものは0が代入される
+            %flowNo:解きたい流れのID
+            %alpha:迎角[deg]
+            %beta:横滑り角[deg]
+            %omega:主流の回転角速度(deg/s)
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             nPanel = numel(obj.paneltype);
             nbPanel = sum(obj.paneltype == 1);
             T(1,1) = cosd(alpha)*cosd(beta);
@@ -665,7 +741,7 @@ classdef UNLSI
                 Vinf = zeros(nPanel,3);
                 for i = 1:nPanel
                    rvec = obj.center(i,:)'-obj.XYZREF(:);
-                   Vinf(i,:) = (T*[1;0;0])'-(cross(omega(:),rvec(:)))';
+                   Vinf(i,:) = (T*[1;0;0])'-(cross(omega(:)./180.*pi,rvec(:)))';
                 end
             end
             Tvec(:,1) = obj.normal(:,2).* Vinf(:,3)-obj.normal(:,3).* Vinf(:,2);
@@ -675,6 +751,7 @@ classdef UNLSI
             s(:,2) = Tvec(:,3).*obj.normal(:,1)-Tvec(:,1).*obj.normal(:,3);
             s(:,3) = Tvec(:,1).*obj.normal(:,2)-Tvec(:,2).*obj.normal(:,1);
             if obj.flow{flowNo}.Mach < 1
+                %亜音速
                 sigmas = zeros(nbPanel,1);
                 iter = 1;
                 for i = 1:nPanel
@@ -694,18 +771,21 @@ classdef UNLSI
                 obj.Cp(obj.paneltype==1,1) = (1-sum(dv(obj.paneltype==1,:).^2,2))./sqrt(1-obj.flow{flowNo}.Mach^2);
                 obj.Cp(obj.paneltype==2,1) = (-0.139-0.419.*(obj.flow{flowNo}.Mach-0.161).^2);
             else
-                %tyouonnsoku
+                %超音速
                 delta = zeros(nbPanel,1);
                 iter = 1;
-                for i = 1:size(obj.tri.ConnectivityList,1)
+                %各パネルが主流となす角度を求める
+                for i = 1:nPanel
                     if obj.paneltype(i) == 1
                         delta(iter,1) = acos(dot(obj.normal(i,:)',Vinf(i,:)')/norm(Vinf(i,:)))-pi/2;%パネル角度
                         iter = iter+1;
                     end
                 end
-                 obj.Cp(obj.paneltype==1,1) = obj.flow{flowNo}.pp(delta);%Cp
-                 obj.Cp(obj.paneltype==2,1) = (-obj.flow{flowNo}.Mach.^(-2)+0.57.*obj.flow{flowNo}.Mach.^(-4));
+                %用意された応答曲面をもちいてパネルの角度からCpを求める
+                obj.Cp(obj.paneltype==1,1) = obj.flow{flowNo}.pp(delta);%Cp
+                obj.Cp(obj.paneltype==2,1) = (-obj.flow{flowNo}.Mach.^(-2)+0.57.*obj.flow{flowNo}.Mach.^(-4));
             end
+            %Cp⇒力への変換
             dCA_p = (-obj.Cp.*obj.normal(:,1)).*obj.area./obj.SREF;
             dCY_p = (-obj.Cp.*obj.normal(:,2)).*obj.area./obj.SREF;
             dCN_p = (-obj.Cp.*obj.normal(:,3)).*obj.area./obj.SREF;
@@ -717,6 +797,7 @@ classdef UNLSI
             dCMY = dCM(:,2)./obj.CREF;
             dCMZ = dCM(:,3)./obj.BREF;
             if obj.halfmesh == 1
+                %半裁
                 CNp = sum(dCN_p)*2;
                 CAp = sum(dCA_p)*2;
                 CYp = 0;
@@ -726,7 +807,6 @@ classdef UNLSI
                 CMX = 0;
                 CMY = sum(dCMY)*2;
                 CMZ = 0;
-
             else
                 CNp = sum(dCN_p);
                 CAp = sum(dCA_p);
@@ -748,8 +828,7 @@ classdef UNLSI
             else
                 CY = T(:,2)'*[CAp+CAf;CYp+CYf;CNp+CNf];
             end
-            %Cp = (-2.*dv(:,1))./sqrt(1-obj.flow{flowNo}.Mach^2);
-            obj.AERODATA = [beta,obj.flow{flowNo}.Mach,alpha,0,CL,CDo,CDi,CDtot,0,0,0,CL/CDtot,0,CAp+CAf,CYp+CYf,CNp+CNf,CMX,CMY,CMZ,0,0,0,0];
+            obj.AERODATA = [beta,obj.flow{flowNo}.Mach,alpha,0,CL,CDo,CDi,CDtot,0,0,CY,CL/CDtot,0,CAp+CAf,CYp+CYf,CNp+CNf,CMX,CMY,CMZ,0,0,0,0];
             disp([CL,CDo,CDi,CDtot,CMY]);
         end
     end
