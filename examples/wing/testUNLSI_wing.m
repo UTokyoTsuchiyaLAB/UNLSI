@@ -5,7 +5,7 @@ clear;
 wing = UNLSI(p',con',id',wedata,1);
 wing.checkMesh(sqrt(eps));
 wing = wing.makeCluster(50,50);
-wing = wing.makeEquation(20,5,10);
+wing = wing.makeEquation(20,5,1);
 %%%%%%%%ここまでは一度インスタンスを作成したらスキップできる
 %}
 
