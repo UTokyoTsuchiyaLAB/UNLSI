@@ -499,7 +499,7 @@ classdef UNLSI
                     s.Y = Nw2.Y-Nw1.Y;
                     s.Z = Nw2.Z-Nw1.Z;
                     phiV = atan2(obj.matrix_dot(s,obj.getUnitVector(c,n12)).*obj.matrix_dot(pjk,n).*(obj.matrix_norm(b).*(obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-obj.matrix_norm(a).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))),((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s)))).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))+obj.matrix_dot(pjk,n).^2.*obj.matrix_norm(a).*obj.matrix_norm(b).*(obj.matrix_dot(s,obj.getUnitVector(c,n12))).^2));
-                    
+                    VortexA = VortexA+phiV;
                     %2回目
                     a.X = POI.X-Nw2.X;
                     a.Y = POI.Y-Nw2.Y;
@@ -694,6 +694,8 @@ classdef UNLSI
                 %k = 0.052*(10^-5);
             %LTratio:層流の割合
             %coefficient:調整用の係数(デフォルト:1)
+            
+            %TODO:パネルIDによってCfの値を切り替えられるようにする
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             if nargin == 6
                 coefficient = 1;
