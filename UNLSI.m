@@ -1,7 +1,7 @@
 classdef UNLSI
 
     %%%%%残タスク
-    %
+    %CMYの符号がおかしい気がするので要確認
     %%%%%
 
     properties
@@ -150,6 +150,9 @@ classdef UNLSI
             %tol:最小許容面積
             %outType:"warning"を指定するとエラーの代わりに警告を表示する
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            if nargin == 2
+                outType = "error";
+            end
             if any(obj.area<tol)
                 if strcmpi(outType,'warning')
                     warning("some panel areas are too small");
@@ -694,7 +697,7 @@ classdef UNLSI
                 %k = 0.052*(10^-5);
             %LTratio:層流の割合
             %coefficient:調整用の係数(デフォルト:1)
-            
+
             %TODO:パネルIDによってCfの値を切り替えられるようにする
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             if nargin == 6
