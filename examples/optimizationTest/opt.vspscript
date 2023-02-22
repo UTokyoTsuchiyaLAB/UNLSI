@@ -1,0 +1,10 @@
+void main()
+{   
+
+ ReadApplyDESFile ("opt.des");
+ //SetComputationFileName( CFD_VSPGEOM_TYPE, "opt.vspgeom" );
+ 
+ //ComputeCFDMesh(0, CFD_VSPGEOM_TYPE );
+ string meshid = ExportFile( "des.vspgeom", 0, EXPORT_VSPGEOM );
+ DeleteGeom( meshid );
+}

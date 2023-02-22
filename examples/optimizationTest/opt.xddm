@@ -1,0 +1,5 @@
+<?xml version="1.0"?>
+<Model ID="C:\Users\aerospace\Dropbox\research\UNLSI\examples\optimizationTest\opt.vsp3" Modeler="OpenVSP" Wrapper="wrap_vsp.csh">
+  <Variable ID="WingGeom:XSec_1:Tip_Chord" Value="1.000000000000000111e-01" Min="0.000000000000000000e+00" Max="1.000000000000000000e+06" VSPID="KGPYLNGFMMK"/>
+  <Variable ID="WingGeom:XSec_2:Tip_Chord" Value="1.000000000000000111e-01" Min="0.000000000000000000e+00" Max="1.000000000000000000e+06" VSPID="NUBQCYUAGZP"/>
+</Model>
