@@ -1,0 +1,17 @@
+# VSPGEOM Tag Key File
+opt.vspgeom
+12
+
+# tag#,geom#,surf#,gname,gid,ssname1,ssname2,...,ssid1,ssid2,...
+1,9,0,WingGeom,FNQAKMRCAM
+2,3,0,WingGeom,PXENYZRZYY
+3,6,0,WingGeom,MELDXGSRVL
+4,11,0,WingGeom,ENMDPBNILR
+5,4,0,StackGeom,OLCEQJLGPC
+6,10,0,StackGeom,FJUMOZUYED
+7,2,0,StackGeom,UWXLUTVIKJ
+8,0,0,StackGeom,YYJMOYMSAP
+9,7,0,StackGeom,LPLEXVTUFB
+10,8,0,StackGeom,KRWYAGVEPC
+11,1,0,StackGeom,XKZQLMHLTL
+12,5,0,StackGeom,OCQMDXCNQU

@@ -1,7 +1,7 @@
 classdef UNLSI
 
     %%%%%残タスク
-    %CMYの符号がおかしい気がするので要確認
+
     %%%%%
 
     properties
@@ -136,9 +136,12 @@ classdef UNLSI
             %変更時したときに代わる値は全てここで計算しなおす。
             %最適化を行うときに、設計変数の勾配を計算するとき等に使用する
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-            obj.tri.Points = verts;
+            %triangulationはreadonlyなので、新しく作り直す
+            con = obj.tri.ConnectivityList;
+            obj.tri = triangulation(con,verts);
+            
             for i = 1:numel(obj.paneltype)
-                [obj.area(i,1),~ , obj.normal(i,:)] = vartex(verts(obj.tri(i,1),:),verts(obj.tri(i,2),:),verts(obj.tri(i,3),:));
+                [obj.area(i,1),~ , obj.normal(i,:)] = obj.vertex(verts(obj.tri(i,1),:),verts(obj.tri(i,2),:),verts(obj.tri(i,3),:));
                 obj.center(i,:) = [mean(verts(obj.tri.ConnectivityList(i,:),1)),mean(verts(obj.tri.ConnectivityList(i,:),2)),mean(verts(obj.tri.ConnectivityList(i,:),3))];
             end
             obj.checkMesh(sqrt(eps),"warning");
@@ -265,168 +268,21 @@ classdef UNLSI
             
             %パネル方連立方程式行列の作成
             %機体パネル⇒機体パネルへの影響
-            pntX = [obj.tri.Points(obj.tri.ConnectivityList(obj.paneltype==1,1),1),obj.tri.Points(obj.tri.ConnectivityList(obj.paneltype==1,2),1),obj.tri.Points(obj.tri.ConnectivityList(obj.paneltype==1,3),1)];
-            pntY = [obj.tri.Points(obj.tri.ConnectivityList(obj.paneltype==1,1),2),obj.tri.Points(obj.tri.ConnectivityList(obj.paneltype==1,2),2),obj.tri.Points(obj.tri.ConnectivityList(obj.paneltype==1,3),2)];
-            pntZ = [obj.tri.Points(obj.tri.ConnectivityList(obj.paneltype==1,1),3),obj.tri.Points(obj.tri.ConnectivityList(obj.paneltype==1,2),3),obj.tri.Points(obj.tri.ConnectivityList(obj.paneltype==1,3),3)];
             
             si = floor(nbPanel/n_devide).*(0:n_devide-1)+1;
             ei = [floor(nbPanel/n_devide).*(1:n_devide-1),nbPanel];
             obj.LHS = zeros(nbPanel);
             obj.RHS = zeros(nbPanel);
+
+            %%%%%%
             for i= 1:n_devide
-                clear c n N1 N2 N3 POI
-                
-                sCenter = obj.center(obj.paneltype == 1,:);
-                sNormal = obj.normal(obj.paneltype == 1,:);
-                POI.X(:,1) = sCenter(:,1);
-                POI.Y(:,1) = sCenter(:,2);
-                POI.Z(:,1) = sCenter(:,3);
-                
-                c.X(1,:) = sCenter(si(i):ei(i),1)';
-                c.Y(1,:) = sCenter(si(i):ei(i),2)';
-                c.Z(1,:) = sCenter(si(i):ei(i),3)';
-                n.X(1,:) = sNormal(si(i):ei(i),1)';
-                n.Y(1,:) = sNormal(si(i):ei(i),2)';
-                n.Z(1,:) = sNormal(si(i):ei(i),3)';
-                N1.X(1,:) = pntX(si(i):ei(i),1)';
-                N1.Y(1,:) = pntY(si(i):ei(i),1)';
-                N1.Z(1,:) = pntZ(si(i):ei(i),1)';
-                N2.X(1,:) = pntX(si(i):ei(i),2)';
-                N2.Y(1,:) = pntY(si(i):ei(i),2)';
-                N2.Z(1,:) = pntZ(si(i):ei(i),2)';
-                N3.X(1,:) = pntX(si(i):ei(i),3)';
-                N3.Y(1,:) = pntY(si(i):ei(i),3)';
-                N3.Z(1,:) = pntZ(si(i):ei(i),3)';
-                clear sCenter sNomal
-                POI.X = repmat(POI.X,[1,ei(i)-si(i)+1]);
-                POI.Y = repmat(POI.Y,[1,ei(i)-si(i)+1]);
-                POI.Z = repmat(POI.Z,[1,ei(i)-si(i)+1]);
-    
-                c.X = repmat(c.X,[nbPanel,1]);
-                c.Y = repmat(c.Y,[nbPanel,1]);
-                c.Z = repmat(c.Z,[nbPanel,1]);
-                n.X = repmat(n.X,[nbPanel,1]);
-                n.Y = repmat(n.Y,[nbPanel,1]);
-                n.Z = repmat(n.Z,[nbPanel,1]);
-                N1.X = repmat(N1.X,[nbPanel,1]);
-                N1.Y = repmat(N1.Y,[nbPanel,1]);
-                N1.Z = repmat(N1.Z,[nbPanel,1]);
-                N2.X = repmat(N2.X,[nbPanel,1]);
-                N2.Y = repmat(N2.Y,[nbPanel,1]);
-                N2.Z = repmat(N2.Z,[nbPanel,1]);
-                N3.X = repmat(N3.X,[nbPanel,1]);
-                N3.Y = repmat(N3.Y,[nbPanel,1]);
-                N3.Z = repmat(N3.Z,[nbPanel,1]);
-    
-                n12.X = (N1.X+N2.X)./2;
-                n12.Y = (N1.Y+N2.Y)./2;
-                n12.Z = (N1.Z+N2.Z)./2;
-    
-                pjk.X = POI.X-c.X;
-                pjk.Y = POI.Y-c.Y;
-                pjk.Z = POI.Z-c.Z;
-    
-                %1回目
-                a.X = POI.X-N1.X;
-                a.Y = POI.Y-N1.Y;
-                a.Z = POI.Z-N1.Z;
-                b.X = POI.X-N2.X;
-                b.Y = POI.Y-N2.Y;
-                b.Z = POI.Z-N2.Z;
-                s.X = N2.X-N1.X;
-                s.Y = N2.Y-N1.Y;
-                s.Z = N2.Z-N1.Z;
-                phiV = atan2(obj.matrix_dot(s,obj.getUnitVector(c,n12)).*obj.matrix_dot(pjk,n).*(obj.matrix_norm(b).*(obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-obj.matrix_norm(a).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))),((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s)))).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))+obj.matrix_dot(pjk,n).^2.*obj.matrix_norm(a).*obj.matrix_norm(b).*(obj.matrix_dot(s,obj.getUnitVector(c,n12))).^2));
-                srcV = (obj.matrix_dot(n,obj.matrix_cross(s,a))).*(1./obj.matrix_norm(s).*log(((obj.matrix_norm(a)+obj.matrix_norm(b)+obj.matrix_norm(s))./(obj.matrix_norm(a)+obj.matrix_norm(b)-obj.matrix_norm(s)))))-(obj.matrix_dot(pjk,n)).*phiV;
-                VortexA = phiV;
-                VortexB = srcV;
-                %2回目
-                a.X = POI.X-N2.X;
-                a.Y = POI.Y-N2.Y;
-                a.Z = POI.Z-N2.Z;
-                b.X = POI.X-N3.X;
-                b.Y = POI.Y-N3.Y;
-                b.Z = POI.Z-N3.Z;
-                s.X = N3.X-N2.X;
-                s.Y = N3.Y-N2.Y;
-                s.Z = N3.Z-N2.Z;
-                phiV = atan2(obj.matrix_dot(s,obj.getUnitVector(c,n12)).*obj.matrix_dot(pjk,n).*(obj.matrix_norm(b).*(obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-obj.matrix_norm(a).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))),((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s)))).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))+obj.matrix_dot(pjk,n).^2.*obj.matrix_norm(a).*obj.matrix_norm(b).*(obj.matrix_dot(s,obj.getUnitVector(c,n12))).^2));
-                srcV = (obj.matrix_dot(n,obj.matrix_cross(s,a))).*(1./obj.matrix_norm(s).*log(((obj.matrix_norm(a)+obj.matrix_norm(b)+obj.matrix_norm(s))./(obj.matrix_norm(a)+obj.matrix_norm(b)-obj.matrix_norm(s)))))-(obj.matrix_dot(pjk,n)).*phiV;
-                VortexA = VortexA+phiV;
-                VortexB = VortexB+srcV;
-                %3回目
-                a.X = POI.X-N3.X;
-                a.Y = POI.Y-N3.Y;
-                a.Z = POI.Z-N3.Z;
-                b.X = POI.X-N1.X;
-                b.Y = POI.Y-N1.Y;
-                b.Z = POI.Z-N1.Z;
-                s.X = N1.X-N3.X;
-                s.Y = N1.Y-N3.Y;
-                s.Z = N1.Z-N3.Z; 
-                phiV = atan2(obj.matrix_dot(s,obj.getUnitVector(c,n12)).*obj.matrix_dot(pjk,n).*(obj.matrix_norm(b).*(obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-obj.matrix_norm(a).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))),((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s)))).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))+obj.matrix_dot(pjk,n).^2.*obj.matrix_norm(a).*obj.matrix_norm(b).*(obj.matrix_dot(s,obj.getUnitVector(c,n12))).^2));
-                srcV = (obj.matrix_dot(n,obj.matrix_cross(s,a))).*(1./obj.matrix_norm(s).*log(((obj.matrix_norm(a)+obj.matrix_norm(b)+obj.matrix_norm(s))./(obj.matrix_norm(a)+obj.matrix_norm(b)-obj.matrix_norm(s)))))-(obj.matrix_dot(pjk,n)).*phiV;
-                VortexA = VortexA+phiV;
-                VortexB = VortexB+srcV;
-
-                %半裁の考慮
-                if obj.halfmesh == 1
-                    POI.Y = -POI.Y;
-                    pjk.X = POI.X-c.X;
-                    pjk.Y = POI.Y-c.Y;
-                    pjk.Z = POI.Z-c.Z;
-                    %1回目
-                    a.X = POI.X-N1.X;
-                    a.Y = POI.Y-N1.Y;
-                    a.Z = POI.Z-N1.Z;
-                    b.X = POI.X-N2.X;
-                    b.Y = POI.Y-N2.Y;
-                    b.Z = POI.Z-N2.Z;
-                    s.X = N2.X-N1.X;
-                    s.Y = N2.Y-N1.Y;
-                    s.Z = N2.Z-N1.Z;
-                    phiV = atan2(obj.matrix_dot(s,obj.getUnitVector(c,n12)).*obj.matrix_dot(pjk,n).*(obj.matrix_norm(b).*(obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-obj.matrix_norm(a).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))),((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s)))).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))+obj.matrix_dot(pjk,n).^2.*obj.matrix_norm(a).*obj.matrix_norm(b).*(obj.matrix_dot(s,obj.getUnitVector(c,n12))).^2));
-                    srcV = (obj.matrix_dot(n,obj.matrix_cross(s,a))).*(1./obj.matrix_norm(s).*log(((obj.matrix_norm(a)+obj.matrix_norm(b)+obj.matrix_norm(s))./(obj.matrix_norm(a)+obj.matrix_norm(b)-obj.matrix_norm(s)))))-(obj.matrix_dot(pjk,n)).*phiV;
-                    VortexA = VortexA+phiV;
-                    VortexB = VortexB+srcV;
-                    %2回目
-                    a.X = POI.X-N2.X;
-                    a.Y = POI.Y-N2.Y;
-                    a.Z = POI.Z-N2.Z;
-                    b.X = POI.X-N3.X;
-                    b.Y = POI.Y-N3.Y;
-                    b.Z = POI.Z-N3.Z;
-                    s.X = N3.X-N2.X;
-                    s.Y = N3.Y-N2.Y;
-                    s.Z = N3.Z-N2.Z;
-                    phiV = atan2(obj.matrix_dot(s,obj.getUnitVector(c,n12)).*obj.matrix_dot(pjk,n).*(obj.matrix_norm(b).*(obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-obj.matrix_norm(a).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))),((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s)))).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))+obj.matrix_dot(pjk,n).^2.*obj.matrix_norm(a).*obj.matrix_norm(b).*(obj.matrix_dot(s,obj.getUnitVector(c,n12))).^2));
-                    srcV = (obj.matrix_dot(n,obj.matrix_cross(s,a))).*(1./obj.matrix_norm(s).*log(((obj.matrix_norm(a)+obj.matrix_norm(b)+obj.matrix_norm(s))./(obj.matrix_norm(a)+obj.matrix_norm(b)-obj.matrix_norm(s)))))-(obj.matrix_dot(pjk,n)).*phiV;
-                    VortexA = VortexA+phiV;
-                    VortexB = VortexB+srcV;
-                    %3回目
-                    a.X = POI.X-N3.X;
-                    a.Y = POI.Y-N3.Y;
-                    a.Z = POI.Z-N3.Z;
-                    b.X = POI.X-N1.X;
-                    b.Y = POI.Y-N1.Y;
-                    b.Z = POI.Z-N1.Z;
-                    s.X = N1.X-N3.X;
-                    s.Y = N1.Y-N3.Y;
-                    s.Z = N1.Z-N3.Z; 
-                    phiV = atan2(obj.matrix_dot(s,obj.getUnitVector(c,n12)).*obj.matrix_dot(pjk,n).*(obj.matrix_norm(b).*(obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-obj.matrix_norm(a).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))),((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s)))).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))+obj.matrix_dot(pjk,n).^2.*obj.matrix_norm(a).*obj.matrix_norm(b).*(obj.matrix_dot(s,obj.getUnitVector(c,n12))).^2));
-                    srcV = (obj.matrix_dot(n,obj.matrix_cross(s,a))).*(1./obj.matrix_norm(s).*log(((obj.matrix_norm(a)+obj.matrix_norm(b)+obj.matrix_norm(s))./(obj.matrix_norm(a)+obj.matrix_norm(b)-obj.matrix_norm(s)))))-(obj.matrix_dot(pjk,n)).*phiV;
-                    VortexA = VortexA+phiV;
-                    VortexB = VortexB+srcV;
-                end
-    
-
-                obj.LHS(:,si(i):ei(i)) = VortexA; 
-                obj.RHS(:,si(i):ei(i)) = VortexB;
+                [VortexAr,VortexBr,VortexAc,VortexBc] = obj.influenceMatrix(obj,si(i):ei(i),si(i):ei(i));
+                obj.LHS(:,si(i):ei(i)) = VortexAc; 
+                obj.RHS(:,si(i):ei(i)) = VortexBc;
             end
             eyeR = eye(nbPanel);
             obj.LHS(eyeR==1) = -2*pi;
-            
-            clear POI c N1 N2 N3 srcV
+
 
             %wakeパネル⇒機体パネルへの影響
             xwake = wakepanellength;
@@ -839,6 +695,318 @@ classdef UNLSI
     end
 
     methods(Static)
+        
+        function [VortexAr,VortexBr,VortexAc,VortexBc] = influenceMatrix(obj,rowIndex,colIndex)
+            %%%%%%%%%%%%%%%%%%%影響係数の計算　パネル⇒パネル%%%%%%%%%%%%%%%
+            %rowIndex : 計算する行
+            %colIndex : 計算する列
+            %Vortex~r : numel(rowIndex)×nbPanelの影響係数
+            %Vortex~c : nbPanel×numel(rowIndex)の影響係数
+
+
+            verts = obj.tri.Points;
+            con  = obj.tri.ConnectivityList(obj.paneltype==1,:);
+            center = obj.center(obj.paneltype==1,:);
+            normal = obj.normal(obj.paneltype==1,:);
+
+            nbPanel = size(con,1);
+            nrow = numel(rowIndex);
+            ncol = numel(colIndex);
+            VortexAr = [];
+            VortexBr = [];
+            VortexAc = [];
+            VortexBc = [];
+            if not(isempty(rowIndex))
+    
+                POI.X(:,1) = center(rowIndex,1);
+                POI.Y(:,1) = center(rowIndex,2);
+                POI.Z(:,1) = center(rowIndex,3);
+                
+                c.X(1,:) = center(:,1)';
+                c.Y(1,:) = center(:,2)';
+                c.Z(1,:) = center(:,3)';
+                n.X(1,:) = normal(:,1)';
+                n.Y(1,:) = normal(:,2)';
+                n.Z(1,:) = normal(:,3)';
+                N1.X(1,:) = verts(con(:,1),1)';
+                N1.Y(1,:) = verts(con(:,1),2)';
+                N1.Z(1,:) = verts(con(:,1),3)';
+                N2.X(1,:) = verts(con(:,2),1)';
+                N2.Y(1,:) = verts(con(:,2),2)';
+                N2.Z(1,:) = verts(con(:,2),3)';
+                N3.X(1,:) = verts(con(:,3),1)';
+                N3.Y(1,:) = verts(con(:,3),2)';
+                N3.Z(1,:) = verts(con(:,3),3)';
+                POI.X = repmat(POI.X,[1,nbPanel]);
+                POI.Y = repmat(POI.Y,[1,nbPanel]);
+                POI.Z = repmat(POI.Z,[1,nbPanel]);
+    
+                c.X = repmat(c.X,[nrow,1]);
+                c.Y = repmat(c.Y,[nrow,1]);
+                c.Z = repmat(c.Z,[nrow,1]);
+                n.X = repmat(n.X,[nrow,1]);
+                n.Y = repmat(n.Y,[nrow,1]);
+                n.Z = repmat(n.Z,[nrow,1]);
+                N1.X = repmat(N1.X,[nrow,1]);
+                N1.Y = repmat(N1.Y,[nrow,1]);
+                N1.Z = repmat(N1.Z,[nrow,1]);
+                N2.X = repmat(N2.X,[nrow,1]);
+                N2.Y = repmat(N2.Y,[nrow,1]);
+                N2.Z = repmat(N2.Z,[nrow,1]);
+                N3.X = repmat(N3.X,[nrow,1]);
+                N3.Y = repmat(N3.Y,[nrow,1]);
+                N3.Z = repmat(N3.Z,[nrow,1]);
+    
+                n12.X = (N1.X+N2.X)./2;
+                n12.Y = (N1.Y+N2.Y)./2;
+                n12.Z = (N1.Z+N2.Z)./2;
+    
+                pjk.X = POI.X-c.X;
+                pjk.Y = POI.Y-c.Y;
+                pjk.Z = POI.Z-c.Z;
+    
+                %1回目
+                a.X = POI.X-N1.X;
+                a.Y = POI.Y-N1.Y;
+                a.Z = POI.Z-N1.Z;
+                b.X = POI.X-N2.X;
+                b.Y = POI.Y-N2.Y;
+                b.Z = POI.Z-N2.Z;
+                s.X = N2.X-N1.X;
+                s.Y = N2.Y-N1.Y;
+                s.Z = N2.Z-N1.Z;
+                phiV = atan2(obj.matrix_dot(s,obj.getUnitVector(c,n12)).*obj.matrix_dot(pjk,n).*(obj.matrix_norm(b).*(obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-obj.matrix_norm(a).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))),((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s)))).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))+obj.matrix_dot(pjk,n).^2.*obj.matrix_norm(a).*obj.matrix_norm(b).*(obj.matrix_dot(s,obj.getUnitVector(c,n12))).^2));
+                srcV = (obj.matrix_dot(n,obj.matrix_cross(s,a))).*(1./obj.matrix_norm(s).*log(((obj.matrix_norm(a)+obj.matrix_norm(b)+obj.matrix_norm(s))./(obj.matrix_norm(a)+obj.matrix_norm(b)-obj.matrix_norm(s)))))-(obj.matrix_dot(pjk,n)).*phiV;
+                VortexAr = phiV;
+                VortexBr = srcV;
+                %2回目
+                a.X = POI.X-N2.X;
+                a.Y = POI.Y-N2.Y;
+                a.Z = POI.Z-N2.Z;
+                b.X = POI.X-N3.X;
+                b.Y = POI.Y-N3.Y;
+                b.Z = POI.Z-N3.Z;
+                s.X = N3.X-N2.X;
+                s.Y = N3.Y-N2.Y;
+                s.Z = N3.Z-N2.Z;
+                phiV = atan2(obj.matrix_dot(s,obj.getUnitVector(c,n12)).*obj.matrix_dot(pjk,n).*(obj.matrix_norm(b).*(obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-obj.matrix_norm(a).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))),((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s)))).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))+obj.matrix_dot(pjk,n).^2.*obj.matrix_norm(a).*obj.matrix_norm(b).*(obj.matrix_dot(s,obj.getUnitVector(c,n12))).^2));
+                srcV = (obj.matrix_dot(n,obj.matrix_cross(s,a))).*(1./obj.matrix_norm(s).*log(((obj.matrix_norm(a)+obj.matrix_norm(b)+obj.matrix_norm(s))./(obj.matrix_norm(a)+obj.matrix_norm(b)-obj.matrix_norm(s)))))-(obj.matrix_dot(pjk,n)).*phiV;
+                VortexAr = VortexAr+phiV;
+                VortexBr = VortexBr+srcV;
+                %3回目
+                a.X = POI.X-N3.X;
+                a.Y = POI.Y-N3.Y;
+                a.Z = POI.Z-N3.Z;
+                b.X = POI.X-N1.X;
+                b.Y = POI.Y-N1.Y;
+                b.Z = POI.Z-N1.Z;
+                s.X = N1.X-N3.X;
+                s.Y = N1.Y-N3.Y;
+                s.Z = N1.Z-N3.Z; 
+                phiV = atan2(obj.matrix_dot(s,obj.getUnitVector(c,n12)).*obj.matrix_dot(pjk,n).*(obj.matrix_norm(b).*(obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-obj.matrix_norm(a).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))),((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s)))).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))+obj.matrix_dot(pjk,n).^2.*obj.matrix_norm(a).*obj.matrix_norm(b).*(obj.matrix_dot(s,obj.getUnitVector(c,n12))).^2));
+                srcV = (obj.matrix_dot(n,obj.matrix_cross(s,a))).*(1./obj.matrix_norm(s).*log(((obj.matrix_norm(a)+obj.matrix_norm(b)+obj.matrix_norm(s))./(obj.matrix_norm(a)+obj.matrix_norm(b)-obj.matrix_norm(s)))))-(obj.matrix_dot(pjk,n)).*phiV;
+                VortexAr = VortexAr+phiV;
+                VortexBr = VortexBr+srcV;
+    
+                %半裁の考慮
+                if obj.halfmesh == 1
+                    POI.Y = -POI.Y;
+                    pjk.X = POI.X-c.X;
+                    pjk.Y = POI.Y-c.Y;
+                    pjk.Z = POI.Z-c.Z;
+                    %1回目
+                    a.X = POI.X-N1.X;
+                    a.Y = POI.Y-N1.Y;
+                    a.Z = POI.Z-N1.Z;
+                    b.X = POI.X-N2.X;
+                    b.Y = POI.Y-N2.Y;
+                    b.Z = POI.Z-N2.Z;
+                    s.X = N2.X-N1.X;
+                    s.Y = N2.Y-N1.Y;
+                    s.Z = N2.Z-N1.Z;
+                    phiV = atan2(obj.matrix_dot(s,obj.getUnitVector(c,n12)).*obj.matrix_dot(pjk,n).*(obj.matrix_norm(b).*(obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-obj.matrix_norm(a).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))),((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s)))).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))+obj.matrix_dot(pjk,n).^2.*obj.matrix_norm(a).*obj.matrix_norm(b).*(obj.matrix_dot(s,obj.getUnitVector(c,n12))).^2));
+                    srcV = (obj.matrix_dot(n,obj.matrix_cross(s,a))).*(1./obj.matrix_norm(s).*log(((obj.matrix_norm(a)+obj.matrix_norm(b)+obj.matrix_norm(s))./(obj.matrix_norm(a)+obj.matrix_norm(b)-obj.matrix_norm(s)))))-(obj.matrix_dot(pjk,n)).*phiV;
+                    VortexAr = VortexAr+phiV;
+                    VortexBr = VortexBr+srcV;
+                    %2回目
+                    a.X = POI.X-N2.X;
+                    a.Y = POI.Y-N2.Y;
+                    a.Z = POI.Z-N2.Z;
+                    b.X = POI.X-N3.X;
+                    b.Y = POI.Y-N3.Y;
+                    b.Z = POI.Z-N3.Z;
+                    s.X = N3.X-N2.X;
+                    s.Y = N3.Y-N2.Y;
+                    s.Z = N3.Z-N2.Z;
+                    phiV = atan2(obj.matrix_dot(s,obj.getUnitVector(c,n12)).*obj.matrix_dot(pjk,n).*(obj.matrix_norm(b).*(obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-obj.matrix_norm(a).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))),((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s)))).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))+obj.matrix_dot(pjk,n).^2.*obj.matrix_norm(a).*obj.matrix_norm(b).*(obj.matrix_dot(s,obj.getUnitVector(c,n12))).^2));
+                    srcV = (obj.matrix_dot(n,obj.matrix_cross(s,a))).*(1./obj.matrix_norm(s).*log(((obj.matrix_norm(a)+obj.matrix_norm(b)+obj.matrix_norm(s))./(obj.matrix_norm(a)+obj.matrix_norm(b)-obj.matrix_norm(s)))))-(obj.matrix_dot(pjk,n)).*phiV;
+                    VortexAr = VortexAr+phiV;
+                    VortexBr = VortexBr+srcV;
+                    %3回目
+                    a.X = POI.X-N3.X;
+                    a.Y = POI.Y-N3.Y;
+                    a.Z = POI.Z-N3.Z;
+                    b.X = POI.X-N1.X;
+                    b.Y = POI.Y-N1.Y;
+                    b.Z = POI.Z-N1.Z;
+                    s.X = N1.X-N3.X;
+                    s.Y = N1.Y-N3.Y;
+                    s.Z = N1.Z-N3.Z; 
+                    phiV = atan2(obj.matrix_dot(s,obj.getUnitVector(c,n12)).*obj.matrix_dot(pjk,n).*(obj.matrix_norm(b).*(obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-obj.matrix_norm(a).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))),((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s)))).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))+obj.matrix_dot(pjk,n).^2.*obj.matrix_norm(a).*obj.matrix_norm(b).*(obj.matrix_dot(s,obj.getUnitVector(c,n12))).^2));
+                    srcV = (obj.matrix_dot(n,obj.matrix_cross(s,a))).*(1./obj.matrix_norm(s).*log(((obj.matrix_norm(a)+obj.matrix_norm(b)+obj.matrix_norm(s))./(obj.matrix_norm(a)+obj.matrix_norm(b)-obj.matrix_norm(s)))))-(obj.matrix_dot(pjk,n)).*phiV;
+                    VortexAr = VortexAr+phiV;
+                    VortexBr = VortexBr+srcV;
+                end
+                clear POI c n N1 N2 N3
+            end
+            
+
+            %上で計算したところはコピーする
+            
+            if not(isempty(colIndex))
+   
+                POI.X(:,1) = center(:,1);
+                POI.Y(:,1) = center(:,2);
+                POI.Z(:,1) = center(:,3);
+                
+                c.X(1,:) = center(colIndex,1)';
+                c.Y(1,:) = center(colIndex,2)';
+                c.Z(1,:) = center(colIndex,3)';
+                n.X(1,:) = normal(colIndex,1)';
+                n.Y(1,:) = normal(colIndex,2)';
+                n.Z(1,:) = normal(colIndex,3)';
+                N1.X(1,:) = verts(con(colIndex,1),1)';
+                N1.Y(1,:) = verts(con(colIndex,1),2)';
+                N1.Z(1,:) = verts(con(colIndex,1),3)';
+                N2.X(1,:) = verts(con(colIndex,2),1)';
+                N2.Y(1,:) = verts(con(colIndex,2),2)';
+                N2.Z(1,:) = verts(con(colIndex,2),3)';
+                N3.X(1,:) = verts(con(colIndex,3),1)';
+                N3.Y(1,:) = verts(con(colIndex,3),2)';
+                N3.Z(1,:) = verts(con(colIndex,3),3)';
+                POI.X = repmat(POI.X,[1,ncol]);
+                POI.Y = repmat(POI.Y,[1,ncol]);
+                POI.Z = repmat(POI.Z,[1,ncol]);
+    
+                c.X = repmat(c.X,[nbPanel,1]);
+                c.Y = repmat(c.Y,[nbPanel,1]);
+                c.Z = repmat(c.Z,[nbPanel,1]);
+                n.X = repmat(n.X,[nbPanel,1]);
+                n.Y = repmat(n.Y,[nbPanel,1]);
+                n.Z = repmat(n.Z,[nbPanel,1]);
+                N1.X = repmat(N1.X,[nbPanel,1]);
+                N1.Y = repmat(N1.Y,[nbPanel,1]);
+                N1.Z = repmat(N1.Z,[nbPanel,1]);
+                N2.X = repmat(N2.X,[nbPanel,1]);
+                N2.Y = repmat(N2.Y,[nbPanel,1]);
+                N2.Z = repmat(N2.Z,[nbPanel,1]);
+                N3.X = repmat(N3.X,[nbPanel,1]);
+                N3.Y = repmat(N3.Y,[nbPanel,1]);
+                N3.Z = repmat(N3.Z,[nbPanel,1]);
+    
+                n12.X = (N1.X+N2.X)./2;
+                n12.Y = (N1.Y+N2.Y)./2;
+                n12.Z = (N1.Z+N2.Z)./2;
+    
+                pjk.X = POI.X-c.X;
+                pjk.Y = POI.Y-c.Y;
+                pjk.Z = POI.Z-c.Z;
+    
+                %1回目
+                a.X = POI.X-N1.X;
+                a.Y = POI.Y-N1.Y;
+                a.Z = POI.Z-N1.Z;
+                b.X = POI.X-N2.X;
+                b.Y = POI.Y-N2.Y;
+                b.Z = POI.Z-N2.Z;
+                s.X = N2.X-N1.X;
+                s.Y = N2.Y-N1.Y;
+                s.Z = N2.Z-N1.Z;
+                phiV = atan2(obj.matrix_dot(s,obj.getUnitVector(c,n12)).*obj.matrix_dot(pjk,n).*(obj.matrix_norm(b).*(obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-obj.matrix_norm(a).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))),((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s)))).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))+obj.matrix_dot(pjk,n).^2.*obj.matrix_norm(a).*obj.matrix_norm(b).*(obj.matrix_dot(s,obj.getUnitVector(c,n12))).^2));
+                srcV = (obj.matrix_dot(n,obj.matrix_cross(s,a))).*(1./obj.matrix_norm(s).*log(((obj.matrix_norm(a)+obj.matrix_norm(b)+obj.matrix_norm(s))./(obj.matrix_norm(a)+obj.matrix_norm(b)-obj.matrix_norm(s)))))-(obj.matrix_dot(pjk,n)).*phiV;
+                VortexAc = phiV;
+                VortexBc = srcV;
+                %2回目
+                a.X = POI.X-N2.X;
+                a.Y = POI.Y-N2.Y;
+                a.Z = POI.Z-N2.Z;
+                b.X = POI.X-N3.X;
+                b.Y = POI.Y-N3.Y;
+                b.Z = POI.Z-N3.Z;
+                s.X = N3.X-N2.X;
+                s.Y = N3.Y-N2.Y;
+                s.Z = N3.Z-N2.Z;
+                phiV = atan2(obj.matrix_dot(s,obj.getUnitVector(c,n12)).*obj.matrix_dot(pjk,n).*(obj.matrix_norm(b).*(obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-obj.matrix_norm(a).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))),((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s)))).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))+obj.matrix_dot(pjk,n).^2.*obj.matrix_norm(a).*obj.matrix_norm(b).*(obj.matrix_dot(s,obj.getUnitVector(c,n12))).^2));
+                srcV = (obj.matrix_dot(n,obj.matrix_cross(s,a))).*(1./obj.matrix_norm(s).*log(((obj.matrix_norm(a)+obj.matrix_norm(b)+obj.matrix_norm(s))./(obj.matrix_norm(a)+obj.matrix_norm(b)-obj.matrix_norm(s)))))-(obj.matrix_dot(pjk,n)).*phiV;
+                VortexAc = VortexAc+phiV;
+                VortexBc = VortexBc+srcV;
+                %3回目
+                a.X = POI.X-N3.X;
+                a.Y = POI.Y-N3.Y;
+                a.Z = POI.Z-N3.Z;
+                b.X = POI.X-N1.X;
+                b.Y = POI.Y-N1.Y;
+                b.Z = POI.Z-N1.Z;
+                s.X = N1.X-N3.X;
+                s.Y = N1.Y-N3.Y;
+                s.Z = N1.Z-N3.Z; 
+                phiV = atan2(obj.matrix_dot(s,obj.getUnitVector(c,n12)).*obj.matrix_dot(pjk,n).*(obj.matrix_norm(b).*(obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-obj.matrix_norm(a).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))),((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s)))).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))+obj.matrix_dot(pjk,n).^2.*obj.matrix_norm(a).*obj.matrix_norm(b).*(obj.matrix_dot(s,obj.getUnitVector(c,n12))).^2));
+                srcV = (obj.matrix_dot(n,obj.matrix_cross(s,a))).*(1./obj.matrix_norm(s).*log(((obj.matrix_norm(a)+obj.matrix_norm(b)+obj.matrix_norm(s))./(obj.matrix_norm(a)+obj.matrix_norm(b)-obj.matrix_norm(s)))))-(obj.matrix_dot(pjk,n)).*phiV;
+                VortexAc = VortexAc+phiV;
+                VortexBc = VortexBc+srcV;
+    
+                %半裁の考慮
+                if obj.halfmesh == 1
+                    POI.Y = -POI.Y;
+                    pjk.X = POI.X-c.X;
+                    pjk.Y = POI.Y-c.Y;
+                    pjk.Z = POI.Z-c.Z;
+                    %1回目
+                    a.X = POI.X-N1.X;
+                    a.Y = POI.Y-N1.Y;
+                    a.Z = POI.Z-N1.Z;
+                    b.X = POI.X-N2.X;
+                    b.Y = POI.Y-N2.Y;
+                    b.Z = POI.Z-N2.Z;
+                    s.X = N2.X-N1.X;
+                    s.Y = N2.Y-N1.Y;
+                    s.Z = N2.Z-N1.Z;
+                    phiV = atan2(obj.matrix_dot(s,obj.getUnitVector(c,n12)).*obj.matrix_dot(pjk,n).*(obj.matrix_norm(b).*(obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-obj.matrix_norm(a).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))),((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s)))).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))+obj.matrix_dot(pjk,n).^2.*obj.matrix_norm(a).*obj.matrix_norm(b).*(obj.matrix_dot(s,obj.getUnitVector(c,n12))).^2));
+                    srcV = (obj.matrix_dot(n,obj.matrix_cross(s,a))).*(1./obj.matrix_norm(s).*log(((obj.matrix_norm(a)+obj.matrix_norm(b)+obj.matrix_norm(s))./(obj.matrix_norm(a)+obj.matrix_norm(b)-obj.matrix_norm(s)))))-(obj.matrix_dot(pjk,n)).*phiV;
+                    VortexAc = VortexAc+phiV;
+                    VortexBc = VortexBc+srcV;
+                    %2回目
+                    a.X = POI.X-N2.X;
+                    a.Y = POI.Y-N2.Y;
+                    a.Z = POI.Z-N2.Z;
+                    b.X = POI.X-N3.X;
+                    b.Y = POI.Y-N3.Y;
+                    b.Z = POI.Z-N3.Z;
+                    s.X = N3.X-N2.X;
+                    s.Y = N3.Y-N2.Y;
+                    s.Z = N3.Z-N2.Z;
+                    phiV = atan2(obj.matrix_dot(s,obj.getUnitVector(c,n12)).*obj.matrix_dot(pjk,n).*(obj.matrix_norm(b).*(obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-obj.matrix_norm(a).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))),((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s)))).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))+obj.matrix_dot(pjk,n).^2.*obj.matrix_norm(a).*obj.matrix_norm(b).*(obj.matrix_dot(s,obj.getUnitVector(c,n12))).^2));
+                    srcV = (obj.matrix_dot(n,obj.matrix_cross(s,a))).*(1./obj.matrix_norm(s).*log(((obj.matrix_norm(a)+obj.matrix_norm(b)+obj.matrix_norm(s))./(obj.matrix_norm(a)+obj.matrix_norm(b)-obj.matrix_norm(s)))))-(obj.matrix_dot(pjk,n)).*phiV;
+                    VortexAc = VortexAc+phiV;
+                    VortexBc = VortexBc+srcV;
+                    %3回目
+                    a.X = POI.X-N3.X;
+                    a.Y = POI.Y-N3.Y;
+                    a.Z = POI.Z-N3.Z;
+                    b.X = POI.X-N1.X;
+                    b.Y = POI.Y-N1.Y;
+                    b.Z = POI.Z-N1.Z;
+                    s.X = N1.X-N3.X;
+                    s.Y = N1.Y-N3.Y;
+                    s.Z = N1.Z-N3.Z; 
+                    phiV = atan2(obj.matrix_dot(s,obj.getUnitVector(c,n12)).*obj.matrix_dot(pjk,n).*(obj.matrix_norm(b).*(obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-obj.matrix_norm(a).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))),((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s)))).*((obj.matrix_dot(a,obj.matrix_cross(obj.matrix_cross(obj.getUnitVector(c,n12),n),obj.matrix_cross(a,s))))-(obj.matrix_dot(n,obj.matrix_cross(s,a))).*obj.matrix_dot(s,obj.getUnitVector(c,n12)))+obj.matrix_dot(pjk,n).^2.*obj.matrix_norm(a).*obj.matrix_norm(b).*(obj.matrix_dot(s,obj.getUnitVector(c,n12))).^2));
+                    srcV = (obj.matrix_dot(n,obj.matrix_cross(s,a))).*(1./obj.matrix_norm(s).*log(((obj.matrix_norm(a)+obj.matrix_norm(b)+obj.matrix_norm(s))./(obj.matrix_norm(a)+obj.matrix_norm(b)-obj.matrix_norm(s)))))-(obj.matrix_dot(pjk,n)).*phiV;
+                    VortexAc = VortexAc+phiV;
+                    VortexBc = VortexBc+srcV;
+                end
+            end
+        end
+
         function res = pmsolve(M1,M2,nu,kappa)
             M1nu = sqrt((kappa+1)/(kappa-1))*atan(sqrt((kappa-1)/(kappa+1)*(M1^2-1)))-atan(sqrt(M1^2-1));
             M2nu = M1nu+nu;

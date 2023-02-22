@@ -5,7 +5,7 @@ clear;
 wing = UNLSI(p',con',id',wedata,1);
 wing.checkMesh(sqrt(eps));
 wing = wing.makeCluster(50,50);
-wing = wing.makeEquation(20,5,1);
+wing = wing.makeEquation(20,5,3);
 %%%%%%%%ここまでは一度インスタンスを作成したらスキップできる
 %}
 
@@ -15,5 +15,5 @@ wing = wing.setREFS(72,18,4);
 wing = wing.setRotationCenter([0,0,0]);
 wing = wing.setCf(1,500000,0.2,0.052*(10^-5),0);
 wing = wing.setCf(2,500000,0.2,0.052*(10^-5),0);
-wing = wing.solveFlow(1,10,0);
+wing = wing.solveFlow(1,10,3);
 wing.plotGeometry(1,wing.Cp,[-2,1]);
