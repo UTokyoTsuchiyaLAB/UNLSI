@@ -276,7 +276,7 @@ classdef UNLSI
 
             %%%%%%
             for i= 1:n_devide
-                [VortexAr,VortexBr,VortexAc,VortexBc] = obj.influenceMatrix(obj,si(i):ei(i),si(i):ei(i));
+                [VortexAr,VortexBr,VortexAc,VortexBc] = obj.influenceMatrix(obj,[],si(i):ei(i));
                 obj.LHS(:,si(i):ei(i)) = VortexAc; 
                 obj.RHS(:,si(i):ei(i)) = VortexBc;
             end
@@ -862,7 +862,7 @@ classdef UNLSI
             
 
             %上で計算したところはコピーする
-            
+
             if not(isempty(colIndex))
    
                 POI.X(:,1) = center(:,1);
