@@ -1,8 +1,0 @@
-# VSPGEOM Tag Key File
-C:\Users\Naoto\Dropbox\research\UNLSI\test.vspgeom
-3
-
-# tag#,geom#,surf#,gname,gid,ssname1,ssname2,...,ssid1,ssid2,...
-1,2,0,FuselageGeom,CLCNIRPFYA
-2,0,0,WingGeom,YUEIUZTOGU
-3,1,0,WingGeom,LSAVAESTTT
