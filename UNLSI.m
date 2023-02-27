@@ -15,6 +15,10 @@ classdef UNLSI
         XYZREF %回転中心
         paneltype %各パネルのタイプ 1:body 2:base 3:structure
         IndexPanel2Solver %パネルのインデックス⇒ソルバー上でのインデックス
+        approxMat %ソルバーの近似行列
+        approximated %近似されたモノかどうか
+        wakePanelLength
+        nWake
         normal %各パネルの法線ベクトル
         center %各パネルの中心
         area %各パネルの面積
@@ -136,6 +140,7 @@ classdef UNLSI
                 caxis(colorlim);
             end
             axis equal;xlabel("x");ylabel("y");zlabel("z");
+            drawnow();
 
         end
 
@@ -171,6 +176,16 @@ classdef UNLSI
                     error("some panel areas are too small");
                 end
             end
+        end
+
+        function modifiedVerts = meshDeformation(obj,orgSurf,modSurf)
+            md.x = scatteredInterpolant(orgSurf,modSurf(:,1)-orgSurf(:,1),'linear','linear');
+            md.y = scatteredInterpolant(orgSurf,modSurf(:,2)-orgSurf(:,2),'linear','linear');
+            md.z = scatteredInterpolant(orgSurf,modSurf(:,3)-orgSurf(:,3),'linear','linear');
+            dVerts(:,1) = md.x(obj.tri.Points);
+            dVerts(:,2) = md.y(obj.tri.Points);
+            dVerts(:,3) = md.z(obj.tri.Points);
+            modifiedVerts = obj.tri.Points+dVerts;
         end
 
         function obj = setPanelType(obj,ID,typename)
@@ -250,7 +265,9 @@ classdef UNLSI
             end
             nPanel = numel(obj.paneltype);
             nbPanel = sum(obj.paneltype == 1);
-            
+            obj.approximated = 0;
+            obj.wakePanelLength = wakepanellength;
+            obj.nWake = nwake;
             %パネル微分行列の作成
             obj.mu2v{1} = sparse(nPanel,nbPanel);
             obj.mu2v{2} = sparse(nPanel,nbPanel);
@@ -287,23 +304,95 @@ classdef UNLSI
                 obj.LHS(:,si(i):ei(i)) = VortexAc; 
                 obj.RHS(:,si(i):ei(i)) = VortexBc;
             end
-            eyeR = eye(nbPanel);
-            obj.LHS(eyeR==1) = -2*pi;
-
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
             %wakeパネル⇒機体パネルへの影響
+            %
             for wakeNo = 1:numel(obj.wakeline)
                 for edgeNo = 1:numel(obj.wakeline{wakeNo}.edge)-1
                     interpID(1) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.upperID(edgeNo));
                     interpID(2) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.lowerID(edgeNo));
-                    [influence] = obj.wakeInfluenceMatrix(obj,wakeNo,edgeNo,wakepanellength,nwake);
+                    [influence] = obj.wakeInfluenceMatrix(obj,wakeNo,edgeNo,1:nbPanel,wakepanellength,nwake);
                     obj.LHS(:,interpID(1)) = obj.LHS(:,interpID(1)) - influence;
                     obj.LHS(:,interpID(2)) = obj.LHS(:,interpID(2)) + influence;
                 end
             end
-            
+            %}
         end
         
+        function obj = calcApproximatedEquation(obj)
+            if obj.approximated == 1
+                error("This instance is approximated. Please execute obj.makeEquation()");
+            end
+            nbPanel = sum(obj.paneltype == 1);
+            %接点に繋がるIDを決定
+            vertAttach = obj.tri.vertexAttachments();
+            pert = sqrt(eps);
+            for i = 1:numel(vertAttach)
+                if mod(i,floor(numel(vertAttach)/10))==0 || i == 1
+                    fprintf("%d/%d ",i,numel(vertAttach));
+                end
+                %paneltype == 1以外を削除する
+                vertAttach{i}(obj.paneltype(vertAttach{i}) ~=1) = [];
+                obj.approxMat.calcIndex{i} = sort(obj.IndexPanel2Solver(vertAttach{i}));
+                %このvertsがwakeに含まれているか
+                for j = 1:3
+                    newVerts = obj.tri.Points;
+                    newVerts(i,j) = obj.tri.Points(i,j)+pert;
+                    obj2 = obj.setVerts(newVerts);
+                    [VortexAr,VortexBr,VortexAc,VortexBc] = obj2.influenceMatrix(obj2,obj.approxMat.calcIndex{i},obj.approxMat.calcIndex{i});
+                    %
+                    for wakeNo = 1:numel(obj.wakeline)
+                        for edgeNo = 1:numel(obj.wakeline{wakeNo}.edge)-1
+                            interpID(1) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.upperID(edgeNo));
+                            interpID(2) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.lowerID(edgeNo));
+                            if isempty(intersect(interpID,obj.approxMat.calcIndex{i}))
+                                influence = obj2.wakeInfluenceMatrix(obj2,wakeNo,edgeNo,obj.approxMat.calcIndex{i},obj.wakePanelLength,obj.nWake);
+                                VortexAr(:,interpID(1)) = VortexAr(:,interpID(1)) - influence;
+                                VortexAr(:,interpID(2)) = VortexAr(:,interpID(2)) + influence;
+                            else
+                                influence = obj2.wakeInfluenceMatrix(obj2,wakeNo,edgeNo,1:nbPanel,obj.wakePanelLength,obj.nWake);
+                                VortexAr(:,interpID(1)) = VortexAr(:,interpID(1)) - influence(obj.approxMat.calcIndex{i},:);
+                                VortexAr(:,interpID(2)) = VortexAr(:,interpID(2)) + influence(obj.approxMat.calcIndex{i},:);
+                                if not(isempty(intersect(interpID(1),obj.approxMat.calcIndex{i})))
+                                    [~,b] = find(obj.approxMat.calcIndex{i}==interpID(1));
+                                    VortexAc(:,b) = VortexAc(:,b) - influence;
+                                end
+                                if not(isempty(intersect(interpID(2),obj.approxMat.calcIndex{i})))
+                                    [~,b] = find(obj.approxMat.calcIndex{i}==interpID(2));
+                                    VortexAc(:,b) = VortexAc(:,b) + influence;
+                                end
+                            end
+                        end
+                    end
+                    %}
+                    obj.approxMat.dVAr{i,j} = (VortexAr-obj.LHS(obj.approxMat.calcIndex{i},:))./pert;
+                    obj.approxMat.dVBr{i,j} = (VortexBr-obj.RHS(obj.approxMat.calcIndex{i},:))./pert;
+                    obj.approxMat.dVAc{i,j} = (VortexAc-obj.LHS(:,obj.approxMat.calcIndex{i}))./pert;
+                    obj.approxMat.dVBc{i,j} = (VortexBc-obj.RHS(:,obj.approxMat.calcIndex{i}))./pert;
+                end
+%}
+            end
+            fprintf("\n");
+        end
+
+        function approxmatedObj = makeAproximatedInstance(obj,modifiedVerts)
+                approxmatedObj = obj.setVerts(modifiedVerts);
+                approxmatedObj.approxMat = [];
+                approxmatedObj.approximated = 1;
+                for i = 1:size(modifiedVerts,1)
+                    for j = 1:3
+                        dv = (approxmatedObj.tri.Points(i,j)-obj.tri.Points(i,j));
+                        obj.approxMat.dVAc{i,j}(obj.approxMat.calcIndex{i},:) = 0; 
+                        obj.approxMat.dVBc{i,j}(obj.approxMat.calcIndex{i},:) = 0; 
+                        approxmatedObj.LHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.LHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVAr{i,j}.*dv;
+                        approxmatedObj.RHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.RHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVBr{i,j}.*dv;
+                        approxmatedObj.LHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.LHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVAc{i,j}.*dv;
+                        approxmatedObj.RHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.RHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVBc{i,j}.*dv;
+                    end
+                end
+        end
+
         function obj = flowCondition(obj,flowNo,Mach,newtoniantype)
             %%%%%%%%%%%%%%%%主流の設定%%%%%%%%%%%%%%%%%%%%%%
             %UNLSIでは流れの状態の変化によって不連続的な変化を起こさないよう（設計変数の微分が連続になるよう）考慮されている。
@@ -418,7 +507,7 @@ classdef UNLSI
         function obj = solveFlow(obj,flowNo,alpha,beta,omega)
             %%%%%%%%%%%%%LSIの求解%%%%%%%%%%%%%%%%%%%%%
             %結果はobj.AERODATAに格納される。
-            % Beta Mach AoA Re/1e6 CL CDo CDi CDtot CDt CDtot_t CS L/D E CFx CFy CFz CMx CMy       CMz       CMl       CMm       CMn      FOpt 
+            % 1:Beta 2:Mach 3:AoA 4:Re/1e6 5:CL 6:CDo 7:CDi 8:CDtot 9:CDt 10:CDtot_t 11:CS 12:L/D E CFx CFy CFz CMx CMy       CMz       CMl       CMm       CMn      FOpt 
             %上記で求めていないものは0が代入される
             %flowNo:解きたい流れのID
             %alpha:迎角[deg]
@@ -696,6 +785,7 @@ classdef UNLSI
                     srcV = (obj.matrix_dot(n,obj.matrix_cross(s,a))).*(1./obj.matrix_norm(s).*log(((obj.matrix_norm(a)+obj.matrix_norm(b)+obj.matrix_norm(s))./(obj.matrix_norm(a)+obj.matrix_norm(b)-obj.matrix_norm(s)))))-(obj.matrix_dot(pjk,n)).*phiV;
                     VortexAr = VortexAr+phiV;
                     VortexBr = VortexBr+srcV;
+
                 end
                 clear POI c n N1 N2 N3
             end
@@ -852,9 +942,19 @@ classdef UNLSI
                     VortexBc(rowIndex,:) = VortexBr(:,colIndex);
                 end
             end
+            if not(isempty(rowIndex))
+                for i = 1:numel(rowIndex)
+                    VortexAr(i,rowIndex(i))=-2*pi;
+                end
+            end
+            if not(isempty(colIndex))
+                for i = 1:numel(colIndex)
+                    VortexAc(colIndex(i),i)=-2*pi;
+                end
+            end
         end
 
-        function [VortexA] = wakeInfluenceMatrix(obj,wakeNo,edgeNo,xwake,nwake)
+        function [VortexA] = wakeInfluenceMatrix(obj,wakeNo,edgeNo,rowIndex,xwake,nwake)
             %%%%%%%%%%%%wakeからパネルへの影響関数%%%%%%%%%%%%%%%%%
             %wakeNoとedgeNoを指定して全パネルへの影響を計算
             %
@@ -862,10 +962,12 @@ classdef UNLSI
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
             nbPanel = size(obj.tri.ConnectivityList(obj.paneltype==1,:),1);
-            POI.X = obj.center(obj.paneltype==1,1);
-            POI.Y = obj.center(obj.paneltype==1,2);
-            POI.Z = obj.center(obj.paneltype==1,3);
-            VortexA = zeros(nbPanel,1);
+            center = obj.center(obj.paneltype==1,:);
+            POI.X = center(rowIndex,1);
+            POI.Y = center(rowIndex,2);
+            POI.Z = center(rowIndex,3);
+            nrow = numel(rowIndex);
+            VortexA = zeros(nrow,1);
             for i = 1:nwake
                 wakepos(1,:) = obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo),:)+[xwake*(i-1),0,0];
                 wakepos(2,:) = obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo+1),:)+[xwake*(i-1),0,0];
@@ -876,41 +978,41 @@ classdef UNLSI
                 ulvec = obj.center(obj.wakeline{wakeNo}.lowerID(edgeNo),:)-obj.center(obj.wakeline{wakeNo}.upperID(edgeNo),:);
                 uldist = dot(ulvec,nbuff);
                 if uldist >= 0
-                    Nw1.X = repmat(wakepos(1,1),[nbPanel,1]);
-                    Nw1.Y = repmat(wakepos(1,2),[nbPanel,1]);
-                    Nw1.Z = repmat(wakepos(1,3),[nbPanel,1]);
-                    Nw2.X = repmat(wakepos(2,1),[nbPanel,1]);
-                    Nw2.Y = repmat(wakepos(2,2),[nbPanel,1]);
-                    Nw2.Z = repmat(wakepos(2,3),[nbPanel,1]);
-                    Nw3.X = repmat(wakepos(3,1),[nbPanel,1]);
-                    Nw3.Y = repmat(wakepos(3,2),[nbPanel,1]);
-                    Nw3.Z = repmat(wakepos(3,3),[nbPanel,1]);
-                    Nw4.X = repmat(wakepos(4,1),[nbPanel,1]);
-                    Nw4.Y = repmat(wakepos(4,2),[nbPanel,1]);
-                    Nw4.Z = repmat(wakepos(4,3),[nbPanel,1]);
+                    Nw1.X = repmat(wakepos(1,1),[nrow,1]);
+                    Nw1.Y = repmat(wakepos(1,2),[nrow,1]);
+                    Nw1.Z = repmat(wakepos(1,3),[nrow,1]);
+                    Nw2.X = repmat(wakepos(2,1),[nrow,1]);
+                    Nw2.Y = repmat(wakepos(2,2),[nrow,1]);
+                    Nw2.Z = repmat(wakepos(2,3),[nrow,1]);
+                    Nw3.X = repmat(wakepos(3,1),[nrow,1]);
+                    Nw3.Y = repmat(wakepos(3,2),[nrow,1]);
+                    Nw3.Z = repmat(wakepos(3,3),[nrow,1]);
+                    Nw4.X = repmat(wakepos(4,1),[nrow,1]);
+                    Nw4.Y = repmat(wakepos(4,2),[nrow,1]);
+                    Nw4.Z = repmat(wakepos(4,3),[nrow,1]);
                 else
-                    Nw1.X = repmat(wakepos(2,1),[nbPanel,1]);
-                    Nw1.Y = repmat(wakepos(2,2),[nbPanel,1]);
-                    Nw1.Z = repmat(wakepos(2,3),[nbPanel,1]);
-                    Nw2.X = repmat(wakepos(1,1),[nbPanel,1]);
-                    Nw2.Y = repmat(wakepos(1,2),[nbPanel,1]);
-                    Nw2.Z = repmat(wakepos(1,3),[nbPanel,1]);
-                    Nw3.X = repmat(wakepos(4,1),[nbPanel,1]);
-                    Nw3.Y = repmat(wakepos(4,2),[nbPanel,1]);
-                    Nw3.Z = repmat(wakepos(4,3),[nbPanel,1]);
-                    Nw4.X = repmat(wakepos(3,1),[nbPanel,1]);
-                    Nw4.Y = repmat(wakepos(3,2),[nbPanel,1]);
-                    Nw4.Z = repmat(wakepos(3,3),[nbPanel,1]);
+                    Nw1.X = repmat(wakepos(2,1),[nrow,1]);
+                    Nw1.Y = repmat(wakepos(2,2),[nrow,1]);
+                    Nw1.Z = repmat(wakepos(2,3),[nrow,1]);
+                    Nw2.X = repmat(wakepos(1,1),[nrow,1]);
+                    Nw2.Y = repmat(wakepos(1,2),[nrow,1]);
+                    Nw2.Z = repmat(wakepos(1,3),[nrow,1]);
+                    Nw3.X = repmat(wakepos(4,1),[nrow,1]);
+                    Nw3.Y = repmat(wakepos(4,2),[nrow,1]);
+                    Nw3.Z = repmat(wakepos(4,3),[nrow,1]);
+                    Nw4.X = repmat(wakepos(3,1),[nrow,1]);
+                    Nw4.Y = repmat(wakepos(3,2),[nrow,1]);
+                    Nw4.Z = repmat(wakepos(3,3),[nrow,1]);
                 end
                 [b1, b2, nw] = obj.vertex([Nw1.X(1),Nw1.Y(1),Nw1.Z(1)],[Nw2.X(1),Nw2.Y(1),Nw2.Z(1)],[Nw3.X(1),Nw3.Y(1),Nw3.Z(1)]);
                 cw = mean([[Nw1.X(1),Nw1.Y(1),Nw1.Z(1)];[Nw2.X(1),Nw2.Y(1),Nw2.Z(1)];[Nw3.X(1),Nw3.Y(1),Nw3.Z(1)];[Nw4.X(1),Nw4.Y(1),Nw4.Z(1)]],1);
-                n.X = repmat(nw(1),[nbPanel,1]);
-                n.Y = repmat(nw(2),[nbPanel,1]);
-                n.Z = repmat(nw(3),[nbPanel,1]);
+                n.X = repmat(nw(1),[nrow,1]);
+                n.Y = repmat(nw(2),[nrow,1]);
+                n.Z = repmat(nw(3),[nrow,1]);
                 %Amat = repmat(b1*2,[nbPanel,1]);
-                c.X = repmat(cw(1),[nbPanel,1]);
-                c.Y = repmat(cw(2),[nbPanel,1]);
-                c.Z = repmat(cw(3),[nbPanel,1]);
+                c.X = repmat(cw(1),[nrow,1]);
+                c.Y = repmat(cw(2),[nrow,1]);
+                c.Z = repmat(cw(3),[nrow,1]);
                 n12.X = (Nw3.X+Nw4.X)./2;
                 n12.Y = (Nw3.Y+Nw4.Y)./2;
                 n12.Z = (Nw3.Z+Nw4.Z)./2;

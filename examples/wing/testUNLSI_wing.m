@@ -6,7 +6,7 @@ wing = UNLSI(p',con',id',wedata,1);
 wing.checkMesh(sqrt(eps));
 wing = wing.makeCluster(50,50);
 wing = wing.makeEquation(20,5,3);
-%%%%%%%%ここまでは一度インスタンスを作成したらスキップできる
+%%%%%%%%ここまでは一度計算すればスキップできる
 %}
 
 wing = wing.flowCondition(1,0.0001);
