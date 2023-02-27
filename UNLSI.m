@@ -1,7 +1,8 @@
 classdef UNLSI
 
     %%%%%残タスク
-
+    %solveFlowForAdjointの実装
+    %calcDynCoeffの実装
     %%%%%
 
     properties
@@ -30,6 +31,7 @@ classdef UNLSI
         Cp %圧力係数
         Cfe %表面摩擦係数
         AERODATA %結果の格納
+        DynCoeff %動微係数
     end
 
     methods(Access = public)
@@ -252,16 +254,16 @@ classdef UNLSI
            end
         end
 
-        function obj = makeEquation(obj,wakepanellength,nwake,n_devide)
+        function obj = makeEquation(obj,wakepanellength,nwake,n_divide)
             %%%%%%%%%%%%%パネル法連立方程式行列の作成%%%%%%%%%%%%
             %パネル法の根幹
             %表面微分行列も併せて作成している
             %wakepanellength:各wakeパネルの長さ
             %nwake:wakeパネルの数　つまりwakepanellength*nwakeがwakeの長さ、機体長の100倍以上あれば十分
-            %n_devide:この関数は各パネル数×各パネル数サイズの行列を扱うため、莫大なメモリが必要となる。一度に計算する列をn_devide分割してメモリの消費量を抑えている。
+            %n_divide:この関数は各パネル数×各パネル数サイズの行列を扱うため、莫大なメモリが必要となる。一度に計算する列をn_divide分割してメモリの消費量を抑えている。
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             if nargin == 3
-                n_devide = 1;
+                n_divide = 1;
             end
             nPanel = numel(obj.paneltype);
             nbPanel = sum(obj.paneltype == 1);
@@ -294,12 +296,12 @@ classdef UNLSI
             %パネル方連立方程式行列の作成
             %機体パネル⇒機体パネルへの影響
             
-            si = floor(nbPanel/n_devide).*(0:n_devide-1)+1;
-            ei = [floor(nbPanel/n_devide).*(1:n_devide-1),nbPanel];
+            si = floor(nbPanel/n_divide).*(0:n_divide-1)+1;
+            ei = [floor(nbPanel/n_divide).*(1:n_divide-1),nbPanel];
             obj.LHS = zeros(nbPanel);
             obj.RHS = zeros(nbPanel);
 
-            for i= 1:n_devide
+            for i= 1:n_divide
                 [~,~,VortexAc,VortexBc] = obj.influenceMatrix(obj,[],si(i):ei(i));
                 obj.LHS(:,si(i):ei(i)) = VortexAc; 
                 obj.RHS(:,si(i):ei(i)) = VortexBc;
@@ -620,6 +622,14 @@ classdef UNLSI
             end
             obj.AERODATA = [beta,obj.flow{flowNo}.Mach,alpha,0,CL,CDo,CDi,CDtot,0,0,CY,CL/CDtot,0,CAp+CAf,CYp+CYf,CNp+CNf,CMX,CMY,CMZ,0,0,0,0];
             disp([CL,CDo,CDi,CDtot,CMY]);
+        end
+        
+        function solveFlowForAdjoint()
+            disp("Hello world!")
+        end
+        
+        function calcDynCoeff()
+            disp("Hello world!")
         end
     end
 
