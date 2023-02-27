@@ -628,8 +628,53 @@ classdef UNLSI
             disp("Hello world!")
         end
         
-        function calcDynCoeff()
-            disp("Hello world!")
+        function obj = calcDynCoeff(obj,flowNo,alpha,beta,coordinate,difference)
+            %%%動微係数の計算%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            %結果はDyncoeffに格納される
+            %[1:Clp, 2:Cmq, 3:Cnr]
+            %flowNo:解きたい流れのID
+            %alpha:迎角[deg]
+            %beta:横滑り角[deg]
+            %coordinate:座標系 "CFD"(デフォルト)-x:機体後方 y:右翼 z:上向き "sim"-x:機体前方 y:右翼 z:下向き
+            %difference:有限差分の方法 "forward"(デフォルト)-前進差分 "central"-中心差分
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            if ~exist("coordinate","var") coordinate = "CFD"; end
+            if ~exist("difference","var") difference = "forward"; end
+            
+            obj = obj.solveFlow(obj,flowNo,alpha,beta);
+            obj.DynCoeff = zeros(1,3);
+            %有限差分による計算
+            ind = [14,15,16]:%AERODATA = [14:CMX, 15:CMY, 16: CMZ]
+            if strcmp(difference,"forward")
+                dw = sqrt(eps);
+                for i = 1:3%p,q,rについて差分をとる
+                    omega = zeros(1,3);
+                    omega(i) = dw;
+                    delta = obj.solveFlow(flowNo,alpha,beta,omega);
+                    tmp = (delta.AERODATA - obj.AERODATA)./dw;
+                    obj.DynCoeff(i) = tmp(ind(i));
+                end
+            elseif strcmp(difference,"central")
+                dw = eps^(1/3);
+                for i = 1:3
+                    omega = zeros(1,3);
+                    omega(i) = dw;
+                    delta1 = obj.solveFlow(obj,flowNo,alpha,beta,omega);
+                    delta2 = obj.solveFlow(obj,flowNo,alpha,beta,-omega);
+                    tmp = (delta1.AERODATA - delta2.AERODATA)./(2*dw);
+                    obj.DynCoeff(i) = tmp(ind(i));
+                end
+            else 
+                error("Supported difference methods are ""foraward"" and ""central"".")
+            end
+            
+            %simの場合は符号を修正
+            if strcmp(coordinate,"sim")
+                obj.DynCoeff = [Clp,Cmq,Cnr];
+            elseif ~strcmp(coordinate,"CFD")
+                error("Supported coordinates are ""CFD"" and ""sim"".")
+            end
+            
         end
     end
 
