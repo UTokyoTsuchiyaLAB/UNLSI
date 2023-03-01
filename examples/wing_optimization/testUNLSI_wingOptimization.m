@@ -1,11 +1,11 @@
-%{
+%
 %%%%%%%%ここから
 clear;
 %orgVal = [4.0000    9.0000         0    1.0000         0         0    0.1200];
 orgVal = modifyDesFile("org.des","org.des");
 nextVal = orgVal;
-lb = [3, 8, 0,0.5,-5,-0.02,0.10];
-ub = [5,10,30,  1, 5, 0.02,0.14];
+ub = [  1,   1,   1,   1,   1];
+lb = [0.5, 0.5, 0.5, 0.5, 0.5];
 unmeshtest = UNMESH(lb,ub);
 %}
 for i  = 1:10
@@ -27,7 +27,7 @@ for i  = 1:10
     wing = wing.makeCluster(50,50);
     wing = wing.makeEquation(20,5,3);
     wing = wing.flowCondition(1,0.0001);
-    wing = wing.setREFS(72,18,4);
+    wing = wing.setREFS(80,20,4);
     wing = wing.setRotationCenter([0,0,0]);
     wing = wing.setCf(1,500000,0.2,0.052*(10^-5),0);
     wing = wing.solveFlow(1,10,0);
@@ -36,7 +36,7 @@ for i  = 1:10
     wing = wing.calcApproximatedEquation();
     %}
     unmeshtest = unmeshtest.makeMeshGradient(@(x)vspSurfGen(x,"wing","org.des"));
-    unmeshtest = unmeshtest.calcObjandConsGradients(@(x)objFun(x,unmeshtest,wing),0.55,0.6);
+    unmeshtest = unmeshtest.calcObjandConsGradients(@(x)objFun(x,unmeshtest,wing),0.69,0.71);
     [dx,unmeshtest] = unmeshtest.updateVariables();
     
     nextVal = nextVal + dx;
