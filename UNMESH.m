@@ -8,10 +8,15 @@ classdef UNMESH
         ub
         designScale
         gradSurf
+        solver
     end
 
     methods(Access = public)
         function obj = UNMESH(orgVerts,orgCon,orgSurfVerts,orgSurfCon,designVariables,lb,ub)
+            %%%%%%%%%%%%UNMESH インスタンス%%%%%%%%%%%%%%%
+
+
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             obj.orgMesh = triangulation(orgCon,orgVerts);
             obj.orgSurf =  triangulation(orgSurfCon,orgSurfVerts);
             obj.lb = lb(:)';
@@ -25,6 +30,11 @@ classdef UNMESH
         end
 
         function [modVerts,con] = meshDeformation(obj,modSurfVerts,modSurfCon)
+            %%%%%%%%%%%%非構造メッシュのメッシュ変形%%%%%%%
+
+
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
             if nargin == 3
                 %connectivityが一致しているか確認
                 if any(obj.orgSurf.ConnectivityList(:) == modSurfCon(:))
@@ -43,7 +53,10 @@ classdef UNMESH
         end
         
         function obj = makeMeshGradient(obj,surfGenFun)
-            %設計変数勾配による表面近似
+            %%%%%%%%%%%設計変数勾配による標本表面の近似関数の作成%%%%%
+
+
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             pert = 0.001./obj.designScale;
             ndim = numel(obj.designVariables);
             for i = 1:ndim
@@ -62,31 +75,96 @@ classdef UNMESH
         end
 
         function modSurf = makeSurffromVariables(obj,x)
-            %スケーリングされてない
+           %%%%%%%%%%%%設計変数を変更した場合の標本近似表面の節点値の計算
+
+
+           %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             scaledVar = (x(:)'- obj.lb) ./ obj.designScale; 
             modSurf = obj.orgSurf.Points + reshape(obj.gradSurf*(scaledVar(:)-obj.designVariables(:)),size(obj.orgSurf.Points));
         end
 
-        function [obj0, dobj_dx, con0, dcons_dx] = calcObjandConsGradients(obj,objandConsFun)
-            
-            [obj0,con0] = objandConsFun(obj.designVariables.*obj.designScale+obj.lb);
-            dobj_dx = zeros(1,numel(obj.designVariables));
-            if not(isempty(con0))
-                dcons_dx = zeros(numel(cons),numel(obj.designVariables));
+        function obj = calcObjandConsGradients(obj,objandConsFun,cmin,cmax)
+            %%%%%%%%%%%%指定した評価関数と制約条件における設計変数勾配の計算%%%%%%%%
+
+
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            [obj.solver.obj0,obj.solver.con0] = objandConsFun(obj.designVariables.*obj.designScale+obj.lb);
+            obj.solver.dobj_dx = zeros(1,numel(obj.designVariables));
+            if not(isempty(obj.solver.con0))
+                obj.solver.dcons_dx = zeros(numel(obj.solver.con0),numel(obj.designVariables));
+                obj.solver.cmin = cmin(:);
+                obj.solver.cmax = cmax(:);
             else
-                dcons_dx = [];
+                obj.solver.dcons_dx = [];
             end
             pert = sqrt(eps);
             for i = 1:numel(obj.designVariables)
                 sampleDes = obj.designVariables.*obj.designScale+obj.lb;
                 sampleDes(i) = (obj.designVariables(i) + pert).*obj.designScale(i)+obj.lb(i);
                 [objf,conf] = objandConsFun(sampleDes);
-                dobj_dx(i) = (objf-obj0)/pert;
-                if not(isempty(con0))
-                    dcons_dx(:,i) = (conf-con0)/pert;
+                obj.solver.dobj_dx(i) = (objf-obj.solver.obj0)/pert;
+                if not(isempty(obj.solver.con0))
+                    obj.solver.dcons_dx(:,i) = (conf-obj.solver.con0)/pert;
                 end
             end
         end
+
+        function dx = updateVariables(obj)
+            %%%%%%%%%設計変数の更新%%%%%%%%%%%%%
+
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            %sqp-trust region
+            ndim = numel(obj.designVariables);
+            if nargin == 1
+                obj.solver.hessian = eye(ndim);
+                obj.solver.trustregion = 0.1;
+            end
+            lbfmin = -obj.designVariables;
+            ubfmin = 1-obj.designVariables;
+            if isempty(obj.solver.con0)
+                dx = fmincon(@(dx)obj.fminconObj(dx,obj),zeros(1,ndim),[],[],[],[],lbfmin,ubfmin,@(dx)obj.fminconNlc(dx,obj));
+            else
+                alin = [-obj.solver.dcons_dx;obj.solver.dcons_dx];
+                blin = [obj.solver.con0-obj.solver.cmin;obj.solver.cmax-obj.solver.con0];
+                dx = fmincon(@(dx)obj.fminconObj(dx,obj),zeros(1,ndim),alin,blin,[],[],lbfmin,ubfmin,@(dx)obj.fminconNlc(dx,obj));
+            end
+
+            dx = dx.*obj.designScale;
+        end
+        
+    end
+
+    methods(Static)
+        function res = fminconObj(dx,obj)
+            %res = 0.5 * dx(:)'*obj.solver.hessian*dx(:) + obj.solver.obj0 + obj.solver.dobj_dx*dx(:);
+            res = obj.solver.obj0 + obj.solver.dobj_dx*dx(:);
+        end
+
+        function [c,ceq] = fminconNlc(dx,obj)
+            ceq = [];
+            c = sum(dx.^2)-(obj.solver.trustregion)^2;
+        end
+
+
+        function Bkp1 = BFGS(s,y,Bk)
+            %%%%%%%%%%%%%%%%%BFGS%%%%
+            %準ニュートン法のBFGSアップデートの手実装
+            %s 設計変数の変化量
+            %y ヤコビアン
+            %%%%%%%%%%%%%%%%%%%%%%%%
+            s = s(:);
+            y=y(:);
+            if s'*y<=0
+                Bkp1 = Bk;
+            else
+                Bkp1 = Bk-(Bk*s*(Bk*s)')/(s.'*Bk*s)+(y*y.')/(s.'*y);
+                coeB=(s'*y)/(s'*Bkp1*s);
+                if coeB>0 && coeB<1
+                    Bkp1=coeB.*Bkp1;
+                end
+            end
+        end
+
     end
 
 end

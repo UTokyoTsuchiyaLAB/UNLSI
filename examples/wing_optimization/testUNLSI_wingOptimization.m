@@ -1,11 +1,14 @@
 %
 %%%%%%%%ここから
 clear;
-orgVal = [4.0000    9.0000         0    1.0000         0         0    0.1200];
-%orgVal = modifyDesFile("org.des","org.des");
+%orgVal = [4.0000    9.0000         0    1.0000         0         0    0.1200];
+orgVal = modifyDesFile("org.des","org.des");
+nextVal = orgVal;
 for i  = 1:5
-    orgVal = modifyDesFile("org.des","org.des",orgVal);
-    disp(orgVal)
+    pause(1);
+    modifyDesFile("org.des","org.des",nextVal);
+    pause(1);
+    disp(nextVal);
     %
     CommandVSP = strcat("vsp wing.vsp3 -script makeOrgSurfandMesh.vspscript"); %手順2のコマンド環境に合わせて各自書き換え
     [~,~] = system(CommandVSP);
@@ -24,9 +27,10 @@ for i  = 1:5
     wing = wing.makeEquation(20,5,3);
     wing = wing.calcApproximatedEquation();
     %}
-    [obj0, dobj_dx, con0, dcons_dx] = unmeshtest.calcObjandConsGradients(@(x)objFun(x,unmeshtest,wing));
+    unmeshtest = unmeshtest.calcObjandConsGradients(@(x)objFun(x,unmeshtest,wing),0.55,0.6);
+    dx = unmeshtest.updateVariables();
     
-    orgVal = orgVal - dobj_dx.*0.01;
+    nextVal = nextVal + dx;
     wing = wing.flowCondition(1,0.0001);
     wing = wing.setREFS(72,18,4);
     wing = wing.setRotationCenter([0,0,0]);

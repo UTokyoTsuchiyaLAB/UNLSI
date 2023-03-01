@@ -644,7 +644,7 @@ classdef UNLSI
             obj = obj.solveFlow(obj,flowNo,alpha,beta);
             obj.DynCoeff = zeros(1,3);
             %有限差分による計算
-            ind = [14,15,16]:%AERODATA = [14:CMX, 15:CMY, 16: CMZ]
+            ind = [14,15,16];%AERODATA = [14:CMX, 15:CMY, 16: CMZ]
             if strcmp(difference,"forward")
                 dw = sqrt(eps);
                 for i = 1:3%p,q,rについて差分をとる
