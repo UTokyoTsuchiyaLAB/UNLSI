@@ -1,7 +1,8 @@
 classdef UNLSI
 
     %%%%%残タスク
-
+    %solveFlowForAdjointの実装
+    %calcDynCoeffの実装
     %%%%%
 
     properties
@@ -30,6 +31,7 @@ classdef UNLSI
         Cp %圧力係数
         Cfe %表面摩擦係数
         AERODATA %結果の格納
+        DynCoeff %動微係数
     end
 
     methods(Access = public)
@@ -252,16 +254,16 @@ classdef UNLSI
            end
         end
 
-        function obj = makeEquation(obj,wakepanellength,nwake,n_devide)
+        function obj = makeEquation(obj,wakepanellength,nwake,n_divide)
             %%%%%%%%%%%%%パネル法連立方程式行列の作成%%%%%%%%%%%%
             %パネル法の根幹
             %表面微分行列も併せて作成している
             %wakepanellength:各wakeパネルの長さ
             %nwake:wakeパネルの数　つまりwakepanellength*nwakeがwakeの長さ、機体長の100倍以上あれば十分
-            %n_devide:この関数は各パネル数×各パネル数サイズの行列を扱うため、莫大なメモリが必要となる。一度に計算する列をn_devide分割してメモリの消費量を抑えている。
+            %n_divide:この関数は各パネル数×各パネル数サイズの行列を扱うため、莫大なメモリが必要となる。一度に計算する列をn_divide分割してメモリの消費量を抑えている。
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             if nargin == 3
-                n_devide = 1;
+                n_divide = 1;
             end
             nPanel = numel(obj.paneltype);
             nbPanel = sum(obj.paneltype == 1);
@@ -294,12 +296,12 @@ classdef UNLSI
             %パネル方連立方程式行列の作成
             %機体パネル⇒機体パネルへの影響
             
-            si = floor(nbPanel/n_devide).*(0:n_devide-1)+1;
-            ei = [floor(nbPanel/n_devide).*(1:n_devide-1),nbPanel];
+            si = floor(nbPanel/n_divide).*(0:n_divide-1)+1;
+            ei = [floor(nbPanel/n_divide).*(1:n_divide-1),nbPanel];
             obj.LHS = zeros(nbPanel);
             obj.RHS = zeros(nbPanel);
 
-            for i= 1:n_devide
+            for i= 1:n_divide
                 [~,~,VortexAc,VortexBc] = obj.influenceMatrix(obj,[],si(i):ei(i));
                 obj.LHS(:,si(i):ei(i)) = VortexAc; 
                 obj.RHS(:,si(i):ei(i)) = VortexBc;
@@ -620,6 +622,59 @@ classdef UNLSI
             end
             obj.AERODATA = [beta,obj.flow{flowNo}.Mach,alpha,0,CL,CDo,CDi,CDtot,0,0,CY,CL/CDtot,0,CAp+CAf,CYp+CYf,CNp+CNf,CMX,CMY,CMZ,0,0,0,0];
             disp([CL,CDo,CDi,CDtot,CMY]);
+        end
+        
+        function solveFlowForAdjoint()
+            disp("Hello world!")
+        end
+        
+        function obj = calcDynCoeff(obj,flowNo,alpha,beta,coordinate,difference)
+            %%%動微係数の計算%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            %結果はDyncoeffに格納される
+            %[1:Clp, 2:Cmq, 3:Cnr]
+            %flowNo:解きたい流れのID
+            %alpha:迎角[deg]
+            %beta:横滑り角[deg]
+            %coordinate:座標系 "CFD"(デフォルト)-x:機体後方 y:右翼 z:上向き "sim"-x:機体前方 y:右翼 z:下向き
+            %difference:有限差分の方法 "forward"(デフォルト)-前進差分 "central"-中心差分
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            if ~exist("coordinate","var") coordinate = "CFD"; end
+            if ~exist("difference","var") difference = "forward"; end
+            
+            obj = obj.solveFlow(obj,flowNo,alpha,beta);
+            obj.DynCoeff = zeros(1,3);
+            %有限差分による計算
+            ind = [14,15,16]:%AERODATA = [14:CMX, 15:CMY, 16: CMZ]
+            if strcmp(difference,"forward")
+                dw = sqrt(eps);
+                for i = 1:3%p,q,rについて差分をとる
+                    omega = zeros(1,3);
+                    omega(i) = dw;
+                    delta = obj.solveFlow(flowNo,alpha,beta,omega);
+                    tmp = (delta.AERODATA - obj.AERODATA)./dw;
+                    obj.DynCoeff(i) = tmp(ind(i));
+                end
+            elseif strcmp(difference,"central")
+                dw = eps^(1/3);
+                for i = 1:3
+                    omega = zeros(1,3);
+                    omega(i) = dw;
+                    delta1 = obj.solveFlow(obj,flowNo,alpha,beta,omega);
+                    delta2 = obj.solveFlow(obj,flowNo,alpha,beta,-omega);
+                    tmp = (delta1.AERODATA - delta2.AERODATA)./(2*dw);
+                    obj.DynCoeff(i) = tmp(ind(i));
+                end
+            else 
+                error("Supported difference methods are ""foraward"" and ""central"".")
+            end
+            
+            %simの場合は符号を修正
+            if strcmp(coordinate,"sim")
+                obj.DynCoeff = [Clp,Cmq,Cnr];
+            elseif ~strcmp(coordinate,"CFD")
+                error("Supported coordinates are ""CFD"" and ""sim"".")
+            end
+            
         end
     end
 
