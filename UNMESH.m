@@ -12,23 +12,26 @@ classdef UNMESH
     end
 
     methods(Access = public)
-        function obj = UNMESH(orgVerts,orgCon,orgSurfVerts,orgSurfCon,designVariables,lb,ub)
+        function obj = UNMESH(lb,ub)
+            %%%%%%%%%%%%UNMESH インスタンス%%%%%%%%%%%%%%%
+
+
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            obj.lb = lb(:)';
+            obj.ub = ub(:)';
+            obj.designScale = (ub-lb);
+        end
+
+        function obj = updateMesh(obj,orgVerts,orgCon,orgSurfVerts,orgSurfCon,designVariables)
             %%%%%%%%%%%%UNMESH インスタンス%%%%%%%%%%%%%%%
 
 
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             obj.orgMesh = triangulation(orgCon,orgVerts);
             obj.orgSurf =  triangulation(orgSurfCon,orgSurfVerts);
-            obj.lb = lb(:)';
-            obj.ub = ub(:)';
-            obj.designScale = (ub-lb);
-            if nargin == 4
-                designVariables = [];
-            end
             obj.designVariables = (designVariables(:)'-obj.lb)./obj.designScale;
             
         end
-
         function [modVerts,con] = meshDeformation(obj,modSurfVerts,modSurfCon)
             %%%%%%%%%%%%非構造メッシュのメッシュ変形%%%%%%%
 
@@ -109,35 +112,57 @@ classdef UNMESH
             end
         end
 
-        function dx = updateVariables(obj)
+        function [dx, obj] = updateVariables(obj)
             %%%%%%%%%設計変数の更新%%%%%%%%%%%%%
 
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             %sqp-trust region
             ndim = numel(obj.designVariables);
-            if nargin == 1
+            if not(isfield(obj.solver,"dL_dx"))
                 obj.solver.hessian = eye(ndim);
                 obj.solver.trustregion = 0.1;
             end
             lbfmin = -obj.designVariables;
             ubfmin = 1-obj.designVariables;
             if isempty(obj.solver.con0)
-                dx = fmincon(@(dx)obj.fminconObj(dx,obj),zeros(1,ndim),[],[],[],[],lbfmin,ubfmin,@(dx)obj.fminconNlc(dx,obj));
+                [dxscaled,fval,exitflag,output,lambda] = fmincon(@(dx)obj.fminconObj(dx,obj),zeros(1,ndim),[],[],[],[],lbfmin,ubfmin,@(dx)obj.fminconNlc(dx,obj));
             else
                 alin = [-obj.solver.dcons_dx;obj.solver.dcons_dx];
                 blin = [obj.solver.con0-obj.solver.cmin;obj.solver.cmax-obj.solver.con0];
-                dx = fmincon(@(dx)obj.fminconObj(dx,obj),zeros(1,ndim),alin,blin,[],[],lbfmin,ubfmin,@(dx)obj.fminconNlc(dx,obj));
+                [dxscaled,fval,exitflag,output,lambda] = fmincon(@(dx)obj.fminconObj(dx,obj),zeros(1,ndim),alin,blin,[],[],lbfmin,ubfmin,@(dx)obj.fminconNlc(dx,obj));
+            end
+            %ラグランジアンの勾配を計算する
+            dx = dxscaled.*obj.designScale;
+            if isfield(obj.solver,"dL_dx")
+                dL_dx_old = obj.solver.dL_dx;
+                firstFlag = 0;
+            else
+                firstFlag = 1;
+                obj.solver.oldx = obj.designVariables;
+            end
+            if isempty(obj.solver.con0)
+                obj.solver.dL_dx = obj.solver.dobj_dx;
+            else
+                obj.solver.dL_dx = obj.solver.dobj_dx + lambda.ineqlin'*alin;
             end
 
-            dx = dx.*obj.designScale;
+            %Hessianの更新
+            if firstFlag == 0
+                y = obj.solver.dL_dx-dL_dx_old;
+                s = obj.designVariables - obj.solver.oldx;
+                obj.solver.hessian = obj.BFGS(s,y,obj.solver.hessian);
+            end
+            
+            %
+
         end
         
     end
 
     methods(Static)
         function res = fminconObj(dx,obj)
-            %res = 0.5 * dx(:)'*obj.solver.hessian*dx(:) + obj.solver.obj0 + obj.solver.dobj_dx*dx(:);
-            res = obj.solver.obj0 + obj.solver.dobj_dx*dx(:);
+            res = 0.5 * dx(:)'*obj.solver.hessian*dx(:) + obj.solver.obj0 + obj.solver.dobj_dx*dx(:);
+            %res = obj.solver.obj0 + obj.solver.dobj_dx*dx(:);
         end
 
         function [c,ceq] = fminconNlc(dx,obj)
