@@ -9,6 +9,6 @@ function [res,con] = objFun(x,unmesh,unlsi)
     approxunlsi = approxunlsi.setRotationCenter([0,0,0]);
     approxunlsi = approxunlsi.setCf(1,500000,0.2,0.052*(10^-5),0);
     approxunlsi = approxunlsi.solveFlow(1,10,0);
-    res = approxunlsi.AERODATA(8);
-    con = approxunlsi.AERODATA(5);
+    res = -approxunlsi.AERODATA(12);
+    con = [];
 end

@@ -120,7 +120,7 @@ classdef UNMESH
             ndim = numel(obj.designVariables);
             if not(isfield(obj.solver,"dL_dx"))
                 obj.solver.hessian = eye(ndim);
-                obj.solver.trustregion = 0.1;
+                obj.solver.trustregion = 0.2;
             end
             lbfmin = -obj.designVariables;
             ubfmin = 1-obj.designVariables;

@@ -4,7 +4,7 @@ clear;
 %orgVal = [4.0000    9.0000         0    1.0000         0         0    0.1200];
 orgVal = modifyDesFile("org.des","org.des");
 nextVal = orgVal;
-ub = [  1,   1,   1,   1,   1];
+ub = [  4,   4,   4,   4,   4];
 lb = [0.5, 0.5, 0.5, 0.5, 0.5];
 unmeshtest = UNMESH(lb,ub);
 %}
@@ -36,7 +36,7 @@ for i  = 1:10
     wing = wing.calcApproximatedEquation();
     %}
     unmeshtest = unmeshtest.makeMeshGradient(@(x)vspSurfGen(x,"wing","org.des"));
-    unmeshtest = unmeshtest.calcObjandConsGradients(@(x)objFun(x,unmeshtest,wing),0.69,0.71);
+    unmeshtest = unmeshtest.calcObjandConsGradients(@(x)objFun(x,unmeshtest,wing));
     [dx,unmeshtest] = unmeshtest.updateVariables();
     
     nextVal = nextVal + dx;
