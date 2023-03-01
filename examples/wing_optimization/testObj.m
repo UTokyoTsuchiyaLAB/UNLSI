@@ -1,6 +1,6 @@
-function res = testObj(dx,unlsi,orgSurf,gradSurf)
+function res = objFun(x,unlsi,orgVal,orgSurf,gradSurf)
     
-    modSurf = orgSurf + reshape(gradSurf*dx(:),size(orgSurf));
+    modSurf = orgSurf + reshape(gradSurf*(x(:)-orgVal(:)),size(orgSurf));
     modifiedVerts = unlsi.meshDeformation(orgSurf,modSurf);
     approxunlsi = unlsi.makeAproximatedInstance(modifiedVerts);
     
