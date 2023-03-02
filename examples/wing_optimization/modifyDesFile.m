@@ -12,7 +12,7 @@ function orgVal = modifyDesFile(filename,outputname,modVal)
     fid = fopen(outputname,"w");
     fprintf(fid,"%d\n",nrow);
     for i = 1:nrow
-        fprintf(fid,"%s %f\n",dataName{i},modVal(i));
+        fprintf(fid,"%s %.3f\n",dataName{i},modVal(i));
     end
     fclose(fid);
 end

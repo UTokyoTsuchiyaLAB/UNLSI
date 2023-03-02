@@ -142,7 +142,7 @@ classdef UNLSI
                 caxis(colorlim);
             end
             axis equal;xlabel("x");ylabel("y");zlabel("z");
-            drawnow();
+            drawnow();pause(0.1);
 
         end
 

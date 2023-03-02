@@ -32,6 +32,8 @@ classdef UNMESH
             obj.designVariables = (designVariables(:)'-obj.lb)./obj.designScale;
             
         end
+        
+
         function [modVerts,con] = meshDeformation(obj,modSurfVerts,modSurfCon)
             %%%%%%%%%%%%非構造メッシュのメッシュ変形%%%%%%%
 
@@ -77,6 +79,20 @@ classdef UNMESH
             end
         end
 
+        function checkSurfGenWork(obj,surfGenFun,fig)
+            ndim = numel(obj.designVariables);
+            for i = 1:ndim
+                pert = input(sprintf("Variables No.%d. Perturbation Value(scaled) : ",i));
+                sampleDes = obj.designVariables.*obj.designScale+obj.lb;
+                sampleDes(i) = (obj.designVariables(i) + pert).*obj.designScale(i)+obj.lb(i);
+                modSurf = surfGenFun(sampleDes);
+                viewtri = triangulation(obj.orgSurf.ConnectivityList,modSurf);
+                figure(fig);clf
+                trisurf(viewtri);
+                axis equal;drawnow();
+            end
+        end
+
         function modSurf = makeSurffromVariables(obj,x)
            %%%%%%%%%%%%設計変数を変更した場合の標本近似表面の節点値の計算
 
@@ -119,8 +135,8 @@ classdef UNMESH
             %sqp-trust region
             ndim = numel(obj.designVariables);
             if not(isfield(obj.solver,"dL_dx"))
-                obj.solver.hessian = eye(ndim);
-                obj.solver.trustregion = 0.2;
+                obj.solver.hessian = 0.1*eye(ndim);
+                obj.solver.trustregion = 0.1;
             end
             lbfmin = -obj.designVariables;
             ubfmin = 1-obj.designVariables;
@@ -141,10 +157,14 @@ classdef UNMESH
                 obj.solver.oldx = obj.designVariables;
             end
             if isempty(obj.solver.con0)
-                obj.solver.dL_dx = obj.solver.dobj_dx;
+                obj.solver.dL_dx = obj.solver.dobj_dx + lambda.upper' - lambda.lower';
             else
-                obj.solver.dL_dx = obj.solver.dobj_dx + lambda.ineqlin'*alin;
+                obj.solver.dL_dx = obj.solver.dobj_dx + lambda.ineqlin'*alin + lambda.upper' - lambda.lower';
             end
+            fprintf("prediction of objective value is below\n");
+            fprintf("%f ⇒ %f\n",obj.solver.obj0,fval);
+            fprintf("Gradient of Lagrangian is below\n");
+            disp(obj.solver.dL_dx);
 
             %Hessianの更新
             if firstFlag == 0
@@ -152,7 +172,6 @@ classdef UNMESH
                 s = obj.designVariables - obj.solver.oldx;
                 obj.solver.hessian = obj.BFGS(s,y,obj.solver.hessian);
             end
-            
             %
 
         end
@@ -188,6 +207,37 @@ classdef UNMESH
                     Bkp1=coeB.*Bkp1;
                 end
             end
+        end
+
+        function Bkp1 = DBFGS(s,y,Bk)
+            s = s(:);
+            y=y(:);
+            if y'*s > 0
+                pk = y'*s/(s'*Bk*s);
+                bk = 1./pk;
+                hk = y'*s/(y'*(Bk\y));
+                ak = bk*hk-1;
+                if hk<1
+                    theta = 1/(1-bk);
+                else
+                    theta = 0;
+                end
+                sigma2 = max(1-1/ak,0.5);
+                sigma3 = Inf;
+                if pk<1-sigma2
+                    phi = sigma2/(1-pk);
+                elseif pk>1+sigma3
+                    phi = sigma3/(pk-1);
+                else
+                    phi = 1;
+                end
+                yhat = phi.*y+(1-phi).*(Bk*s);
+                w = sqrt(s'*Bk*s).*(yhat./(y'*s)-Bk*s/(s'*Bk*s));
+                Bkp1 = Bk-(Bk*s*(Bk*s)')/(s.'*Bk*s)+(yhat*yhat.')/(s.'*yhat)+theta*(w*w');
+            else
+                Bkp1 = Bk;
+            end
+    
         end
 
     end

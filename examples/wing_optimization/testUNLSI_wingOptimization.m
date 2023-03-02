@@ -3,25 +3,29 @@
 clear;
 %orgVal = [4.0000    9.0000         0    1.0000         0         0    0.1200];
 orgVal = modifyDesFile("org.des","org.des");
+
 nextVal = orgVal;
-ub = [  4,   4,   4,   4,   4];
-lb = [0.5, 0.5, 0.5, 0.5, 0.5];
+ub = [  5,   5,   5,   5,   5,   5];
+lb = [ -5,  -5,  -5,  -5,  -5,  -5];
 unmeshtest = UNMESH(lb,ub);
+
+
 %}
-for i  = 1:10
+for i  = 1:20
+    fclose all;
     pause(1);
     modifyDesFile("org.des","org.des",nextVal);
     pause(1);
     disp(nextVal);
     %
-    CommandVSP = strcat("vsp wing.vsp3 -script makeOrgSurfandMesh.vspscript"); %手順2のコマンド環境に合わせて各自書き換え
+    CommandVSP = strcat("vsp wing.vsp3 -script makeOrgSurfandMesh.vspscript -des org.des"); %手順2のコマンド環境に合わせて各自書き換え
     [~,~] = system(CommandVSP);
     [con, p, uv1, uv2, uv3, wedata, id] = readvspgeom( "orgMesh.vspgeom", 0);
     [orgSurf,orgCon] = vspSurfGen(nextVal,"wing","org.des");
     
 
     unmeshtest = unmeshtest.updateMesh(p',con',orgSurf,orgCon,nextVal);
-    
+
     wing = UNLSI(p',con',id',wedata,1);
     wing.checkMesh(sqrt(eps));
     wing = wing.makeCluster(50,50);
@@ -36,7 +40,7 @@ for i  = 1:10
     wing = wing.calcApproximatedEquation();
     %}
     unmeshtest = unmeshtest.makeMeshGradient(@(x)vspSurfGen(x,"wing","org.des"));
-    unmeshtest = unmeshtest.calcObjandConsGradients(@(x)objFun(x,unmeshtest,wing));
+    unmeshtest = unmeshtest.calcObjandConsGradients(@(x)objFun(x,unmeshtest,wing),[0.64],[0.66]);
     [dx,unmeshtest] = unmeshtest.updateVariables();
     
     nextVal = nextVal + dx;

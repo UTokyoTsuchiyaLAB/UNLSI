@@ -1,7 +1,6 @@
 void main()
 {   
 
- ReadApplyDESFile ("org.des");
  string meshid = ExportFile( "orgSurf.vspgeom", 0, EXPORT_VSPGEOM );
  DeleteGeom( meshid );
  

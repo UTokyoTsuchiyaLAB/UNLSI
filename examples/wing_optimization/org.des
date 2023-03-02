@@ -1,6 +1,7 @@
-5
-LQUACFYDTRB:WingGeom:XSec_2:Root_Chord: 4.000000
-OPRAVRECYWA:WingGeom:XSec_3:Root_Chord: 4.000000
-MLFAVNPIKQO:WingGeom:XSec_4:Root_Chord: 4.000000
-YWQYBAFGEUA:WingGeom:XSec_5:Root_Chord: 4.000000
-IJEFCGNHANE:WingGeom:XSec_5:Tip_Chord: 4.000000
+6
+LBALGBQROJA:WingGeom:XSec_4:Twist: -1.495
+ZQNWQFQEALJ:WingGeom:XSec_1:Twist: 4.992
+KHGEVAEFZSG:WingGeom:XSec_2:Twist: -1.195
+NAYZSTQKRRA:WingGeom:XSec_5:Twist: -0.555
+YAAIFZKBNFU:WingGeom:XSec_3:Twist: 2.624
+OBYRSCBPNOQ:WingGeom:XForm:Y_Rel_Rotation: -1.773
