@@ -3,7 +3,7 @@ function [res,con] = objFun(x,unmesh,unlsi)
     modSurf = unmesh.makeSurffromVariables(x);
     modifiedVerts = unmesh.meshDeformation(modSurf);
     approxunlsi = unlsi.makeAproximatedInstance(modifiedVerts);
-    approxunlsi = approxunlsi.solveFlow(1,10,0);
+    approxunlsi = approxunlsi.solveFlow(1,5,0);
     res = approxunlsi.AERODATA(7);
     con = approxunlsi.AERODATA(5);
 end

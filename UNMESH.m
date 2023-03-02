@@ -62,7 +62,7 @@ classdef UNMESH
 
 
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-            pert = 0.001./obj.designScale;
+            pert = 0.01./obj.designScale;
             ndim = numel(obj.designVariables);
             for i = 1:ndim
                 sampleDes = obj.designVariables.*obj.designScale+obj.lb;
@@ -116,14 +116,17 @@ classdef UNMESH
             else
                 obj.solver.dcons_dx = [];
             end
-            pert = sqrt(eps);
+            pert = eps^(1/3);
             for i = 1:numel(obj.designVariables)
                 sampleDes = obj.designVariables.*obj.designScale+obj.lb;
                 sampleDes(i) = (obj.designVariables(i) + pert).*obj.designScale(i)+obj.lb(i);
                 [objf,conf] = objandConsFun(sampleDes);
-                obj.solver.dobj_dx(i) = (objf-obj.solver.obj0)/pert;
+                sampleDes = obj.designVariables.*obj.designScale+obj.lb;
+                sampleDes(i) = (obj.designVariables(i) - pert).*obj.designScale(i)+obj.lb(i);
+                [objr,conr] = objandConsFun(sampleDes);
+                obj.solver.dobj_dx(i) = (objf-objr)/pert/2;
                 if not(isempty(obj.solver.con0))
-                    obj.solver.dcons_dx(:,i) = (conf-obj.solver.con0)/pert;
+                    obj.solver.dcons_dx(:,i) = (conf-conr)/pert/2;
                 end
             end
         end
@@ -170,7 +173,7 @@ classdef UNMESH
             if firstFlag == 0
                 y = obj.solver.dL_dx-dL_dx_old;
                 s = obj.designVariables - obj.solver.oldx;
-                obj.solver.hessian = obj.BFGS(s,y,obj.solver.hessian);
+                obj.solver.hessian = obj.SR1(s,y,obj.solver.hessian);
             end
             %
 
@@ -238,6 +241,20 @@ classdef UNMESH
                 Bkp1 = Bk;
             end
     
+        end
+
+        function Bkp1 = SR1(s,y,Bk)
+            s = s(:);
+            y=y(:);
+            if abs(s'*(y-Bk*s)) < 10^-8*norm(s)*norm(y-Bk*s) || ((y-Bk*s)'*s)==0
+                Bkp1 = Bk;
+            else
+                Bkp1 = Bk+(y-Bk*s)*(y-Bk*s)'/((y-Bk*s)'*s);
+                coeB =(s'*y)/(s'*Bkp1*s);
+                if coeB>0 && coeB<1
+                    Bkp1=coeB.*Bkp1;
+                end
+            end
         end
 
     end
