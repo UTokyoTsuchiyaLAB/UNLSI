@@ -62,20 +62,24 @@ classdef UNMESH
 
 
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-            pert = 0.01./obj.designScale;
+            pert = 0.002./obj.designScale;
             ndim = numel(obj.designVariables);
+            desOrg = obj.designVariables.*obj.designScale+obj.lb;
+            [~,~,desOrg] = surfGenFun(desOrg);
             for i = 1:ndim
                 sampleDes = obj.designVariables.*obj.designScale+obj.lb;
                 sampleDes(i) = (obj.designVariables(i) + pert(i)).*obj.designScale(i)+obj.lb(i);
-                modSurf = surfGenFun(sampleDes);
+                [modSurf,~,desBuff] = surfGenFun(sampleDes);
+                pertf = desBuff(i)-desOrg(i);
                 dmodSurf = modSurf-obj.orgSurf.Points;
                 sampleSurff = dmodSurf(:);
                 sampleDes = obj.designVariables.*obj.designScale+obj.lb;
                 sampleDes(i) = (obj.designVariables(i) - pert(i)).*obj.designScale(i)+obj.lb(i);
-                modSurf = surfGenFun(sampleDes);
+                [modSurf,~,desBuff] = surfGenFun(sampleDes);
+                pertr = desBuff(i)-desOrg(i);
                 dmodSurf = modSurf-obj.orgSurf.Points;
                 sampleSurfr = dmodSurf(:);
-                obj.gradSurf(:,i) = (sampleSurff-sampleSurfr)./2./pert(i);
+                obj.gradSurf(:,i) = (sampleSurff-sampleSurfr)./(pertf-pertr);
             end
         end
 
@@ -139,19 +143,21 @@ classdef UNMESH
             ndim = numel(obj.designVariables);
             if not(isfield(obj.solver,"dL_dx"))
                 obj.solver.hessian = 0.1*eye(ndim);
-                obj.solver.trustregion = 0.1;
+                obj.solver.dxMax = 0.1;
             end
             lbfmin = -obj.designVariables;
             ubfmin = 1-obj.designVariables;
+            lbfmin(lbfmin<-obj.solver.dxMax) = -obj.solver.dxMax;
+            ubfmin(ubfmin>obj.solver.dxMax) = obj.solver.dxMax;
             if isempty(obj.solver.con0)
-                [dxscaled,fval,exitflag,output,lambda] = fmincon(@(dx)obj.fminconObj(dx,obj),zeros(1,ndim),[],[],[],[],lbfmin,ubfmin,@(dx)obj.fminconNlc(dx,obj));
+                [dxscaled,fval,exitflag,output,lambda] = quadprog(obj.solver.hessian,obj.solver.dobj_dx,[],[],[],[],lbfmin,ubfmin,zeros(ndim,1));
             else
                 alin = [-obj.solver.dcons_dx;obj.solver.dcons_dx];
-                blin = [obj.solver.con0-obj.solver.cmin;obj.solver.cmax-obj.solver.con0];
-                [dxscaled,fval,exitflag,output,lambda] = fmincon(@(dx)obj.fminconObj(dx,obj),zeros(1,ndim),alin,blin,[],[],lbfmin,ubfmin,@(dx)obj.fminconNlc(dx,obj));
+                blin = [obj.solver.con0(:)-obj.solver.cmin(:);obj.solver.cmax(:)-obj.solver.con0(:)];
+                [dxscaled,fval,exitflag,output,lambda] = quadprog(obj.solver.hessian,obj.solver.dobj_dx,alin,blin,[],[],lbfmin,ubfmin,zeros(ndim,1));
             end
             %ラグランジアンの勾配を計算する
-            dx = dxscaled.*obj.designScale;
+            dx = dxscaled(:)'.*obj.designScale;
             if isfield(obj.solver,"dL_dx")
                 dL_dx_old = obj.solver.dL_dx;
                 firstFlag = 0;
@@ -160,9 +166,9 @@ classdef UNMESH
                 obj.solver.oldx = obj.designVariables;
             end
             if isempty(obj.solver.con0)
-                obj.solver.dL_dx = obj.solver.dobj_dx + lambda.upper' - lambda.lower';
+                obj.solver.dL_dx = obj.solver.dobj_dx;
             else
-                obj.solver.dL_dx = obj.solver.dobj_dx + lambda.ineqlin'*alin + lambda.upper' - lambda.lower';
+                obj.solver.dL_dx = obj.solver.dobj_dx + lambda.ineqlin'*alin;
             end
             fprintf("prediction of objective value is below\n");
             fprintf("%f ⇒ %f\n",obj.solver.obj0,fval);
@@ -173,7 +179,7 @@ classdef UNMESH
             if firstFlag == 0
                 y = obj.solver.dL_dx-dL_dx_old;
                 s = obj.designVariables - obj.solver.oldx;
-                obj.solver.hessian = obj.SR1(s,y,obj.solver.hessian);
+                obj.solver.hessian = obj.BFGS(s,y,obj.solver.hessian);
             end
             %
 

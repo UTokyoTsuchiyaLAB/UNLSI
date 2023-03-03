@@ -4,6 +4,9 @@ function [res,con] = objFun(x,unmesh,unlsi)
     modifiedVerts = unmesh.meshDeformation(modSurf);
     approxunlsi = unlsi.makeAproximatedInstance(modifiedVerts);
     approxunlsi = approxunlsi.solveFlow(1,5,0);
-    res = approxunlsi.AERODATA(7);
-    con = approxunlsi.AERODATA(5);
+    res = approxunlsi.AERODATA(7)/approxunlsi.AERODATA(5)*100;
+    con(1,1) = x(4)-x(2);
+    con(2,1) = x(5)-x(4);
+    con(3,1) = x(1)-x(5);
+    con(4,1) = x(3)-x(1);
 end
