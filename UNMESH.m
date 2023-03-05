@@ -47,9 +47,9 @@ classdef UNMESH
                 end
             end
 
-            md.x = scatteredInterpolant(obj.orgSurf.Points,modSurfVerts(:,1)-obj.orgSurf.Points(:,1),'linear','linear');
-            md.y = scatteredInterpolant(obj.orgSurf.Points,modSurfVerts(:,2)-obj.orgSurf.Points(:,2),'linear','linear');
-            md.z = scatteredInterpolant(obj.orgSurf.Points,modSurfVerts(:,3)-obj.orgSurf.Points(:,3),'linear','linear');
+            md.x = scatteredInterpolant(obj.orgSurf.Points,modSurfVerts(:,1)-obj.orgSurf.Points(:,1),'natural','linear');
+            md.y = scatteredInterpolant(obj.orgSurf.Points,modSurfVerts(:,2)-obj.orgSurf.Points(:,2),'natural','linear');
+            md.z = scatteredInterpolant(obj.orgSurf.Points,modSurfVerts(:,3)-obj.orgSurf.Points(:,3),'natural','linear');
             dVerts(:,1) = md.x(obj.orgMesh.Points);
             dVerts(:,2) = md.y(obj.orgMesh.Points);
             dVerts(:,3) = md.z(obj.orgMesh.Points);
@@ -120,7 +120,7 @@ classdef UNMESH
             else
                 obj.solver.dcons_dx = [];
             end
-            pert = eps^(1/3);
+            pert = 0.001;
             for i = 1:numel(obj.designVariables)
                 sampleDes = obj.designVariables.*obj.designScale+obj.lb;
                 sampleDes(i) = (obj.designVariables(i) + pert).*obj.designScale(i)+obj.lb(i);
@@ -135,51 +135,97 @@ classdef UNMESH
             end
         end
 
-        function [dx, obj] = updateVariables(obj)
+        function [dx, obj] = updateVariables(obj,objandConsFun)
             %%%%%%%%%設計変数の更新%%%%%%%%%%%%%
 
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             %sqp-trust region
             ndim = numel(obj.designVariables);
             if not(isfield(obj.solver,"dL_dx"))
-                obj.solver.hessian = 0.1*eye(ndim);
-                obj.solver.dxMax = 0.1;
+                obj.solver.hessian = eye(ndim);
+                obj.solver.trustRegion = 0.1;
+                obj.solver.trMax = 0.2;
+                obj.solver.trMin = 0.02;
             end
             lbfmin = -obj.designVariables;
             ubfmin = 1-obj.designVariables;
-            lbfmin(lbfmin<-obj.solver.dxMax) = -obj.solver.dxMax;
-            ubfmin(ubfmin>obj.solver.dxMax) = obj.solver.dxMax;
+            options = optimoptions(@fmincon,'Algorithm','sqp');
             if isempty(obj.solver.con0)
-                [dxscaled,fval,exitflag,output,lambda] = quadprog(obj.solver.hessian,obj.solver.dobj_dx,[],[],[],[],lbfmin,ubfmin,zeros(ndim,1));
+                alin = [];
+                blin = [];
             else
                 alin = [-obj.solver.dcons_dx;obj.solver.dcons_dx];
                 blin = [obj.solver.con0(:)-obj.solver.cmin(:);obj.solver.cmax(:)-obj.solver.con0(:)];
-                [dxscaled,fval,exitflag,output,lambda] = quadprog(obj.solver.hessian,obj.solver.dobj_dx,alin,blin,[],[],lbfmin,ubfmin,zeros(ndim,1));
             end
-            %ラグランジアンの勾配を計算する
-            dx = dxscaled(:)'.*obj.designScale;
-            if isfield(obj.solver,"dL_dx")
-                dL_dx_old = obj.solver.dL_dx;
-                firstFlag = 0;
-            else
-                firstFlag = 1;
-                obj.solver.oldx = obj.designVariables;
-            end
-            if isempty(obj.solver.con0)
-                obj.solver.dL_dx = obj.solver.dobj_dx;
-            else
-                obj.solver.dL_dx = obj.solver.dobj_dx + lambda.ineqlin'*alin;
-            end
-            fprintf("prediction of objective value is below\n");
-            fprintf("%f ⇒ %f\n",obj.solver.obj0,fval);
-            fprintf("Gradient of Lagrangian is below\n");
-            disp(obj.solver.dL_dx);
 
-            %Hessianの更新
-            if firstFlag == 0
-                y = obj.solver.dL_dx-dL_dx_old;
-                s = obj.designVariables - obj.solver.oldx;
-                obj.solver.hessian = obj.BFGS(s,y,obj.solver.hessian);
+            while(1)
+                %解方向を求める
+                [dxscaled,fval,exitflag,output,lambda] = fmincon(@(dx)obj.fminconObj(dx,obj),zeros(ndim,1),alin,blin,[],[],lbfmin,ubfmin,@(dx)obj.fminconNlc(dx,obj),options);
+                dx = dxscaled(:)'.*obj.designScale;
+
+                if not(isfield(obj.solver,"dL_dx"))
+                    firstFlag = 1;
+                else
+                    dL_dx_old = obj.solver.dL_dx;
+                    firstFlag = 0;
+                end
+                
+                %ラグランジアンとその勾配を計算する
+                sampleDes = (obj.designVariables+dxscaled(:)').*obj.designScale+obj.lb;
+                [objdx,condx] = objandConsFun(sampleDes);
+                if isempty(obj.solver.con0)
+                    Lorg = obj.solver.obj0;
+                    Ldx = objdx;
+                    obj.solver.dL_dx = obj.solver.dobj_dx;
+                else
+                    Lorg = obj.solver.obj0 + lambda.ineqlin'*[-obj.solver.con0(:);obj.solver.con0(:)];
+                    Ldx = objdx + lambda.ineqlin'*[-condx(:);condx(:)];
+                    obj.solver.dL_dx = obj.solver.dobj_dx + lambda.ineqlin'*alin;
+                end
+                acc = (Ldx-Lorg)/(0.5 * dxscaled(:)'*obj.solver.hessian*dxscaled(:) + obj.solver.dobj_dx*dx(:));  
+                fprintf("prediction of objective value is below\n");
+                fprintf("%f ⇒ %f\n",Lorg,Ldx);
+                fprintf("Gradient of Lagrangian is below\n");
+                disp(obj.solver.dL_dx);
+                fprintf("Estimated Prediction Accuracy:%f\n",acc);
+
+                %{
+                if firstFlag == 1
+                    obj.solver.oldx = obj.designVariables;
+                else
+                    y = obj.solver.dL_dx-dL_dx_old;
+                    s = obj.designVariables - obj.solver.oldx;
+                    obj.solver.hessian = obj.SR1_BFGS(obj,s,y,obj.solver.hessian);
+                    obj.solver.oldx = obj.designVariables;
+                end
+                %}
+                %
+                if firstFlag == 1
+                    obj.solver.oldx = obj.designVariables;
+                    break;
+                end
+                if acc < 0.25 || Ldx>Lorg
+                   
+                    if obj.solver.trustRegion * 0.9 < obj.solver.trMin
+                        obj.solver.trustRegion = obj.solver.trMin;
+                        break;
+                    end
+                    obj.solver.trustRegion = obj.solver.trustRegion * 0.9;
+                else
+                    y = obj.solver.dL_dx-dL_dx_old;
+                    s = obj.designVariables - obj.solver.oldx;
+                    obj.solver.hessian = obj.SR1_BFGS(obj,s,y,obj.solver.hessian);
+                    if acc > 0.5
+                        obj.solver.trustRegion = obj.solver.trustRegion / 0.9;
+                        if obj.solver.trustRegion > obj.solver.trMax
+                            obj.solver.trustRegion = obj.solver.trMax;
+                        end
+                    end
+                    obj.solver.oldx = obj.designVariables;  
+                    break;
+                end
+                %}
+
             end
             %
 
@@ -195,9 +241,20 @@ classdef UNMESH
 
         function [c,ceq] = fminconNlc(dx,obj)
             ceq = [];
-            c = sum(dx.^2)-(obj.solver.trustregion)^2;
+            c = sum(dx.^2)-(obj.solver.trustRegion)^2;
         end
 
+        function Bkp1 = SR1_BFGS(obj,s,y,Bk)
+            b = (s(:)'*Bk*s(:))/(s(:)'*y(:));
+            eta2 = 10^-7;
+            if b < 1-eta2 && not(isinf(b))
+                fprintf('Hessian update mode is SR1/BFGS. This time is SR1\n')
+                Bkp1 = obj.SR1(s,y,Bk);
+            else
+                fprintf('Hessian update mode is SR1/BFGS. This time is BFGS\n')
+                Bkp1 = obj.BFGS(s,y,Bk);
+            end
+        end
 
         function Bkp1 = BFGS(s,y,Bk)
             %%%%%%%%%%%%%%%%%BFGS%%%%
@@ -260,6 +317,23 @@ classdef UNMESH
                 if coeB>0 && coeB<1
                     Bkp1=coeB.*Bkp1;
                 end
+            end
+        end
+
+        function Bkp1 = SSR1(s,y,Bk)
+            s = s(:);
+            y=y(:);
+            if abs(s'*(y-Bk*s)) < 10^-8*norm(s)*norm(y-Bk*s) || ((y-Bk*s)'*s)==0 || y'*s-s'*Bk*s<=0
+                lambda_k = y'*y/(y'*s)-sqrt((y'*y)^2/(y'*s)^2-(y'*y)/(s'*s));
+                if isnan(lambda_k)||not(isreal(lambda_k))
+                    Bkp1 = Bk;
+                else
+                    fprintf('lambda_k:%f\n',lambda_k)
+                    Bk = 1./lambda_k.*eye(size(Bk,1));
+                    Bkp1 = Bk+(y-Bk*s)*(y-Bk*s)'/((y-Bk*s)'*s);
+                end
+            else
+                Bkp1 = Bk+(y-Bk*s)*(y-Bk*s)'/((y-Bk*s)'*s);
             end
         end
 

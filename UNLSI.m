@@ -368,10 +368,38 @@ classdef UNLSI
                         end
                     end
                     %}
-                    obj.approxMat.dVAr{i,j} = (VortexAr-obj.LHS(obj.approxMat.calcIndex{i},:))./pert;
-                    obj.approxMat.dVBr{i,j} = (VortexBr-obj.RHS(obj.approxMat.calcIndex{i},:))./pert;
-                    obj.approxMat.dVAc{i,j} = (VortexAc-obj.LHS(:,obj.approxMat.calcIndex{i}))./pert;
-                    obj.approxMat.dVBc{i,j} = (VortexBc-obj.RHS(:,obj.approxMat.calcIndex{i}))./pert;
+                    newVerts = obj.tri.Points;
+                    newVerts(i,j) = obj.tri.Points(i,j)-pert;
+                    obj2 = obj.setVerts(newVerts);
+                    [VortexArr,VortexBrr,VortexAcr,VortexBcr] = obj2.influenceMatrix(obj2,obj.approxMat.calcIndex{i},obj.approxMat.calcIndex{i});
+                    %
+                    for wakeNo = 1:numel(obj.wakeline)
+                        for edgeNo = 1:numel(obj.wakeline{wakeNo}.edge)-1
+                            interpID(1) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.upperID(edgeNo));
+                            interpID(2) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.lowerID(edgeNo));
+                            if isempty(intersect(interpID,obj.approxMat.calcIndex{i}))
+                                influence = obj2.wakeInfluenceMatrix(obj2,wakeNo,edgeNo,obj.approxMat.calcIndex{i},obj.wakePanelLength,obj.nWake);
+                                VortexArr(:,interpID(1)) = VortexArr(:,interpID(1)) - influence;
+                                VortexArr(:,interpID(2)) = VortexArr(:,interpID(2)) + influence;
+                            else
+                                influence = obj2.wakeInfluenceMatrix(obj2,wakeNo,edgeNo,1:nbPanel,obj.wakePanelLength,obj.nWake);
+                                VortexArr(:,interpID(1)) = VortexArr(:,interpID(1)) - influence(obj.approxMat.calcIndex{i},:);
+                                VortexArr(:,interpID(2)) = VortexArr(:,interpID(2)) + influence(obj.approxMat.calcIndex{i},:);
+                                if not(isempty(intersect(interpID(1),obj.approxMat.calcIndex{i})))
+                                    [~,b] = find(obj.approxMat.calcIndex{i}==interpID(1));
+                                    VortexAcr(:,b) = VortexAcr(:,b) - influence;
+                                end
+                                if not(isempty(intersect(interpID(2),obj.approxMat.calcIndex{i})))
+                                    [~,b] = find(obj.approxMat.calcIndex{i}==interpID(2));
+                                    VortexAcr(:,b) = VortexAcr(:,b) + influence;
+                                end
+                            end
+                        end
+                    end
+                    obj.approxMat.dVAr{i,j} = (VortexAr-VortexArr)./pert/2;
+                    obj.approxMat.dVBr{i,j} = (VortexBr-VortexBrr)./pert/2;
+                    obj.approxMat.dVAc{i,j} = (VortexAc-VortexAcr)./pert/2;
+                    obj.approxMat.dVBc{i,j} = (VortexBc-VortexBcr)./pert/2;
                 end
 %}
             end

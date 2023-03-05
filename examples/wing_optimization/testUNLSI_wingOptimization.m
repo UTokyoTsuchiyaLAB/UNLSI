@@ -1,24 +1,23 @@
 %
 %%%%%%%%ここから
 clear;
-%orgVal = [4.0000    9.0000         0    1.0000         0         0    0.1200];
-orgVal = modifyDesFile("org.des","org.des");
+orgVal = [4.0000,4.0000, 4.0000,4.0000,4.0000];
+%orgVal = modifyDesFile("org.des","org.des");
 
 nextVal = orgVal;
 ub = [  4,   4,   4,   4,   4];
 lb = [0.5, 0.5, 0.5, 0.5, 0.5];
-cmin = [-4,-4,-4,-4]';
-cmax = [ 0, 0, 0, 0]';
+cmin = [ 0.4]';
+cmax = [0.45]';
 unmeshtest = UNMESH(lb,ub);
 
 
 %}
-for i  = 1:20
+for i  = 1:100
     fclose all;
     pause(1);
     [~,nextVal] = modifyDesFile("org.des","org.des",nextVal);
     pause(1);
-    disp(nextVal);
     %
     CommandVSP = strcat("vsp wing.vsp3 -script makeOrgSurfandMesh.vspscript -des org.des"); %手順2のコマンド環境に合わせて各自書き換え
     [~,~] = system(CommandVSP);
@@ -42,10 +41,15 @@ for i  = 1:20
     wing = wing.calcApproximatedEquation();
     %}
     unmeshtest = unmeshtest.makeMeshGradient(@(x)vspSurfGen(x,"wing","org.des"));
-    unmeshtest = unmeshtest.calcObjandConsGradients(@(x)objFun(x,unmeshtest,wing),cmin,cmax);
-    [dx,unmeshtest] = unmeshtest.updateVariables();
+    unmeshtest = unmeshtest.calcObjandConsGradients(@(x)objFun(x,0,unmeshtest,wing),cmin,cmax);
+    [dx,unmeshtest] = unmeshtest.updateVariables(@(x)objFun(x,1,unmeshtest,wing));
     
+    fprintf("Design Variables are Updated from\n");
+    disp(nextVal);  
     nextVal = nextVal + dx;
+    fprintf("to\n");
+    disp(nextVal);  
+
 end
       
 
