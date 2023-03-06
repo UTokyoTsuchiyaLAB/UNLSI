@@ -4,50 +4,48 @@ classdef UNGRADE < UNLSI
         orgMesh
         orgSurf
         designVariables
+        surfGenFun
         lb
         ub
         designScale
         gradSurf
-        
+        approxMat %ソルバーの近似行列
         solver
     end
 
     methods(Access = public)
-        function obj = UNMESH(lb,ub)
-            %%%%%%%%%%%%UNMESH インスタンス%%%%%%%%%%%%%%%
 
-
+        function obj = UNGRADE(surfGenFun,designVariables,lb,ub,orgVerts,orgCon,surfID,wakelineID,halfmesh)
+            %%%%%%%%%%%%メッシュの登録と基準サーフェス生成関数の登録%%%%%%%%%%%%%%%
+            %orgVerts,orgCon　実際に解析を行うメッシュ（openVSPのCFDツール等で生成した（基本的に）オーバーラップのない非構造メッシュ）
+            %meshGenFun　設計変数（スケールされていない）から基準サーフェス（解析メッシュと同じ表面を持つ、トリムされていないメッシュ）
+            %designVariables : 設計変数
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            obj = obj@UNLSI(orgVerts,orgCon,surfID,wakelineID,halfmesh)
             obj.lb = lb(:)';
             obj.ub = ub(:)';
             obj.designScale = (ub-lb);
-        end
-
-        function obj = updateMesh(obj,orgVerts,orgCon,orgSurfVerts,orgSurfCon,designVariables)
-            %%%%%%%%%%%%UNMESH インスタンス%%%%%%%%%%%%%%%
-
-
-            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             obj.orgMesh = triangulation(orgCon,orgVerts);
+            obj.surfGenFun = surfGenFun;
+            [orgSurfVerts,orgSurfCon,desOrg] = obj.surfGenFun(designVariables(:)');
+            obj.designVariables = (desOrg(:)'-obj.lb)./obj.designScale;
             obj.orgSurf =  triangulation(orgSurfCon,orgSurfVerts);
-            obj.designVariables = (designVariables(:)'-obj.lb)./obj.designScale;
-            
+
         end
         
 
         function [modVerts,con] = meshDeformation(obj,modSurfVerts,modSurfCon)
             %%%%%%%%%%%%非構造メッシュのメッシュ変形%%%%%%%
-
-
+            %補間ベースのメッシュ変形
+            %modSurfVers : 変形後の基準サーフェスの接点情報
+            %modSurfCon : 入力すると一応conが一致しているかチェックする
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
             if nargin == 3
                 %connectivityが一致しているか確認
-                if any(obj.orgSurf.ConnectivityList(:) == modSurfCon(:))
+                if any(obj.orgSurf.ConnectivityList(:) ~= modSurfCon(:))
                     error("Surf connectivity is not match")
                 end
             end
-
             md.x = scatteredInterpolant(obj.orgSurf.Points,modSurfVerts(:,1)-obj.orgSurf.Points(:,1),'natural','linear');
             md.y = scatteredInterpolant(obj.orgSurf.Points,modSurfVerts(:,2)-obj.orgSurf.Points(:,2),'natural','linear');
             md.z = scatteredInterpolant(obj.orgSurf.Points,modSurfVerts(:,3)-obj.orgSurf.Points(:,3),'natural','linear');
@@ -58,53 +56,49 @@ classdef UNGRADE < UNLSI
             con = obj.orgSurf.ConnectivityList;
         end
         
-        function obj = makeMeshGradient(obj,surfGenFun)
+        function obj = makeMeshGradient(obj)
             %%%%%%%%%%%設計変数勾配による標本表面の近似関数の作成%%%%%
 
 
-            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-            pert = 0.002./obj.designScale;
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            pert = -0.8./obj.designScale;
             ndim = numel(obj.designVariables);
             desOrg = obj.designVariables.*obj.designScale+obj.lb;
-            [~,~,desOrg] = surfGenFun(desOrg);
+            [surforg,~,desOrg] = obj.surfGenFun(desOrg);
             for i = 1:ndim
                 sampleDes = obj.designVariables.*obj.designScale+obj.lb;
                 sampleDes(i) = (obj.designVariables(i) + pert(i)).*obj.designScale(i)+obj.lb(i);
-                [modSurf,~,desBuff] = surfGenFun(sampleDes);
-                pertf = desBuff(i)-desOrg(i);
-                dmodSurf = modSurf-obj.orgSurf.Points;
+                [modSurf,~,desBuff] = obj.surfGenFun(sampleDes);
+                pertf = (desBuff(i)-desOrg(i))/obj.designScale(i);
+                dmodSurf = modSurf-surforg;
                 sampleSurff = dmodSurf(:);
                 sampleDes = obj.designVariables.*obj.designScale+obj.lb;
                 sampleDes(i) = (obj.designVariables(i) - pert(i)).*obj.designScale(i)+obj.lb(i);
-                [modSurf,~,desBuff] = surfGenFun(sampleDes);
-                pertr = desBuff(i)-desOrg(i);
-                dmodSurf = modSurf-obj.orgSurf.Points;
+                [modSurf,~,desBuff] = obj.surfGenFun(sampleDes);
+                pertr = (desBuff(i)-desOrg(i))/obj.designScale(i);
+                dmodSurf = modSurf-surforg;
                 sampleSurfr = dmodSurf(:);
                 obj.gradSurf(:,i) = (sampleSurff-sampleSurfr)./(pertf-pertr);
             end
         end
 
-        function checkSurfGenWork(obj,surfGenFun,fig)
-            ndim = numel(obj.designVariables);
-            for i = 1:ndim
-                pert = input(sprintf("Variables No.%d. Perturbation Value(scaled) : ",i));
-                sampleDes = obj.designVariables.*obj.designScale+obj.lb;
-                sampleDes(i) = (obj.designVariables(i) + pert).*obj.designScale(i)+obj.lb(i);
-                modSurf = surfGenFun(sampleDes);
-                viewtri = triangulation(obj.orgSurf.ConnectivityList,modSurf);
-                figure(fig);clf
-                trisurf(viewtri);
-                axis equal;drawnow();
-            end
-        end
-
-        function modSurf = makeSurffromVariables(obj,x)
+        function [modSurf,modMesh] = variables2Mesh(obj,x,method)
            %%%%%%%%%%%%設計変数を変更した場合の標本近似表面の節点値の計算
 
 
            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-            scaledVar = (x(:)'- obj.lb) ./ obj.designScale; 
-            modSurf = obj.orgSurf.Points + reshape(obj.gradSurf*(scaledVar(:)-obj.designVariables(:)),size(obj.orgSurf.Points));
+           if nargin == 2
+               method = "raw";
+           end
+           if strcmpi(method,"raw")
+               modSurf = obj.surfGenFun(x(:)');
+           elseif strcmpi(method,"linear")
+               scaledVar = (x(:)'- obj.lb) ./ obj.designScale; 
+               modSurf = obj.orgSurf.Points + reshape(obj.gradSurf*(scaledVar(:)-obj.designVariables(:)),size(obj.orgSurf.Points));
+           end
+           if nargout == 2
+               modMesh = obj.meshDeformation(modSurf);
+           end
         end
         
         function obj = calcApproximatedEquation(obj)
@@ -178,6 +172,52 @@ classdef UNGRADE < UNLSI
                 end
         end
 
+        function viewMesh(obj,modMesh,fig)
+            %%%%%%%%%%%設計変数勾配による標本表面の近似関数の作成%%%%%
+
+
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            viewtri = triangulation(obj.orgMesh.ConnectivityList,modMesh);
+            figure(fig);
+            trisurf(viewtri, 'FaceAlpha', 0, 'EdgeColor', 'black');
+            axis equal;drawnow();
+        end
+
+        function viewSurf(obj,modSurf,fig)
+            %%%%%%%%%%%設計変数勾配による標本表面の近似関数の作成%%%%%
+
+
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            viewtri = triangulation(obj.orgSurf.ConnectivityList,modSurf);
+            figure(fig);
+            trisurf(viewtri, 'FaceAlpha', 0, 'EdgeColor', 'black');
+            axis equal;drawnow();
+        end
+
+        function checkSurfGenWork(obj,pert,fig)
+            ndim = numel(obj.designVariables);
+            randparam = rand(1).*ones(1,ndim);
+            randDes = randparam.*obj.designScale+obj.lb;
+            modSurf = obj.surfGenFun(randDes);
+            viewtri = triangulation(obj.orgSurf.ConnectivityList,modSurf);
+            figure(fig);clf
+            trisurf(viewtri);
+            axis equal;drawnow();
+            fprintf("randamized parameter : ");
+            disp(randDes);
+            pause(1);
+            for i = 1:ndim
+                sampleDes = randparam.*obj.designScale+obj.lb;
+                sampleDes(i) = (randparam(i) + pert).*obj.designScale(i)+obj.lb(i);
+                modSurf = obj.surfGenFun(sampleDes);
+                viewtri = triangulation(obj.orgSurf.ConnectivityList,modSurf);
+                figure(fig);clf
+                trisurf(viewtri);
+                axis equal;drawnow();
+                pause(1)
+            end
+        end
+
         function obj = calcAdjointGradients(obj,objandConsFun,cmin,cmax)
             %%%%%%%%%%%%指定した評価関数と制約条件における設計変数勾配の計算%%%%%%%%
 
@@ -207,102 +247,6 @@ classdef UNGRADE < UNLSI
                     obj.solver.dcons_dx(:,i) = (conf-conr)/pert/2;
                 end
             end
-        end
-
-        function [dx, obj] = updateVariables(obj,objandConsFun)
-            %%%%%%%%%設計変数の更新%%%%%%%%%%%%%
-
-            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-            %sqp-trust region
-            ndim = numel(obj.designVariables);
-            if not(isfield(obj.solver,"dL_dx"))
-                obj.solver.hessian = eye(ndim);
-                obj.solver.trustRegion = 0.1;
-                obj.solver.trMax = 0.2;
-                obj.solver.trMin = 0.02;
-            end
-            lbfmin = -obj.designVariables;
-            ubfmin = 1-obj.designVariables;
-            options = optimoptions(@fmincon,'Algorithm','sqp');
-            if isempty(obj.solver.con0)
-                alin = [];
-                blin = [];
-            else
-                alin = [-obj.solver.dcons_dx;obj.solver.dcons_dx];
-                blin = [obj.solver.con0(:)-obj.solver.cmin(:);obj.solver.cmax(:)-obj.solver.con0(:)];
-            end
-
-            while(1)
-                %解方向を求める
-                [dxscaled,fval,exitflag,output,lambda] = fmincon(@(dx)obj.fminconObj(dx,obj),zeros(ndim,1),alin,blin,[],[],lbfmin,ubfmin,@(dx)obj.fminconNlc(dx,obj),options);
-                dx = dxscaled(:)'.*obj.designScale;
-
-                if not(isfield(obj.solver,"dL_dx"))
-                    firstFlag = 1;
-                else
-                    dL_dx_old = obj.solver.dL_dx;
-                    firstFlag = 0;
-                end
-                
-                %ラグランジアンとその勾配を計算する
-                sampleDes = (obj.designVariables+dxscaled(:)').*obj.designScale+obj.lb;
-                [objdx,condx] = objandConsFun(sampleDes);
-                if isempty(obj.solver.con0)
-                    Lorg = obj.solver.obj0;
-                    Ldx = objdx;
-                    obj.solver.dL_dx = obj.solver.dobj_dx;
-                else
-                    Lorg = obj.solver.obj0 + lambda.ineqlin'*[-obj.solver.con0(:);obj.solver.con0(:)];
-                    Ldx = objdx + lambda.ineqlin'*[-condx(:);condx(:)];
-                    obj.solver.dL_dx = obj.solver.dobj_dx + lambda.ineqlin'*alin;
-                end
-                acc = (Ldx-Lorg)/(0.5 * dxscaled(:)'*obj.solver.hessian*dxscaled(:) + obj.solver.dobj_dx*dx(:));  
-                fprintf("prediction of objective value is below\n");
-                fprintf("%f ⇒ %f\n",Lorg,Ldx);
-                fprintf("Gradient of Lagrangian is below\n");
-                disp(obj.solver.dL_dx);
-                fprintf("Estimated Prediction Accuracy:%f\n",acc);
-
-                %{
-                if firstFlag == 1
-                    obj.solver.oldx = obj.designVariables;
-                else
-                    y = obj.solver.dL_dx-dL_dx_old;
-                    s = obj.designVariables - obj.solver.oldx;
-                    obj.solver.hessian = obj.SR1_BFGS(obj,s,y,obj.solver.hessian);
-                    obj.solver.oldx = obj.designVariables;
-                end
-                %}
-                %
-                if firstFlag == 1
-                    obj.solver.oldx = obj.designVariables;
-                    break;
-                end
-                if acc < 0.25 || Ldx>Lorg
-                   
-                    if obj.solver.trustRegion * 0.9 < obj.solver.trMin
-                        obj.solver.trustRegion = obj.solver.trMin;
-                        break;
-                    end
-                    obj.solver.trustRegion = obj.solver.trustRegion * 0.9;
-                else
-                    y = obj.solver.dL_dx-dL_dx_old;
-                    s = obj.designVariables - obj.solver.oldx;
-                    obj.solver.hessian = obj.SR1_BFGS(obj,s,y,obj.solver.hessian);
-                    if acc > 0.5
-                        obj.solver.trustRegion = obj.solver.trustRegion / 0.9;
-                        if obj.solver.trustRegion > obj.solver.trMax
-                            obj.solver.trustRegion = obj.solver.trMax;
-                        end
-                    end
-                    obj.solver.oldx = obj.designVariables;  
-                    break;
-                end
-                %}
-
-            end
-            %
-
         end
         
     end

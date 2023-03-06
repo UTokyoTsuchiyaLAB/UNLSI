@@ -70,13 +70,13 @@ classdef UNMESH
                 sampleDes = obj.designVariables.*obj.designScale+obj.lb;
                 sampleDes(i) = (obj.designVariables(i) + pert(i)).*obj.designScale(i)+obj.lb(i);
                 [modSurf,~,desBuff] = surfGenFun(sampleDes);
-                pertf = desBuff(i)-desOrg(i);
+                pertf = (desBuff(i)-desOrg(i))/obj.designScale(i);
                 dmodSurf = modSurf-obj.orgSurf.Points;
                 sampleSurff = dmodSurf(:);
                 sampleDes = obj.designVariables.*obj.designScale+obj.lb;
                 sampleDes(i) = (obj.designVariables(i) - pert(i)).*obj.designScale(i)+obj.lb(i);
                 [modSurf,~,desBuff] = surfGenFun(sampleDes);
-                pertr = desBuff(i)-desOrg(i);
+                pertr = (desBuff(i)-desOrg(i))/obj.designScale(i);
                 dmodSurf = modSurf-obj.orgSurf.Points;
                 sampleSurfr = dmodSurf(:);
                 obj.gradSurf(:,i) = (sampleSurff-sampleSurfr)./(pertf-pertr);

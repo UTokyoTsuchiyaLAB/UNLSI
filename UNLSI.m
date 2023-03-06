@@ -16,7 +16,6 @@ classdef UNLSI
         XYZREF %回転中心
         paneltype %各パネルのタイプ 1:body 2:base 3:structure
         IndexPanel2Solver %パネルのインデックス⇒ソルバー上でのインデックス
-        approxMat %ソルバーの近似行列
         approximated %近似されたモノかどうか
         wakePanelLength
         nWake
@@ -550,6 +549,79 @@ classdef UNLSI
             obj.AERODATA = [beta,obj.flow{flowNo}.Mach,alpha,0,CL,CDo,CDi,CDtot,0,0,CY,CL/CDtot,0,CAp+CAf,CYp+CYf,CNp+CNf,CMX,CMY,CMZ,0,0,0,0];
             disp([CL,CDo,CDi,CDtot,CMY]);
         end
+
+        %{
+        function obj = calcApproximatedEquation(obj)
+            if obj.approximated == 1
+                error("This instance is approximated. Please execute obj.makeEquation()");
+            end
+            nbPanel = sum(obj.paneltype == 1);
+            %接点に繋がるIDを決定
+            vertAttach = obj.tri.vertexAttachments();
+            pert = sqrt(eps);
+            for i = 1:numel(vertAttach)
+                if mod(i,floor(numel(vertAttach)/10))==0 || i == 1
+                    fprintf("%d/%d ",i,numel(vertAttach));
+                end
+                %paneltype == 1以外を削除する
+                vertAttach{i}(obj.paneltype(vertAttach{i}) ~=1) = [];
+                obj.approxMat.calcIndex{i} = sort(obj.IndexPanel2Solver(vertAttach{i}));
+                %このvertsがwakeに含まれているか
+                for j = 1:3
+                    newVerts = obj.tri.Points;
+                    newVerts(i,j) = obj.tri.Points(i,j)+pert;
+                    obj2 = obj.setVerts(newVerts);
+                    [VortexAr,VortexBr,VortexAc,VortexBc] = obj2.influenceMatrix(obj2,obj.approxMat.calcIndex{i},obj.approxMat.calcIndex{i});
+                    %
+                    for wakeNo = 1:numel(obj.wakeline)
+                        for edgeNo = 1:numel(obj.wakeline{wakeNo}.edge)-1
+                            interpID(1) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.upperID(edgeNo));
+                            interpID(2) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.lowerID(edgeNo));
+                            if isempty(intersect(interpID,obj.approxMat.calcIndex{i}))
+                                influence = obj2.wakeInfluenceMatrix(obj2,wakeNo,edgeNo,obj.approxMat.calcIndex{i},obj.wakePanelLength,obj.nWake);
+                                VortexAr(:,interpID(1)) = VortexAr(:,interpID(1)) - influence;
+                                VortexAr(:,interpID(2)) = VortexAr(:,interpID(2)) + influence;
+                            else
+                                influence = obj2.wakeInfluenceMatrix(obj2,wakeNo,edgeNo,1:nbPanel,obj.wakePanelLength,obj.nWake);
+                                VortexAr(:,interpID(1)) = VortexAr(:,interpID(1)) - influence(obj.approxMat.calcIndex{i},:);
+                                VortexAr(:,interpID(2)) = VortexAr(:,interpID(2)) + influence(obj.approxMat.calcIndex{i},:);
+                                if not(isempty(intersect(interpID(1),obj.approxMat.calcIndex{i})))
+                                    [~,b] = find(obj.approxMat.calcIndex{i}==interpID(1));
+                                    VortexAc(:,b) = VortexAc(:,b) - influence;
+                                end
+                                if not(isempty(intersect(interpID(2),obj.approxMat.calcIndex{i})))
+                                    [~,b] = find(obj.approxMat.calcIndex{i}==interpID(2));
+                                    VortexAc(:,b) = VortexAc(:,b) + influence;
+                                end
+                            end
+                        end
+                    end
+                    obj.approxMat.dVAr{i,j} = (VortexAr-obj.LHS(obj.approxMat.calcIndex{i},:))./pert;
+                    obj.approxMat.dVBr{i,j} = (VortexBr-obj.RHS(obj.approxMat.calcIndex{i},:))./pert;
+                    obj.approxMat.dVAc{i,j} = (VortexAc-obj.LHS(:,obj.approxMat.calcIndex{i}))./pert;
+                    obj.approxMat.dVBc{i,j} = (VortexBc-obj.RHS(:,obj.approxMat.calcIndex{i}))./pert;
+                end
+            end
+            fprintf("\n");
+        end
+
+        function approxmatedObj = makeAproximatedInstance(obj,modifiedVerts)
+                approxmatedObj = obj.setVerts(modifiedVerts);
+                approxmatedObj.approxMat = [];
+                approxmatedObj.approximated = 1;
+                for i = 1:size(modifiedVerts,1)
+                    for j = 1:3
+                        dv = (approxmatedObj.tri.Points(i,j)-obj.tri.Points(i,j));
+                        obj.approxMat.dVAc{i,j}(obj.approxMat.calcIndex{i},:) = 0; 
+                        obj.approxMat.dVBc{i,j}(obj.approxMat.calcIndex{i},:) = 0; 
+                        approxmatedObj.LHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.LHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVAr{i,j}.*dv;
+                        approxmatedObj.RHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.RHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVBr{i,j}.*dv;
+                        approxmatedObj.LHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.LHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVAc{i,j}.*dv;
+                        approxmatedObj.RHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.RHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVBc{i,j}.*dv;
+                    end
+                end
+        end
+        %}
 
         function u = solvePertPotential(obj,flowNo,alpha,beta,omega)
             %%%%%%%%%%%%%LSIの求解%%%%%%%%%%%%%%%%%%%%%
