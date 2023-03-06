@@ -625,20 +625,132 @@ classdef UNLSI
         end
         
         function solveFlowForAdjoint()
-            disp("Hello world!")
+            %%%%%%%%%%%%%LSIの求解%%%%%%%%%%%%%%%%%%%%%
+            %結果はobj.AERODATAに格納される。
+            % 1:Beta 2:Mach 3:AoA 4:Re/1e6 5:CL 6:CDo 7:CDi 8:CDtot 9:CDt 10:CDtot_t 11:CS 12:L/D E CFx CFy CFz CMx CMy       CMz       CMl       CMm       CMn      FOpt 
+            %上記で求めていないものは0が代入される
+            %flowNo:解きたい流れのID
+            %alpha:迎角[deg]
+            %beta:横滑り角[deg]
+            %omega:主流の回転角速度(deg/s)
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            nPanel = numel(obj.paneltype);
+            nbPanel = sum(obj.paneltype == 1);
+            T(1,1) = cosd(alpha)*cosd(beta);
+            T(1,2) = cosd(alpha)*sind(beta);
+            T(1,3) = -sind(alpha);
+            T(2,1) = -sind(beta);
+            T(2,2) = cosd(beta);
+            T(2,3) = 0;
+            T(3,1) = sind(alpha)*cosd(beta);
+            T(3,2) = sind(alpha)*sind(beta);
+            T(3,3) = cosd(alpha);
+            if nargin < 5
+                Vinf = repmat((T*[1;0;0])',[nPanel,1]);
+            else
+                Vinf = zeros(nPanel,3);
+                for i = 1:nPanel
+                   rvec = obj.center(i,:)'-obj.XYZREF(:);
+                   Vinf(i,:) = (T*[1;0;0])'-(cross(omega(:)./180.*pi,rvec(:)))';
+                end
+            end
+            Tvec(:,1) = obj.normal(:,2).* Vinf(:,3)-obj.normal(:,3).* Vinf(:,2);
+            Tvec(:,2) = obj.normal(:,3).* Vinf(:,1)-obj.normal(:,1).* Vinf(:,3);
+            Tvec(:,3) = obj.normal(:,1).* Vinf(:,2)-obj.normal(:,2).* Vinf(:,1);
+            s(:,1) = Tvec(:,2).*obj.normal(:,3)-Tvec(:,3).*obj.normal(:,2);
+            s(:,2) = Tvec(:,3).*obj.normal(:,1)-Tvec(:,1).*obj.normal(:,3);
+            s(:,3) = Tvec(:,1).*obj.normal(:,2)-Tvec(:,2).*obj.normal(:,1);
+            if obj.flow{flowNo}.Mach < 1
+                %亜音速
+                sigmas = zeros(nbPanel,1);
+                iter = 1;
+                for i = 1:nPanel
+                    if obj.paneltype(i) == 1
+                        sigmas(iter,1) = -dot(Vinf(i,:)',obj.normal(i,:)');
+                        iter = iter+1;
+                    end
+                end
+                RHV = obj.RHS*sigmas;
+                u =  -obj.LHS\RHV;
+                potential = -u + sum(Vinf(obj.paneltype == 1,:).*obj.center(obj.paneltype == 1,:),2);
+                dv = zeros(nPanel,3);
+                for i = 1:3
+                    dv(:,i) = obj.mu2v{i}*(potential);
+                end
+            
+                obj.Cp(obj.paneltype==1,1) = (1-sum(dv(obj.paneltype==1,:).^2,2))./sqrt(1-obj.flow{flowNo}.Mach^2);
+                obj.Cp(obj.paneltype==2,1) = (-0.139-0.419.*(obj.flow{flowNo}.Mach-0.161).^2);
+            else
+                %超音速
+                delta = zeros(nbPanel,1);
+                iter = 1;
+                %各パネルが主流となす角度を求める
+                for i = 1:nPanel
+                    if obj.paneltype(i) == 1
+                        delta(iter,1) = acos(dot(obj.normal(i,:)',Vinf(i,:)')/norm(Vinf(i,:)))-pi/2;%パネル角度
+                        iter = iter+1;
+                    end
+                end
+                %用意された応答曲面をもちいてパネルの角度からCpを求める
+                obj.Cp(obj.paneltype==1,1) = obj.flow{flowNo}.pp(delta);%Cp
+                obj.Cp(obj.paneltype==2,1) = (-obj.flow{flowNo}.Mach.^(-2)+0.57.*obj.flow{flowNo}.Mach.^(-4));
+            end
+            %Cp⇒力への変換
+            dCA_p = (-obj.Cp.*obj.normal(:,1)).*obj.area./obj.SREF;
+            dCY_p = (-obj.Cp.*obj.normal(:,2)).*obj.area./obj.SREF;
+            dCN_p = (-obj.Cp.*obj.normal(:,3)).*obj.area./obj.SREF;
+            dCA_f = (+obj.Cfe.*s(:,1)).*obj.area./obj.SREF;
+            dCY_f = (+obj.Cfe.*s(:,2)).*obj.area./obj.SREF;
+            dCN_f = (+obj.Cfe.*s(:,3)).*obj.area./obj.SREF;
+            dCM = cross(obj.center-repmat(obj.XYZREF,[size(obj.center,1),1]),[dCA_p+dCA_f,dCY_p+dCY_f,dCN_p+dCN_f]);
+            dCMX = dCM(:,1)./obj.BREF;
+            dCMY = dCM(:,2)./obj.CREF;
+            dCMZ = dCM(:,3)./obj.BREF;
+            if obj.halfmesh == 1
+                %半裁
+                CNp = sum(dCN_p)*2;
+                CAp = sum(dCA_p)*2;
+                CYp = 0;
+                CNf = sum(dCN_f)*2;
+                CAf = sum(dCA_f)*2;
+                CYf = 0;
+                CMX = 0;
+                CMY = sum(dCMY)*2;
+                CMZ = 0;
+            else
+                CNp = sum(dCN_p);
+                CAp = sum(dCA_p);
+                CYp = sum(dCY_p);
+                CNf = sum(dCN_f);
+                CAf = sum(dCA_f);
+                CYf = sum(dCY_f);
+                CMX = sum(dCMX);
+                CMY = sum(dCMY);
+                CMZ = sum(dCMZ);
+            end
+
+            CL = T(:,3)'*[CAp+CAf;CYp+CYf;CNp+CNf];
+            CDi = T(:,1)'*[CAp;CYp;CNp];
+            CDo = T(:,1)'*[CAf;CYf;CNf];
+            CDtot = CDi+CDo;
+            if obj.halfmesh == 1
+                CY = 0;
+            else
+                CY = T(:,2)'*[CAp+CAf;CYp+CYf;CNp+CNf];
+            end
+            obj.AERODATA = [beta,obj.flow{flowNo}.Mach,alpha,0,CL,CDo,CDi,CDtot,0,0,CY,CL/CDtot,0,CAp+CAf,CYp+CYf,CNp+CNf,CMX,CMY,CMZ,0,0,0,0];
+            disp([CL,CDo,CDi,CDtot,CMY]);
         end
         
-        function obj = calcDynCoeff(obj,flowNo,alpha,beta,coordinate,difference)
+        function obj = calcDynCoeff(obj,flowNo,alpha,beta,difference)
             %%%動微係数の計算%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             %結果はDyncoeffに格納される
             %[1:Clp, 2:Cmq, 3:Cnr]
             %flowNo:解きたい流れのID
             %alpha:迎角[deg]
             %beta:横滑り角[deg]
-            %coordinate:座標系 "CFD"(デフォルト)-x:機体後方 y:右翼 z:上向き "sim"-x:機体前方 y:右翼 z:下向き
             %difference:有限差分の方法 "forward"(デフォルト)-前進差分 "central"-中心差分
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-            if ~exist("coordinate","var") coordinate = "CFD"; end
             if ~exist("difference","var") difference = "forward"; end
             
             obj = obj.solveFlow(obj,flowNo,alpha,beta);
@@ -667,14 +779,7 @@ classdef UNLSI
             else 
                 error("Supported difference methods are ""foraward"" and ""central"".")
             end
-            
-            %simの場合は符号を修正
-            if strcmp(coordinate,"sim")
-                obj.DynCoeff = [Clp,Cmq,Cnr];
-            elseif ~strcmp(coordinate,"CFD")
-                error("Supported coordinates are ""CFD"" and ""sim"".")
-            end
-            
+
         end
     end
 
