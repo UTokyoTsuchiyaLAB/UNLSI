@@ -652,16 +652,19 @@ classdef UNLSI
             disp([CL,CDo,CDi,CDtot,CMY]);
         end
         
-        function solveFlowForAdjoint()
+        function AERODATA = solveFlowForAdjoint(obj,u,flowNo,alpha,beta,omega)
             %%%%%%%%%%%%%LSIの求解%%%%%%%%%%%%%%%%%%%%%
-            %結果はobj.AERODATAに格納される。
+            %ポテンシャルから力を求める
+            %結果は配列に出力される
             % 1:Beta 2:Mach 3:AoA 4:Re/1e6 5:CL 6:CDo 7:CDi 8:CDtot 9:CDt 10:CDtot_t 11:CS 12:L/D E CFx CFy CFz CMx CMy       CMz       CMl       CMm       CMn      FOpt 
             %上記で求めていないものは0が代入される
+            %u: doubletの強さ
             %flowNo:解きたい流れのID
             %alpha:迎角[deg]
             %beta:横滑り角[deg]
             %omega:主流の回転角速度(deg/s)
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            
             nPanel = numel(obj.paneltype);
             nbPanel = sum(obj.paneltype == 1);
             T(1,1) = cosd(alpha)*cosd(beta);
@@ -690,16 +693,6 @@ classdef UNLSI
             s(:,3) = Tvec(:,1).*obj.normal(:,2)-Tvec(:,2).*obj.normal(:,1);
             if obj.flow{flowNo}.Mach < 1
                 %亜音速
-                sigmas = zeros(nbPanel,1);
-                iter = 1;
-                for i = 1:nPanel
-                    if obj.paneltype(i) == 1
-                        sigmas(iter,1) = -dot(Vinf(i,:)',obj.normal(i,:)');
-                        iter = iter+1;
-                    end
-                end
-                RHV = obj.RHS*sigmas;
-                u =  -obj.LHS\RHV;
                 potential = -u + sum(Vinf(obj.paneltype == 1,:).*obj.center(obj.paneltype == 1,:),2);
                 dv = zeros(nPanel,3);
                 for i = 1:3
@@ -710,18 +703,7 @@ classdef UNLSI
                 obj.Cp(obj.paneltype==2,1) = (-0.139-0.419.*(obj.flow{flowNo}.Mach-0.161).^2);
             else
                 %超音速
-                delta = zeros(nbPanel,1);
-                iter = 1;
-                %各パネルが主流となす角度を求める
-                for i = 1:nPanel
-                    if obj.paneltype(i) == 1
-                        delta(iter,1) = acos(dot(obj.normal(i,:)',Vinf(i,:)')/norm(Vinf(i,:)))-pi/2;%パネル角度
-                        iter = iter+1;
-                    end
-                end
-                %用意された応答曲面をもちいてパネルの角度からCpを求める
-                obj.Cp(obj.paneltype==1,1) = obj.flow{flowNo}.pp(delta);%Cp
-                obj.Cp(obj.paneltype==2,1) = (-obj.flow{flowNo}.Mach.^(-2)+0.57.*obj.flow{flowNo}.Mach.^(-4));
+                error("solveFlowForAdjoint is not supported for hypersonic flow.")
             end
             %Cp⇒力への変換
             dCA_p = (-obj.Cp.*obj.normal(:,1)).*obj.area./obj.SREF;
@@ -766,7 +748,7 @@ classdef UNLSI
             else
                 CY = T(:,2)'*[CAp+CAf;CYp+CYf;CNp+CNf];
             end
-            obj.AERODATA = [beta,obj.flow{flowNo}.Mach,alpha,0,CL,CDo,CDi,CDtot,0,0,CY,CL/CDtot,0,CAp+CAf,CYp+CYf,CNp+CNf,CMX,CMY,CMZ,0,0,0,0];
+            AERODATA = [beta,obj.flow{flowNo}.Mach,alpha,0,CL,CDo,CDi,CDtot,0,0,CY,CL/CDtot,0,CAp+CAf,CYp+CYf,CNp+CNf,CMX,CMY,CMZ,0,0,0,0];
             disp([CL,CDo,CDi,CDtot,CMY]);
         end
         
