@@ -621,6 +621,49 @@ classdef UNLSI
             obj.AERODATA = [beta,obj.flow{flowNo}.Mach,alpha,0,CL,CDo,CDi,CDtot,0,0,CY,CL/CDtot,0,CAp+CAf,CYp+CYf,CNp+CNf,CMX,CMY,CMZ,0,0,0,0];
             disp([CL,CDo,CDi,CDtot,CMY]);
         end
+
+        function u = solvePertPotential(obj,flowNo,alpha,beta,omega)
+            %%%%%%%%%%%%%LSIの求解%%%%%%%%%%%%%%%%%%%%%
+            %Adjoint法実装のためポテンシャルの変動値のみ求める。
+
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            nPanel = numel(obj.paneltype);
+            nbPanel = sum(obj.paneltype == 1);
+            T(1,1) = cosd(alpha)*cosd(beta);
+            T(1,2) = cosd(alpha)*sind(beta);
+            T(1,3) = -sind(alpha);
+            T(2,1) = -sind(beta);
+            T(2,2) = cosd(beta);
+            T(2,3) = 0;
+            T(3,1) = sind(alpha)*cosd(beta);
+            T(3,2) = sind(alpha)*sind(beta);
+            T(3,3) = cosd(alpha);
+            if nargin < 5
+                Vinf = repmat((T*[1;0;0])',[nPanel,1]);
+            else
+                Vinf = zeros(nPanel,3);
+                for i = 1:nPanel
+                   rvec = obj.center(i,:)'-obj.XYZREF(:);
+                   Vinf(i,:) = (T*[1;0;0])'-(cross(omega(:)./180.*pi,rvec(:)))';
+                end
+            end
+            if obj.flow{flowNo}.Mach < 1
+                %亜音速
+                sigmas = zeros(nbPanel,1);
+                iter = 1;
+                for i = 1:nPanel
+                    if obj.paneltype(i) == 1
+                        sigmas(iter,1) = -dot(Vinf(i,:)',obj.normal(i,:)');
+                        iter = iter+1;
+                    end
+                end
+                RHV = obj.RHS*sigmas;
+                u =  -obj.LHS\RHV;
+            else
+                %超音速
+                error("solveFlowForAdjoint is not supported for hypersonic flow.")
+            end
+        end
         
         function AERODATA = solveFlowForAdjoint(obj,u,flowNo,alpha,beta,omega)
             %%%%%%%%%%%%%LSIの求解%%%%%%%%%%%%%%%%%%%%%
