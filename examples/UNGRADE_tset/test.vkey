@@ -1,0 +1,32 @@
+# VSPGEOM Tag Key File
+C:/Users/Naoto/Dropbox/research/UNLSI/examples/wing_optimization/test.vspgeom
+27
+
+# tag#,geom#,surf#,gname,gid,ssname1,ssname2,...,ssid1,ssid2,...
+1,12,0,WingGeom,FNQAKMRCAM
+2,12,1,WingGeom,FNQAKMRCAM
+3,4,0,WingGeom,PXENYZRZYY
+4,4,1,WingGeom,PXENYZRZYY
+5,8,0,WingGeom,MELDXGSRVL
+6,14,0,WingGeom,ENMDPBNILR
+7,14,1,WingGeom,ENMDPBNILR
+8,11,0,FuselageGeom,HIDKACETNZ
+9,1,0,FuselageGeom,YONQILKGQJ
+10,1,1,FuselageGeom,YONQILKGQJ
+11,5,0,StackGeom,OLCEQJLGPC
+12,5,1,StackGeom,OLCEQJLGPC
+13,13,0,StackGeom,FJUMOZUYED
+14,13,1,StackGeom,FJUMOZUYED
+15,3,0,StackGeom,UWXLUTVIKJ
+16,3,1,StackGeom,UWXLUTVIKJ
+17,0,0,StackGeom,YYJMOYMSAP
+18,0,1,StackGeom,YYJMOYMSAP
+19,9,0,StackGeom,LPLEXVTUFB
+20,9,1,StackGeom,LPLEXVTUFB
+21,10,0,StackGeom,KRWYAGVEPC
+22,10,1,StackGeom,KRWYAGVEPC
+23,2,0,StackGeom,XKZQLMHLTL
+24,2,1,StackGeom,XKZQLMHLTL
+25,6,0,StackGeom,OCQMDXCNQU
+26,6,1,StackGeom,OCQMDXCNQU
+27,7,0,,NEGATIVE_HALF
