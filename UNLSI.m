@@ -17,6 +17,7 @@ classdef UNLSI
         paneltype %各パネルのタイプ 1:body 2:base 3:structure
         IndexPanel2Solver %パネルのインデックス⇒ソルバー上でのインデックス
         approximated %近似されたモノかどうか
+
         wakePanelLength
         nWake
         normal %各パネルの法線ベクトル

@@ -158,7 +158,7 @@ classdef UNMESH
                 blin = [obj.solver.con0(:)-obj.solver.cmin(:);obj.solver.cmax(:)-obj.solver.con0(:)];
             end
 
-            while(1)
+            %while(1)
                 %解方向を求める
                 [dxscaled,fval,exitflag,output,lambda] = fmincon(@(dx)obj.fminconObj(dx,obj),zeros(ndim,1),alin,blin,[],[],lbfmin,ubfmin,@(dx)obj.fminconNlc(dx,obj),options);
                 dx = dxscaled(:)'.*obj.designScale;
@@ -178,9 +178,9 @@ classdef UNMESH
                     Ldx = objdx;
                     obj.solver.dL_dx = obj.solver.dobj_dx;
                 else
-                    Lorg = obj.solver.obj0 + lambda.ineqlin'*[-obj.solver.con0(:);obj.solver.con0(:)];
-                    Ldx = objdx + lambda.ineqlin'*[-condx(:);condx(:)];
-                    obj.solver.dL_dx = obj.solver.dobj_dx + lambda.ineqlin'*alin;
+                    Lorg = obj.solver.obj0;% + lambda.ineqlin'*[-obj.solver.con0(:);obj.solver.con0(:)];
+                    Ldx = objdx;% + lambda.ineqlin'*[-condx(:);condx(:)];
+                    obj.solver.dL_dx = obj.solver.dobj_dx;% + lambda.ineqlin'*alin;
                 end
                 acc = (Ldx-Lorg)/(0.5 * dxscaled(:)'*obj.solver.hessian*dxscaled(:) + obj.solver.dobj_dx*dx(:));  
                 fprintf("prediction of objective value is below\n");
@@ -189,7 +189,7 @@ classdef UNMESH
                 disp(obj.solver.dL_dx);
                 fprintf("Estimated Prediction Accuracy:%f\n",acc);
 
-                %{
+                %
                 if firstFlag == 1
                     obj.solver.oldx = obj.designVariables;
                 else
@@ -199,7 +199,7 @@ classdef UNMESH
                     obj.solver.oldx = obj.designVariables;
                 end
                 %}
-                %
+                %{
                 if firstFlag == 1
                     obj.solver.oldx = obj.designVariables;
                     break;
@@ -226,7 +226,7 @@ classdef UNMESH
                 end
                 %}
 
-            end
+            %end
             %
 
         end
