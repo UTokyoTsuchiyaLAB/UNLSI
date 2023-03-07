@@ -226,12 +226,15 @@ classdef UNGRADE < UNLSI
 
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             %初期点の解析
-            %obj.makeCluster();
+            u = obj.solvePertPotential(obj,flowNo,alpha,beta,omega);
+            [AERODATA0,Cp0,Cfe0] = solveFlowForAdjoint(obj,u,flowNo,alpha,beta,omega);
+            [obj0,con0] = objandConsFun(AERODATA0,Cp0,Cfe0);
 
+            %u微分の計算
 
-            %プロパティ
+            %x微分の計算
 
-            [obj.solver.obj0,obj.solver.con0] = objandConsFun(AERODATA,Cp,cfit);
+            
             obj.solver.dobj_dx = zeros(1,numel(obj.designVariables));
             if not(isempty(obj.solver.con0))
                 obj.solver.dcons_dx = zeros(numel(obj.solver.con0),numel(obj.designVariables));

@@ -21,7 +21,7 @@ ungradetest = ungradetest.setRotationCenter([0,0,0]);
 ungradetest = ungradetest.setCf(1,500000,0.2,0.052*(10^-5),0);
 
 ungradetest = ungradetest.makeCluster(50,50);
-
+ungradetest = ungradetest.makeEquation(20,5,10);
 
 %ungradetest.checkSurfGenWork(1,1);
 ungradetest = ungradetest.makeMeshGradient();

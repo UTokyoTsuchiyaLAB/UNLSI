@@ -667,7 +667,7 @@ classdef UNLSI
             end
         end
         
-        function AERODATA = solveFlowForAdjoint(obj,u,flowNo,alpha,beta,omega)
+        function [AERODATA,Cp,Cfe] = solveFlowForAdjoint(obj,u,flowNo,alpha,beta,omega)
             %%%%%%%%%%%%%LSIの求解%%%%%%%%%%%%%%%%%%%%%
             %ポテンシャルから力を求める
             %結果は配列に出力される
@@ -764,6 +764,8 @@ classdef UNLSI
                 CY = T(:,2)'*[CAp+CAf;CYp+CYf;CNp+CNf];
             end
             AERODATA = [beta,obj.flow{flowNo}.Mach,alpha,0,CL,CDo,CDi,CDtot,0,0,CY,CL/CDtot,0,CAp+CAf,CYp+CYf,CNp+CNf,CMX,CMY,CMZ,0,0,0,0];
+            Cp = obj.Cp;
+            Cfe = obj.Cfe;
             disp([CL,CDo,CDi,CDtot,CMY]);
         end
         
