@@ -15,6 +15,14 @@ CommandVSP = strcat("vsp wing.vsp3 -script makeOrgSurfandMesh.vspscript -des org
 [~,~] = system(CommandVSP);
 [con, p, uv1, uv2, uv3, wedata, id] = readvspgeom( "orgMesh.vspgeom", 0);
 ungradetest = UNGRADE(@(x)vspSurfGen(x,"wing","org.des"),orgVal,lb,ub,p',con',id',wedata,1);
+ungradetest = ungradetest.flowCondition(1,0.0001);
+ungradetest = ungradetest.setREFS(80,20,4);
+ungradetest = ungradetest.setRotationCenter([0,0,0]);
+ungradetest = ungradetest.setCf(1,500000,0.2,0.052*(10^-5),0);
+
+ungradetest = ungradetest.makeCluster(50,50);
+
+
 %ungradetest.checkSurfGenWork(1,1);
 ungradetest = ungradetest.makeMeshGradient();
 [modSurf1,modMesh1] = ungradetest.variables2Mesh(modVal,"raw");

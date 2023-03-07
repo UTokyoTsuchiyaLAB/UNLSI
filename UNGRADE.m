@@ -32,6 +32,8 @@ classdef UNGRADE < UNLSI
             obj.orgSurf =  triangulation(orgSurfCon,orgSurfVerts);
 
         end
+
+
         
 
         function [modVerts,con] = meshDeformation(obj,modSurfVerts,modSurfCon)
@@ -223,6 +225,10 @@ classdef UNGRADE < UNLSI
 
 
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            %初期点の解析
+            %obj.makeCluster();
+
+
             %プロパティ
 
             [obj.solver.obj0,obj.solver.con0] = objandConsFun(AERODATA,Cp,cfit);

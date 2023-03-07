@@ -1,8 +1,0 @@
-<?xml version="1.0"?>
-<Model ID="C:\Users\Naoto\Dropbox\research\UNLSI\examples\wing_optimization\wing.vsp3" Modeler="OpenVSP" Wrapper="wrap_vsp.csh">
-  <Variable ID="WingGeom:XSec_2:Root_Chord" Value="4.000000000000000000e+00" Min="0.000000000000000000e+00" Max="1.000000000000000000e+06" VSPID="LQUACFYDTRB"/>
-  <Variable ID="WingGeom:XSec_3:Root_Chord" Value="4.000000000000000000e+00" Min="0.000000000000000000e+00" Max="1.000000000000000000e+06" VSPID="OPRAVRECYWA"/>
-  <Variable ID="WingGeom:XSec_4:Root_Chord" Value="4.000000000000000000e+00" Min="0.000000000000000000e+00" Max="1.000000000000000000e+06" VSPID="MLFAVNPIKQO"/>
-  <Variable ID="WingGeom:XSec_5:Root_Chord" Value="4.000000000000000000e+00" Min="0.000000000000000000e+00" Max="1.000000000000000000e+06" VSPID="YWQYBAFGEUA"/>
-  <Variable ID="WingGeom:XSec_5:Tip_Chord" Value="4.000000000000000000e+00" Min="0.000000000000000000e+00" Max="1.000000000000000000e+06" VSPID="IJEFCGNHANE"/>
-</Model>
