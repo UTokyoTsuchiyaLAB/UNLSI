@@ -7,6 +7,8 @@ classdef UNGRADE < UNLSI
         surfGenFun
         lb
         ub
+        alpha 
+        beta
         designScale
         gradSurf
         approxMat %ソルバーの近似行列
@@ -220,42 +222,28 @@ classdef UNGRADE < UNLSI
             end
         end
 
-        function obj = calcAdjointGradients(obj,objandConsFun,cmin,cmax)
+        function obj = setOptFlowCondition(obj,Mach,alpha,beta)
+            obj = obj.flowCondition(1,Mach);
+            obj.alpha = alpha;
+            obj.beta = beta;
+        end
+
+        function obj = calcAdjointGradients(obj,objandConsFun)
             %%%%%%%%%%%%指定した評価関数と制約条件における設計変数勾配の計算%%%%%%%%
 
 
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             %初期点の解析
-            u = obj.solvePertPotential(obj,flowNo,alpha,beta,omega);
-            [AERODATA0,Cp0,Cfe0] = solveFlowForAdjoint(obj,u,flowNo,alpha,beta,omega);
-            [obj0,con0] = objandConsFun(AERODATA0,Cp0,Cfe0);
+            desOrg = obj.designVariables.*obj.designScale+obj.lb;
+            [u,R0] = obj.solvePertPotential(1,obj.alpha,obj.beta);
+            [AERODATA0,Cp0,Cfe0] = obj.solveFlowForAdjoint(u,1,obj.alpha,obj.beta);
+            [obj0,con0] = objandConsFun(desOrg,AERODATA0,Cp0,Cfe0);
 
             %u微分の計算
 
             %x微分の計算
 
             
-            obj.solver.dobj_dx = zeros(1,numel(obj.designVariables));
-            if not(isempty(obj.solver.con0))
-                obj.solver.dcons_dx = zeros(numel(obj.solver.con0),numel(obj.designVariables));
-                obj.solver.cmin = cmin(:);
-                obj.solver.cmax = cmax(:);
-            else
-                obj.solver.dcons_dx = [];
-            end
-            pert = 0.001;
-            for i = 1:numel(obj.designVariables)
-                sampleDes = obj.designVariables.*obj.designScale+obj.lb;
-                sampleDes(i) = (obj.designVariables(i) + pert).*obj.designScale(i)+obj.lb(i);
-                [objf,conf] = objandConsFun(sampleDes);
-                sampleDes = obj.designVariables.*obj.designScale+obj.lb;
-                sampleDes(i) = (obj.designVariables(i) - pert).*obj.designScale(i)+obj.lb(i);
-                [objr,conr] = objandConsFun(sampleDes);
-                obj.solver.dobj_dx(i) = (objf-objr)/pert/2;
-                if not(isempty(obj.solver.con0))
-                    obj.solver.dcons_dx(:,i) = (conf-conr)/pert/2;
-                end
-            end
         end
         
     end

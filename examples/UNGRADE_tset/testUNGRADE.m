@@ -22,6 +22,8 @@ ungradetest = ungradetest.setCf(1,500000,0.2,0.052*(10^-5),0);
 
 ungradetest = ungradetest.makeCluster(50,50);
 ungradetest = ungradetest.makeEquation(20,5,10);
+ungradetest = ungradetest.setOptFlowCondition(0.0001,5,0);
+ungradetest = ungradetest.calcAdjointGradients(@(x,AERODATA,Cp,Cfe)objFun(x,AERODATA,Cp,Cfe));
 
 %ungradetest.checkSurfGenWork(1,1);
 ungradetest = ungradetest.makeMeshGradient();

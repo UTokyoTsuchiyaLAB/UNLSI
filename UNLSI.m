@@ -624,7 +624,7 @@ classdef UNLSI
         end
         %}
 
-        function u = solvePertPotential(obj,flowNo,alpha,beta,omega)
+        function [u,R] = solvePertPotential(obj,flowNo,alpha,beta,omega)
             %%%%%%%%%%%%%LSIの求解%%%%%%%%%%%%%%%%%%%%%
             %Adjoint法実装のためポテンシャルの変動値のみ求める。
 
@@ -661,13 +661,14 @@ classdef UNLSI
                 end
                 RHV = obj.RHS*sigmas;
                 u =  -obj.LHS\RHV;
+                R = obj.LHS*u+RHV;
             else
                 %超音速
                 error("solveFlowForAdjoint is not supported for hypersonic flow.")
             end
         end
         
-        function [AERODATA,Cp,Cfe] = solveFlowForAdjoint(obj,u,flowNo,alpha,beta,omega)
+        function [AERODATA,Cp,Cfe,R] = solveFlowForAdjoint(obj,u,flowNo,alpha,beta,omega)
             %%%%%%%%%%%%%LSIの求解%%%%%%%%%%%%%%%%%%%%%
             %ポテンシャルから力を求める
             %結果は配列に出力される
@@ -691,7 +692,7 @@ classdef UNLSI
             T(3,1) = sind(alpha)*cosd(beta);
             T(3,2) = sind(alpha)*sind(beta);
             T(3,3) = cosd(alpha);
-            if nargin < 5
+            if nargin < 6
                 Vinf = repmat((T*[1;0;0])',[nPanel,1]);
             else
                 Vinf = zeros(nPanel,3);
@@ -708,6 +709,15 @@ classdef UNLSI
             s(:,3) = Tvec(:,1).*obj.normal(:,2)-Tvec(:,2).*obj.normal(:,1);
             if obj.flow{flowNo}.Mach < 1
                 %亜音速
+                sigmas = zeros(nbPanel,1);
+                iter = 1;
+                for i = 1:nPanel
+                    if obj.paneltype(i) == 1
+                        sigmas(iter,1) = -dot(Vinf(i,:)',obj.normal(i,:)');
+                        iter = iter+1;
+                    end
+                end
+                
                 potential = -u + sum(Vinf(obj.paneltype == 1,:).*obj.center(obj.paneltype == 1,:),2);
                 dv = zeros(nPanel,3);
                 for i = 1:3
@@ -766,6 +776,8 @@ classdef UNLSI
             AERODATA = [beta,obj.flow{flowNo}.Mach,alpha,0,CL,CDo,CDi,CDtot,0,0,CY,CL/CDtot,0,CAp+CAf,CYp+CYf,CNp+CNf,CMX,CMY,CMZ,0,0,0,0];
             Cp = obj.Cp;
             Cfe = obj.Cfe;
+            RHV = obj.RHS*sigmas;
+            R = obj.LHS*u+RHV;
             disp([CL,CDo,CDi,CDtot,CMY]);
         end
         
