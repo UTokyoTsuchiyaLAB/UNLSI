@@ -16,7 +16,6 @@ classdef UNLSI
         XYZREF %回転中心
         paneltype %各パネルのタイプ 1:body 2:base 3:structure
         IndexPanel2Solver %パネルのインデックス⇒ソルバー上でのインデックス
-        approximated %近似されたモノかどうか
 
         wakePanelLength
         nWake
@@ -92,7 +91,7 @@ classdef UNLSI
             end
             obj.checkMesh(sqrt(eps),"warning");
         end
- 
+       
 
         function obj = setREFS(obj,SREF,BREF,CREF)
             %%%%%%%%%%%Referentials Setting%%%%%%%%%%%%%
@@ -146,6 +145,52 @@ classdef UNLSI
 
         end
 
+        function obj = setMesh(obj,verts,connectivity,surfID,wakelineID)
+            obj.tri = triangulation(connectivity,verts);
+            obj.surfID = surfID;
+            for i = 1:numel(wakelineID)
+                obj.wakeline{i}.edge = wakelineID{i};
+            end
+            obj.paneltype = ones(size(connectivity,1),1);
+            obj.IndexPanel2Solver = 1:numel(obj.paneltype);
+            obj.cluster = cell([1,numel(obj.paneltype)]);
+            obj.area = zeros(numel(obj.paneltype),1);
+            obj.normal = zeros(numel(obj.paneltype),3);
+            obj.center = zeros(numel(obj.paneltype),3);
+            obj.Cp = zeros(numel(obj.paneltype),1);
+            obj.Cfe = zeros(numel(obj.paneltype),1);
+            obj.LHS = [];
+            obj.RHS = [];
+            for i = 1:numel(obj.paneltype)
+                [obj.area(i,1),~ , obj.normal(i,:)] = obj.vertex(verts(connectivity(i,1),:),verts(connectivity(i,2),:),verts(connectivity(i,3),:));
+                obj.center(i,:) = [mean(verts(obj.tri.ConnectivityList(i,:),1)),mean(verts(obj.tri.ConnectivityList(i,:),2)),mean(verts(obj.tri.ConnectivityList(i,:),3))];
+            end
+
+            
+            %半裁メッシュの境界表面上のwakeを削除
+            if obj.halfmesh == 1
+                for iter = 1:numel(obj.wakeline)
+                    deletelist = [];
+                    for j = 1:numel(obj.wakeline{iter}.edge)-1
+                        attachpanel = obj.tri.edgeAttachments(obj.wakeline{iter}.edge(j),obj.wakeline{iter}.edge(j+1));
+                        if numel(attachpanel{1}) < 2
+                            deletelist = [deletelist,j];
+                        end
+                    end
+                    obj.wakeline{iter}.edge(deletelist) = [];
+                end
+            end
+            %wakeのつくパネルIDを特定
+            for wakeNo = 1:numel(obj.wakeline)
+                for edgeNo = 1:numel(obj.wakeline{wakeNo}.edge)-1
+                    attachpanel = obj.tri.edgeAttachments(obj.wakeline{wakeNo}.edge(edgeNo),obj.wakeline{wakeNo}.edge(edgeNo+1));
+                    obj.wakeline{wakeNo}.upperID(edgeNo) = attachpanel{1}(1);
+                    obj.wakeline{wakeNo}.lowerID(edgeNo) = attachpanel{1}(2);
+                end
+            end
+            obj.checkMesh(sqrt(eps),"warning");
+        end
+
         function obj = setVerts(obj,verts)
             %%%%%%%%%%%%%%%%%接点座標の変更%%%%%%%%%%%%%%%
             %三角形の接続関係を変えずに、接点の座標のみ変更する
@@ -178,16 +223,6 @@ classdef UNLSI
                     error("some panel areas are too small");
                 end
             end
-        end
-
-        function modifiedVerts = meshDeformation(obj,orgSurf,modSurf)
-            md.x = scatteredInterpolant(orgSurf,modSurf(:,1)-orgSurf(:,1),'linear','linear');
-            md.y = scatteredInterpolant(orgSurf,modSurf(:,2)-orgSurf(:,2),'linear','linear');
-            md.z = scatteredInterpolant(orgSurf,modSurf(:,3)-orgSurf(:,3),'linear','linear');
-            dVerts(:,1) = md.x(obj.tri.Points);
-            dVerts(:,2) = md.y(obj.tri.Points);
-            dVerts(:,3) = md.z(obj.tri.Points);
-            modifiedVerts = obj.tri.Points+dVerts;
         end
 
         function obj = setPanelType(obj,ID,typename)
@@ -267,7 +302,6 @@ classdef UNLSI
             end
             nPanel = numel(obj.paneltype);
             nbPanel = sum(obj.paneltype == 1);
-            obj.approximated = 0;
             obj.wakePanelLength = wakepanellength;
             obj.nWake = nwake;
             %パネル微分行列の作成
@@ -551,79 +585,6 @@ classdef UNLSI
             disp([CL,CDo,CDi,CDtot,CMY]);
         end
 
-        %{
-        function obj = calcApproximatedEquation(obj)
-            if obj.approximated == 1
-                error("This instance is approximated. Please execute obj.makeEquation()");
-            end
-            nbPanel = sum(obj.paneltype == 1);
-            %接点に繋がるIDを決定
-            vertAttach = obj.tri.vertexAttachments();
-            pert = sqrt(eps);
-            for i = 1:numel(vertAttach)
-                if mod(i,floor(numel(vertAttach)/10))==0 || i == 1
-                    fprintf("%d/%d ",i,numel(vertAttach));
-                end
-                %paneltype == 1以外を削除する
-                vertAttach{i}(obj.paneltype(vertAttach{i}) ~=1) = [];
-                obj.approxMat.calcIndex{i} = sort(obj.IndexPanel2Solver(vertAttach{i}));
-                %このvertsがwakeに含まれているか
-                for j = 1:3
-                    newVerts = obj.tri.Points;
-                    newVerts(i,j) = obj.tri.Points(i,j)+pert;
-                    obj2 = obj.setVerts(newVerts);
-                    [VortexAr,VortexBr,VortexAc,VortexBc] = obj2.influenceMatrix(obj2,obj.approxMat.calcIndex{i},obj.approxMat.calcIndex{i});
-                    %
-                    for wakeNo = 1:numel(obj.wakeline)
-                        for edgeNo = 1:numel(obj.wakeline{wakeNo}.edge)-1
-                            interpID(1) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.upperID(edgeNo));
-                            interpID(2) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.lowerID(edgeNo));
-                            if isempty(intersect(interpID,obj.approxMat.calcIndex{i}))
-                                influence = obj2.wakeInfluenceMatrix(obj2,wakeNo,edgeNo,obj.approxMat.calcIndex{i},obj.wakePanelLength,obj.nWake);
-                                VortexAr(:,interpID(1)) = VortexAr(:,interpID(1)) - influence;
-                                VortexAr(:,interpID(2)) = VortexAr(:,interpID(2)) + influence;
-                            else
-                                influence = obj2.wakeInfluenceMatrix(obj2,wakeNo,edgeNo,1:nbPanel,obj.wakePanelLength,obj.nWake);
-                                VortexAr(:,interpID(1)) = VortexAr(:,interpID(1)) - influence(obj.approxMat.calcIndex{i},:);
-                                VortexAr(:,interpID(2)) = VortexAr(:,interpID(2)) + influence(obj.approxMat.calcIndex{i},:);
-                                if not(isempty(intersect(interpID(1),obj.approxMat.calcIndex{i})))
-                                    [~,b] = find(obj.approxMat.calcIndex{i}==interpID(1));
-                                    VortexAc(:,b) = VortexAc(:,b) - influence;
-                                end
-                                if not(isempty(intersect(interpID(2),obj.approxMat.calcIndex{i})))
-                                    [~,b] = find(obj.approxMat.calcIndex{i}==interpID(2));
-                                    VortexAc(:,b) = VortexAc(:,b) + influence;
-                                end
-                            end
-                        end
-                    end
-                    obj.approxMat.dVAr{i,j} = (VortexAr-obj.LHS(obj.approxMat.calcIndex{i},:))./pert;
-                    obj.approxMat.dVBr{i,j} = (VortexBr-obj.RHS(obj.approxMat.calcIndex{i},:))./pert;
-                    obj.approxMat.dVAc{i,j} = (VortexAc-obj.LHS(:,obj.approxMat.calcIndex{i}))./pert;
-                    obj.approxMat.dVBc{i,j} = (VortexBc-obj.RHS(:,obj.approxMat.calcIndex{i}))./pert;
-                end
-            end
-            fprintf("\n");
-        end
-
-        function approxmatedObj = makeAproximatedInstance(obj,modifiedVerts)
-                approxmatedObj = obj.setVerts(modifiedVerts);
-                approxmatedObj.approxMat = [];
-                approxmatedObj.approximated = 1;
-                for i = 1:size(modifiedVerts,1)
-                    for j = 1:3
-                        dv = (approxmatedObj.tri.Points(i,j)-obj.tri.Points(i,j));
-                        obj.approxMat.dVAc{i,j}(obj.approxMat.calcIndex{i},:) = 0; 
-                        obj.approxMat.dVBc{i,j}(obj.approxMat.calcIndex{i},:) = 0; 
-                        approxmatedObj.LHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.LHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVAr{i,j}.*dv;
-                        approxmatedObj.RHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.RHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVBr{i,j}.*dv;
-                        approxmatedObj.LHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.LHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVAc{i,j}.*dv;
-                        approxmatedObj.RHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.RHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVBc{i,j}.*dv;
-                    end
-                end
-        end
-        %}
-
         function [u,R] = solvePertPotential(obj,flowNo,alpha,beta,omega)
             %%%%%%%%%%%%%LSIの求解%%%%%%%%%%%%%%%%%%%%%
             %Adjoint法実装のためポテンシャルの変動値のみ求める。
@@ -668,7 +629,7 @@ classdef UNLSI
             end
         end
         
-        function [AERODATA,Cp,Cfe,R] = solveFlowForAdjoint(obj,u,flowNo,alpha,beta,omega)
+        function [AERODATA,Cp,Cfe,R,obj] = solveFlowForAdjoint(obj,u,flowNo,alpha,beta,omega)
             %%%%%%%%%%%%%LSIの求解%%%%%%%%%%%%%%%%%%%%%
             %ポテンシャルから力を求める
             %結果は配列に出力される
@@ -778,7 +739,7 @@ classdef UNLSI
             Cfe = obj.Cfe;
             RHV = obj.RHS*sigmas;
             R = obj.LHS*u+RHV;
-            disp([CL,CDo,CDi,CDtot,CMY]);
+            %disp([CL,CDo,CDi,CDtot,CMY]);
         end
         
         function obj = calcDynCoeff(obj,flowNo,alpha,beta,difference)

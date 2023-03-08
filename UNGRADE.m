@@ -5,14 +5,14 @@ classdef UNGRADE < UNLSI
         orgSurf
         designVariables
         surfGenFun
+        meshGenFun
         lb
         ub
-        alpha 
-        beta
+        unlsiParam
         designScale
         gradSurf
         approxMat %ソルバーの近似行列
-        solver
+        hessianUpdate
     end
 
     methods(Access = public)
@@ -32,11 +32,24 @@ classdef UNGRADE < UNLSI
             [orgSurfVerts,orgSurfCon,desOrg] = obj.surfGenFun(designVariables(:)');
             obj.designVariables = (desOrg(:)'-obj.lb)./obj.designScale;
             obj.orgSurf =  triangulation(orgSurfCon,orgSurfVerts);
-
         end
 
+        function obj = setMeshGenFun(obj,meshGenFun)
+            obj.meshGenFun = meshGenFun;
+        end
 
-        
+        function obj = modifyMesh(obj,designVariables,orgVerts,orgCon,surfID,wakelineID)
+            obj = obj.setMesh(orgVerts,orgCon,surfID,wakelineID);
+            obj.orgMesh = triangulation(orgCon,orgVerts);
+            [orgSurfVerts,orgSurfCon,desOrg] = obj.surfGenFun(designVariables(:)');
+            obj.designVariables = (desOrg(:)'-obj.lb)./obj.designScale;
+            obj.orgSurf =  triangulation(orgSurfCon,orgSurfVerts);
+        end
+
+        function obj = modifyMeshfromVariables(obj,designVariables)
+            [orgVerts,orgCon,surfID,wakelineID,designVariables] = obj.meshGenFun(designVariables);
+            obj = obj.modifyMesh(designVariables,orgVerts,orgCon,surfID,wakelineID);
+        end
 
         function [modVerts,con] = meshDeformation(obj,modSurfVerts,modSurfCon)
             %%%%%%%%%%%%非構造メッシュのメッシュ変形%%%%%%%
@@ -65,7 +78,7 @@ classdef UNGRADE < UNLSI
 
 
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-            pert = -0.8./obj.designScale;
+            pert = 0.01./obj.designScale;
             ndim = numel(obj.designVariables);
             desOrg = obj.designVariables.*obj.designScale+obj.lb;
             [surforg,~,desOrg] = obj.surfGenFun(desOrg);
@@ -222,41 +235,150 @@ classdef UNGRADE < UNLSI
             end
         end
 
-        function obj = setOptFlowCondition(obj,Mach,alpha,beta)
+        function obj = setOptCondition(obj,Mach,alpha,beta,wakeLength,n_wake,n_divide,nCluster,edgeAngleThreshold,Re,Lch,k,LTratio,CfeCoefficient)
             obj = obj.flowCondition(1,Mach);
-            obj.alpha = alpha;
-            obj.beta = beta;
+            obj.unlsiParam.alpha = alpha;
+            obj.unlsiParam.beta = beta;        
+            obj.unlsiParam.n_wake = n_wake;
+            obj.unlsiParam.wakeLength = wakeLength;
+            obj.unlsiParam.n_divide = n_divide;
+            obj.unlsiParam.nCluster = nCluster;
+            obj.unlsiParam.edgeAngleThreshold = edgeAngleThreshold;
+            obj.unlsiParam.Re = Re;
+            obj.unlsiParam.Lch = Lch;
+            obj.unlsiParam.k = k;
+            obj.unlsiParam.LTratio = LTratio;
+            obj.unlsiParam.coefficient = CfeCoefficient;
+
         end
 
-        function obj = calcAdjointGradients(obj,objandConsFun)
+        function obj = setHessianUpdate(obj,H0,TR,method)
+            obj.hessianUpdate.H = H0;
+            obj.hessianUpdate.TR = TR;
+            obj.hessianUpdate.xScaled = [];
+            obj.hessianUpdate.dL_dx = [];
+            if strcmpi(method,"SR1")
+                obj.hessianUpdate.updateFunction = @obj.SR1;
+            elseif strcmpi(method,"SSR1")
+                obj.hessianUpdate.updateFunction = @obj.SSR1;
+            elseif strcmpi(method,"BFGS")
+                obj.hessianUpdate.updateFunction = @obj.BFGS;
+            elseif strcmpi(method,"MBFGS")
+                obj.hessianUpdate.updateFunction = @obj.MBFGS;
+            elseif strcmpi(method,"DBFGS")
+                obj.hessianUpdate.updateFunction = @obj.DBFGS;
+            elseif strcmpi(method,"SR1_BFGS")
+                obj.hessianUpdate.updateFunction = @(s,y,H)obj.SR1_BFGS(obj,s,y,H);
+            elseif strcmpi(method,"SSR1_MBFGS")
+                obj.hessianUpdate.updateFunction = @(s,y,H)obj.SSR1_MBFGS(obj,s,y,H);
+            end
+        end
+
+        function [dx,obj] = finddx(obj,objandConsFun,cmin,cmax)
             %%%%%%%%%%%%指定した評価関数と制約条件における設計変数勾配の計算%%%%%%%%
 
 
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             %初期点の解析
+            obj = obj.makeEquation(obj.unlsiParam.wakeLength,obj.unlsiParam.n_wake,obj.unlsiParam.n_divide);
             desOrg = obj.designVariables.*obj.designScale+obj.lb;
-            [u,R0] = obj.solvePertPotential(1,obj.alpha,obj.beta);
-            [AERODATA0,Cp0,Cfe0] = obj.solveFlowForAdjoint(u,1,obj.alpha,obj.beta);
-            [obj0,con0] = objandConsFun(desOrg,AERODATA0,Cp0,Cfe0);
-
+            [u0,~] = obj.solvePertPotential(1,obj.unlsiParam.alpha,obj.unlsiParam.beta);
+            [AERODATA0,Cp0,Cfe0,R0,obj] = obj.solveFlowForAdjoint(u0,1,obj.unlsiParam.alpha,obj.unlsiParam.beta);
+            [I0,con0] = objandConsFun(desOrg,AERODATA0,Cp0,Cfe0);
+            disp([I0,con0]);
             %u微分の計算
-
+            pert = sqrt(eps);
+            for i = 1:numel(u0)
+                u = u0;
+                u(i) = u(i)+pert;
+                [AERODATA,Cp,Cfe] = obj.solveFlowForAdjoint(u,1,obj.unlsiParam.alpha,obj.unlsiParam.beta);
+                [I,con] = objandConsFun(desOrg,AERODATA,Cp,Cfe);
+                dI_du(i) = (I-I0)/pert;
+                if not(isempty(con))
+                    dcon_du(:,i) = (con-con0)/pert;
+                end
+            end
+            dR_du = obj.LHS;
             %x微分の計算
+            %メッシュの節点勾配を作成
+            obj = obj.makeMeshGradient();
 
+            for i= 1:numel(obj.designVariables)
+                x = obj.designVariables;
+                x(i) = obj.designVariables(i)+pert;
+                des = x.*obj.designScale+obj.lb;
+                [~,modMesh] = obj.variables2Mesh(des,'linear');
+                %変数が少ないときは直接作成
+                obj2 = obj.setVerts(modMesh);
+                obj2 = obj2.makeEquation(obj.unlsiParam.wakeLength,obj.unlsiParam.n_wake,obj.unlsiParam.n_divide);
+                [AERODATA,Cp,Cfe,R] = obj2.solveFlowForAdjoint(u0,1,obj.unlsiParam.alpha,obj.unlsiParam.beta);
+                [I,con] = objandConsFun(des,AERODATA,Cp,Cfe);
+                dI_dx(i) = (I-I0)/pert;
+                if not(isempty(con))
+                    dcon_dx(:,i) = (con-con0)/pert;
+                end
+                dR_dx(:,i) = (R-R0)./pert;
+            end
+            %全微分でdxからduを求める行列
+            duMatVec = -(dR_du)\([R0,dR_dx]);
+            duMat = duMatVec(:,2:end);
+            duVec = duMatVec(:,1);
             
+            objTotalGrad = dI_dx+dI_du*duMat;
+            if not(isempty(con))
+                conTotalGrad = dcon_dx+dcon_du*duMat;
+            end
+            %線形計画問題に変換
+            if not(isempty(con))
+                alin = [-conTotalGrad;conTotalGrad];
+                blin = [con0(:)-cmin(:);cmax(:)-con0(:)];
+            else
+                alin = [];
+                blin = [];
+            end
+            lbf = -obj.designVariables;
+            ubf = 1-obj.designVariables;
+            %[dxscaled,fval,exitflag,output,lambda] = quadprog(obj.hessianUpdate.H,objTotalGrad,alin,blin,[],[],lbf,ubf);
+            options = optimoptions(@fmincon,'Algorithm','sqp');
+            [dxscaled,fval,exitflag,output,lambda] = fmincon(@(dx)obj.fminconObj(dx,obj.hessianUpdate.H,objTotalGrad),zeros(numel(obj.designVariables),1),alin,blin,[],[],lbf,ubf,@(dx)obj.fminconNlc(dx,obj.hessianUpdate.TR),options);
+            if not(isempty(con))
+                lambdaR = -(dR_du)\(dI_du+lambda.ineqlin'*[-dcon_du;dcon_du])';
+                dL_dx = dI_dx+lambdaR'*dR_dx+lambda.ineqlin'*[-dcon_dx;dcon_dx];
+            else
+                lambdaR = -(dR_du)\(dI_du)';
+                dL_dx = dI_dx+lambdaR'*dR_dx;
+            end
+            dx = dxscaled(:)'.*obj.designScale;
+            
+            %HessianUpdate
+            obj.hessianUpdate.xScaled = [obj.hessianUpdate.xScaled;obj.designVariables];
+            obj.hessianUpdate.dL_dx = [obj.hessianUpdate.dL_dx;dL_dx];
+            if size(obj.hessianUpdate.xScaled,1) > 1
+                s = obj.hessianUpdate.xScaled(end,:)-obj.hessianUpdate.xScaled(end-1,:);
+                y = obj.hessianUpdate.dL_dx(end,:)-obj.hessianUpdate.dL_dx(end-1,:);
+                obj.hessianUpdate.H = obj.hessianUpdate.updateFunction(s,y,obj.hessianUpdate.H);
+            end
         end
-        
+
+        function obj = updateVariables(obj,FcnObjandCon,cmin,cmax)
+            [dx,obj] = obj.finddx(FcnObjandCon,cmin,cmax);
+            obj.plotGeometry(1,obj.Cp,[-2,1]);
+            newDes = obj.designVariables.*obj.designScale+obj.lb+dx;
+            disp(newDes);
+            obj = obj.modifyMeshfromVariables(newDes);
+            obj = obj.setCf(1,obj.unlsiParam.Re,obj.unlsiParam.Lch,obj.unlsiParam.k,obj.unlsiParam.LTratio,obj.unlsiParam.coefficient);
+            obj = obj.makeCluster(obj.unlsiParam.nCluster,obj.unlsiParam.edgeAngleThreshold);
+        end
     end
 
     methods(Static)
-        function res = fminconObj(dx,obj)
-            res = 0.5 * dx(:)'*obj.solver.hessian*dx(:) + obj.solver.obj0 + obj.solver.dobj_dx*dx(:);
-            %res = obj.solver.obj0 + obj.solver.dobj_dx*dx(:);
+        function res = fminconObj(dx,H,g)
+            res = 0.5 * dx(:)'*H*dx(:) + g*dx(:);
         end
 
-        function [c,ceq] = fminconNlc(dx,obj)
+        function [c,ceq] = fminconNlc(dx,TR)
             ceq = [];
-            c = sum(dx.^2)-(obj.solver.trustRegion)^2;
+            c = sum(dx.^2)-(TR)^2;
         end
 
         function Bkp1 = SR1_BFGS(obj,s,y,Bk)
@@ -268,6 +390,17 @@ classdef UNGRADE < UNLSI
             else
                 fprintf('Hessian update mode is SR1/BFGS. This time is BFGS\n')
                 Bkp1 = obj.BFGS(s,y,Bk);
+            end
+        end
+        function Bkp1 = SSR1_MBFGS(obj,s,y,Bk)
+            b = (s(:)'*Bk*s(:))/(s(:)'*y(:));
+            eta2 = 10^-7;
+            if b < 1-eta2 && not(isinf(b))
+                fprintf('Hessian update mode is SSR1/MBFGS. This time is SSR1\n')
+                Bkp1 = obj.SSR1(s,y,Bk);
+            else
+                fprintf('Hessian update mode is SSR1/MBFGS. This time is MBFGS\n')
+                Bkp1 = obj.MBFGS(s,y,Bk);
             end
         end
 
@@ -283,6 +416,25 @@ classdef UNGRADE < UNLSI
                 Bkp1 = Bk;
             else
                 Bkp1 = Bk-(Bk*s*(Bk*s)')/(s.'*Bk*s)+(y*y.')/(s.'*y);
+                coeB=(s'*y)/(s'*Bkp1*s);
+                if coeB>0 && coeB<1
+                    Bkp1=coeB.*Bkp1;
+                end
+            end
+        end
+        function Bkp1 = MBFGS(s,y,Bk)
+            s = s(:);
+            y=y(:);
+            if s'*(Bk*s-y)==0
+                Bkp1 = Bk;
+            else
+                if s'*y>=0.2*(s'*Bk*s)
+                    phi = 1;
+                else
+                    phi = 0.8*(s'*Bk*s)/(s'*(Bk*s-y));
+                end
+                yhat = phi.*y+(1-phi).*(Bk*s);
+                Bkp1 = Bk-(Bk*s*(Bk*s)')/(s.'*Bk*s)+(yhat*yhat.')/(s.'*yhat);
                 coeB=(s'*y)/(s'*Bkp1*s);
                 if coeB>0 && coeB<1
                     Bkp1=coeB.*Bkp1;
@@ -343,12 +495,19 @@ classdef UNGRADE < UNLSI
                 if isnan(lambda_k)||not(isreal(lambda_k))
                     Bkp1 = Bk;
                 else
-                    fprintf('lambda_k:%f\n',lambda_k)
                     Bk = 1./lambda_k.*eye(size(Bk,1));
                     Bkp1 = Bk+(y-Bk*s)*(y-Bk*s)'/((y-Bk*s)'*s);
+                    coeB =(s'*y)/(s'*Bkp1*s);
+                    if coeB>0 && coeB<1
+                        Bkp1=coeB.*Bkp1;
+                    end
                 end
             else
                 Bkp1 = Bk+(y-Bk*s)*(y-Bk*s)'/((y-Bk*s)'*s);
+                coeB =(s'*y)/(s'*Bkp1*s);
+                if coeB>0 && coeB<1
+                    Bkp1=coeB.*Bkp1;
+                end
             end
         end
 
