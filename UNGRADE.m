@@ -252,8 +252,10 @@ classdef UNGRADE < UNLSI
 
         end
 
-        function obj = setHessianUpdate(obj,H0,TR,method)
+        function obj = setHessianUpdate(obj,H0,TR,method,nMemory)
+            obj.hessianUpdate.H0 = H0;
             obj.hessianUpdate.H = H0;
+            obj.hessianUpdate.nMemory = nMemory;
             obj.hessianUpdate.TR = TR;
             obj.hessianUpdate.xScaled = [];
             obj.hessianUpdate.dL_dx = [];
@@ -285,7 +287,7 @@ classdef UNGRADE < UNLSI
             [u0,~] = obj.solvePertPotential(1,obj.unlsiParam.alpha,obj.unlsiParam.beta);
             [AERODATA0,Cp0,Cfe0,R0,obj] = obj.solveFlowForAdjoint(u0,1,obj.unlsiParam.alpha,obj.unlsiParam.beta);
             [I0,con0] = objandConsFun(desOrg,AERODATA0,Cp0,Cfe0);
-            disp([I0,con0]);
+            disp([I0,con0(:)']);
             %u微分の計算
             pert = sqrt(eps);
             for i = 1:numel(u0)
@@ -346,6 +348,7 @@ classdef UNGRADE < UNLSI
                 dL_dx = dI_dx+lambdaR'*dR_dx+lambda.ineqlin'*[-dcon_dx;dcon_dx];
             else
                 lambdaR = -(dR_du)\(dI_du)';
+
                 dL_dx = dI_dx+lambdaR'*dR_dx;
             end
             dx = dxscaled(:)'.*obj.designScale;
@@ -354,9 +357,16 @@ classdef UNGRADE < UNLSI
             obj.hessianUpdate.xScaled = [obj.hessianUpdate.xScaled;obj.designVariables];
             obj.hessianUpdate.dL_dx = [obj.hessianUpdate.dL_dx;dL_dx];
             if size(obj.hessianUpdate.xScaled,1) > 1
-                s = obj.hessianUpdate.xScaled(end,:)-obj.hessianUpdate.xScaled(end-1,:);
-                y = obj.hessianUpdate.dL_dx(end,:)-obj.hessianUpdate.dL_dx(end-1,:);
-                obj.hessianUpdate.H = obj.hessianUpdate.updateFunction(s,y,obj.hessianUpdate.H);
+                n_iter = size(obj.hessianUpdate.xScaled,1)-1;
+                if n_iter > obj.hessianUpdate.nMemory
+                    n_iter = obj.hessianUpdate.nMemory;
+                end
+                obj.hessianUpdate.H = obj.hessianUpdate.H0;
+                for i = 1:n_iter
+                    s = obj.hessianUpdate.xScaled(end-(i-1),:)-obj.hessianUpdate.xScaled(end-i,:);
+                    y = obj.hessianUpdate.dL_dx(end-(i-1),:)-obj.hessianUpdate.dL_dx(end-i,:);
+                    obj.hessianUpdate.H = obj.hessianUpdate.updateFunction(s,y,obj.hessianUpdate.H);
+                end
             end
         end
 
