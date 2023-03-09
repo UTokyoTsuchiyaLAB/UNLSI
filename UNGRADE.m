@@ -33,6 +33,8 @@ classdef UNGRADE < UNLSI
             %orgVerts,orgCon　実際に解析を行うメッシュ（openVSPのCFDツール等で生成した（基本的に）オーバーラップのない非構造メッシュ）
             %meshGenFun　設計変数（スケールされていない）から基準サーフェス（解析メッシュと同じ表面を持つ、トリムされていないメッシュ）
             %designVariables : 設計変数
+            %lb：設計変数の下限
+            %ub：設計変数の上限
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             obj = obj@UNLSI(orgVerts,orgCon,surfID,wakelineID,halfmesh)
             obj.lb = lb(:)';
@@ -333,8 +335,8 @@ classdef UNGRADE < UNLSI
             desOrg = obj.designVariables.*obj.designScale+obj.lb;
             obj = obj.setREFS(obj.optSREF,obj.optBREF,obj.optCREF);
             obj = obj.setRotationCenter(obj.optXYZREF);
-            [u0,~] = obj.solvePertPotential(1,obj.unlsiParam.alpha,obj.unlsiParam.beta);
-            [AERODATA0,Cp0,Cfe0,R0,obj] = obj.solveFlowForAdjoint(u0,1,obj.unlsiParam.alpha,obj.unlsiParam.beta);
+            [u0,~] = obj.solvePertPotential(1,obj.unlsiParam.alpha,obj.unlsiParam.beta);%ポテンシャルを求める
+            [AERODATA0,Cp0,Cfe0,R0,obj] = obj.solveFlowForAdjoint(u0,1,obj.unlsiParam.alpha,obj.unlsiParam.beta);%ポテンシャルから空力係数を計算
             [I0,con0] = objandConsFun(desOrg,AERODATA0,Cp0,Cfe0,obj.optSREF,obj.optBREF,obj.optCREF,obj.optXYZREF,obj.argin_x);
             disp([I0,con0(:)']);
             %u微分の計算
@@ -344,7 +346,7 @@ classdef UNGRADE < UNLSI
                 u(i) = u(i)+pert;
                 [AERODATA,Cp,Cfe] = obj.solveFlowForAdjoint(u,1,obj.unlsiParam.alpha,obj.unlsiParam.beta);
                 [I,con] = objandConsFun(desOrg,AERODATA,Cp,Cfe,obj.optSREF,obj.optBREF,obj.optCREF,obj.optXYZREF,obj.argin_x);
-                dI_du(i) = (I-I0)/pert;
+                dI_du(i) = (I-I0)/pert;%評価関数のポテンシャルによる微分
                 if not(isempty(con))
                     dcon_du(:,i) = (con-con0)/pert;
                 end
