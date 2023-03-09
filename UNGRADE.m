@@ -12,7 +12,18 @@ classdef UNGRADE < UNLSI
         designScale
         gradSurf
         approxMat %ソルバーの近似行列
+        approximated
         hessianUpdate
+        optSREF
+        optBREF
+        optCREF
+        optXYZREF
+        gradSREF
+        gradBREF
+        gradCREF
+        gradXYZREF
+        gradArginx
+        argin_x
     end
 
     methods(Access = public)
@@ -29,7 +40,9 @@ classdef UNGRADE < UNLSI
             obj.designScale = (ub-lb);
             obj.orgMesh = triangulation(orgCon,orgVerts);
             obj.surfGenFun = surfGenFun;
-            [orgSurfVerts,orgSurfCon,desOrg] = obj.surfGenFun(designVariables(:)');
+            [orgSurfVerts,orgSurfCon,obj.optSREF,obj.optBREF,obj.optCREF,obj.optXYZREF,obj.argin_x,desOrg] = obj.surfGenFun(designVariables(:)');
+            obj = obj.setREFS(obj.optSREF,obj.optBREF,obj.optCREF);
+            obj = obj.setRotationCenter(obj.optXYZREF);
             obj.designVariables = (desOrg(:)'-obj.lb)./obj.designScale;
             obj.orgSurf =  triangulation(orgSurfCon,orgSurfVerts);
         end
@@ -41,9 +54,12 @@ classdef UNGRADE < UNLSI
         function obj = modifyMesh(obj,designVariables,orgVerts,orgCon,surfID,wakelineID)
             obj = obj.setMesh(orgVerts,orgCon,surfID,wakelineID);
             obj.orgMesh = triangulation(orgCon,orgVerts);
-            [orgSurfVerts,orgSurfCon,desOrg] = obj.surfGenFun(designVariables(:)');
+            [orgSurfVerts,orgSurfCon,obj.optSREF,obj.optBREF,obj.optCREF,obj.optXYZREF,obj.argin_x,desOrg] = obj.surfGenFun(designVariables(:)');
+            obj = obj.setREFS(obj.optSREF,obj.optBREF,obj.optCREF);
+            obj = obj.setRotationCenter(obj.optXYZREF);
             obj.designVariables = (desOrg(:)'-obj.lb)./obj.designScale;
             obj.orgSurf =  triangulation(orgSurfCon,orgSurfVerts);
+            obj = obj.makeCluster(obj.unlsiParam.nCluster,obj.unlsiParam.edgeAngleThreshold);
         end
 
         function obj = modifyMeshfromVariables(obj,designVariables)
@@ -81,21 +97,27 @@ classdef UNGRADE < UNLSI
             pert = 0.01./obj.designScale;
             ndim = numel(obj.designVariables);
             desOrg = obj.designVariables.*obj.designScale+obj.lb;
-            [surforg,~,desOrg] = obj.surfGenFun(desOrg);
+            [surforg,~,obj.optSREF,obj.optBREF,obj.optCREF,obj.optXYZREF,obj.argin_x,desOrg] = obj.surfGenFun(desOrg);
             for i = 1:ndim
                 sampleDes = obj.designVariables.*obj.designScale+obj.lb;
                 sampleDes(i) = (obj.designVariables(i) + pert(i)).*obj.designScale(i)+obj.lb(i);
-                [modSurf,~,desBuff] = obj.surfGenFun(sampleDes);
+                [modSurf,~,SREFf,BREFf,CREFf,XYZREFf,argin_xf,desBuff] = obj.surfGenFun(sampleDes);
                 pertf = (desBuff(i)-desOrg(i))/obj.designScale(i);
                 dmodSurf = modSurf-surforg;
                 sampleSurff = dmodSurf(:);
                 sampleDes = obj.designVariables.*obj.designScale+obj.lb;
                 sampleDes(i) = (obj.designVariables(i) - pert(i)).*obj.designScale(i)+obj.lb(i);
-                [modSurf,~,desBuff] = obj.surfGenFun(sampleDes);
+                [modSurf,~,SREFr,BREFr,CREFr,XYZREFr,argin_xr,desBuff] = obj.surfGenFun(sampleDes);
                 pertr = (desBuff(i)-desOrg(i))/obj.designScale(i);
                 dmodSurf = modSurf-surforg;
                 sampleSurfr = dmodSurf(:);
                 obj.gradSurf(:,i) = (sampleSurff-sampleSurfr)./(pertf-pertr);
+                obj.gradSREF(i) = (SREFf-SREFr)./(pertf-pertr);
+                obj.gradBREF(i) = (BREFf-BREFr)./(pertf-pertr);
+                obj.gradCREF(i) = (CREFf-CREFr)./(pertf-pertr);
+                obj.gradXYZREF(:,i) = (XYZREFf(:)-XYZREFr(:))./(pertf-pertr);
+                obj.gradArginx(:,i) = (argin_xf(:)-argin_xr(:))./(pertf-pertr);
+
             end
         end
 
@@ -172,8 +194,31 @@ classdef UNGRADE < UNLSI
             fprintf("\n");
         end
 
-        function approxmatedObj = makeAproximatedInstance(obj,modifiedVerts)
+        function approxmatedObj = makeApproximatedInstance(obj,modifiedVerts)
+                nPanel = numel(obj.paneltype);
+                nbPanel = sum(obj.paneltype == 1);
                 approxmatedObj = obj.setVerts(modifiedVerts);
+                approxmatedObj.mu2v{1} = sparse(nPanel,nbPanel);
+                approxmatedObj.mu2v{2} = sparse(nPanel,nbPanel);
+                approxmatedObj.mu2v{3} = sparse(nPanel,nbPanel);
+            
+                for i = 1:nPanel
+                    if approxmatedObj.paneltype(i) == 1
+                        CPmat =approxmatedObj.center(approxmatedObj.cluster{i},1:3);
+                        pnt = approxmatedObj.center(i,:);
+                        m = approxmatedObj.tri.Points(approxmatedObj.tri.ConnectivityList(i,1),:)'-pnt(:);
+                        m = m./norm(m);
+                        l = cross(m,approxmatedObj.normal(i,:)');
+                        Minv = [l,m,approxmatedObj.normal(i,:)'];
+                        lmnMat = (Minv\(CPmat-repmat(pnt,[size(CPmat,1),1]))')';
+                        bb = [lmnMat(1:end,1),lmnMat(1:end,2),lmnMat(1:end,3),ones(size(lmnMat,1),1)];
+                        Bmat=pinv(bb,sqrt(eps));
+                        Vnmat = Minv(:,[1,2])*[1,0,0,0;0,1,0,0]*Bmat;
+                        for iter = 1:3
+                            approxmatedObj.mu2v{iter}(i,approxmatedObj.IndexPanel2Solver(approxmatedObj.cluster{i})) = Vnmat(iter,:);
+                        end
+                    end
+                end
                 approxmatedObj.approxMat = [];
                 approxmatedObj.approximated = 1;
                 for i = 1:size(modifiedVerts,1)
@@ -235,7 +280,7 @@ classdef UNGRADE < UNLSI
             end
         end
 
-        function obj = setOptCondition(obj,Mach,alpha,beta,wakeLength,n_wake,n_divide,nCluster,edgeAngleThreshold,Re,Lch,k,LTratio,CfeCoefficient)
+        function obj = setOptFlowCondition(obj,Mach,alpha,beta,wakeLength,n_wake,n_divide,nCluster,edgeAngleThreshold,Re,Lch,k,LTratio,CfeCoefficient)
             obj = obj.flowCondition(1,Mach);
             obj.unlsiParam.alpha = alpha;
             obj.unlsiParam.beta = beta;        
@@ -249,7 +294,8 @@ classdef UNGRADE < UNLSI
             obj.unlsiParam.k = k;
             obj.unlsiParam.LTratio = LTratio;
             obj.unlsiParam.coefficient = CfeCoefficient;
-
+            obj = obj.setCf(1,obj.unlsiParam.Re,obj.unlsiParam.Lch,obj.unlsiParam.k,obj.unlsiParam.LTratio,obj.unlsiParam.coefficient);
+            obj = obj.makeCluster(obj.unlsiParam.nCluster,obj.unlsiParam.edgeAngleThreshold);
         end
 
         function obj = setHessianUpdate(obj,H0,TR,method,nMemory)
@@ -276,17 +322,20 @@ classdef UNGRADE < UNLSI
             end
         end
 
-        function [dx,obj] = finddx(obj,objandConsFun,cmin,cmax)
+        function [dx,obj] = finddx(obj,objandConsFun,method,cmin,cmax)
             %%%%%%%%%%%%指定した評価関数と制約条件における設計変数勾配の計算%%%%%%%%
 
 
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             %初期点の解析
             obj = obj.makeEquation(obj.unlsiParam.wakeLength,obj.unlsiParam.n_wake,obj.unlsiParam.n_divide);
+            obj.approximated = 0;
             desOrg = obj.designVariables.*obj.designScale+obj.lb;
+            obj = obj.setREFS(obj.optSREF,obj.optBREF,obj.optCREF);
+            obj = obj.setRotationCenter(obj.optXYZREF);
             [u0,~] = obj.solvePertPotential(1,obj.unlsiParam.alpha,obj.unlsiParam.beta);
             [AERODATA0,Cp0,Cfe0,R0,obj] = obj.solveFlowForAdjoint(u0,1,obj.unlsiParam.alpha,obj.unlsiParam.beta);
-            [I0,con0] = objandConsFun(desOrg,AERODATA0,Cp0,Cfe0);
+            [I0,con0] = objandConsFun(desOrg,AERODATA0,Cp0,Cfe0,obj.optSREF,obj.optBREF,obj.optCREF,obj.optXYZREF,obj.argin_x);
             disp([I0,con0(:)']);
             %u微分の計算
             pert = sqrt(eps);
@@ -294,7 +343,7 @@ classdef UNGRADE < UNLSI
                 u = u0;
                 u(i) = u(i)+pert;
                 [AERODATA,Cp,Cfe] = obj.solveFlowForAdjoint(u,1,obj.unlsiParam.alpha,obj.unlsiParam.beta);
-                [I,con] = objandConsFun(desOrg,AERODATA,Cp,Cfe);
+                [I,con] = objandConsFun(desOrg,AERODATA,Cp,Cfe,obj.optSREF,obj.optBREF,obj.optCREF,obj.optXYZREF,obj.argin_x);
                 dI_du(i) = (I-I0)/pert;
                 if not(isempty(con))
                     dcon_du(:,i) = (con-con0)/pert;
@@ -304,17 +353,35 @@ classdef UNGRADE < UNLSI
             %x微分の計算
             %メッシュの節点勾配を作成
             obj = obj.makeMeshGradient();
-
+            if strcmpi(method,'chain')
+                obj = obj.calcApproximatedEquation();
+            end
             for i= 1:numel(obj.designVariables)
                 x = obj.designVariables;
                 x(i) = obj.designVariables(i)+pert;
                 des = x.*obj.designScale+obj.lb;
                 [~,modMesh] = obj.variables2Mesh(des,'linear');
-                %変数が少ないときは直接作成
-                obj2 = obj.setVerts(modMesh);
-                obj2 = obj2.makeEquation(obj.unlsiParam.wakeLength,obj.unlsiParam.n_wake,obj.unlsiParam.n_divide);
+                if strcmpi(method,'direct')
+                    %変数が少ないときは直接作成
+                    obj2 = obj.setVerts(modMesh);
+                    obj2 = obj2.makeEquation(obj.unlsiParam.wakeLength,obj.unlsiParam.n_wake,obj.unlsiParam.n_divide);
+                    obj2.approximated = 0;
+                elseif strcmpi(method,'chain')
+                    obj2 = obj.makeApproximatedInstance(modMesh);
+                else
+                    error("");
+                end
+                    
+                %基準面積等の設計変数変化
+                SREF2 = obj.optSREF+obj.gradSREF*(x(:)-obj.designVariables(:));
+                BREF2 = obj.optBREF+obj.gradBREF*(x(:)-obj.designVariables(:));
+                CREF2 = obj.optCREF+obj.gradCREF*(x(:)-obj.designVariables(:));
+                XYZREF2 = obj.optXYZREF+(obj.gradXYZREF*(x(:)-obj.designVariables(:)))';
+                argin_x2 = obj.argin_x+obj.gradArginx*(x(:)-obj.designVariables(:));
+                obj2 = obj2.setREFS(SREF2,BREF2,CREF2);
+                obj2 = obj2.setRotationCenter(XYZREF2);
                 [AERODATA,Cp,Cfe,R] = obj2.solveFlowForAdjoint(u0,1,obj.unlsiParam.alpha,obj.unlsiParam.beta);
-                [I,con] = objandConsFun(des,AERODATA,Cp,Cfe);
+                [I,con] = objandConsFun(des,AERODATA,Cp,Cfe,SREF2,BREF2,CREF2,XYZREF2,argin_x2);
                 dI_dx(i) = (I-I0)/pert;
                 if not(isempty(con))
                     dcon_dx(:,i) = (con-con0)/pert;
@@ -370,8 +437,8 @@ classdef UNGRADE < UNLSI
             end
         end
 
-        function obj = updateVariables(obj,FcnObjandCon,cmin,cmax)
-            [dx,obj] = obj.finddx(FcnObjandCon,cmin,cmax);
+        function obj = updateVariables(obj,FcnObjandCon,method,cmin,cmax)
+            [dx,obj] = obj.finddx(FcnObjandCon,method,cmin,cmax);
             obj.plotGeometry(1,obj.Cp,[-2,1]);
             newDes = obj.designVariables.*obj.designScale+obj.lb+dx;
             disp(newDes);
@@ -490,10 +557,6 @@ classdef UNGRADE < UNLSI
                 Bkp1 = Bk;
             else
                 Bkp1 = Bk+(y-Bk*s)*(y-Bk*s)'/((y-Bk*s)'*s);
-                coeB =(s'*y)/(s'*Bkp1*s);
-                if coeB>0 && coeB<1
-                    Bkp1=coeB.*Bkp1;
-                end
             end
         end
 
@@ -507,17 +570,9 @@ classdef UNGRADE < UNLSI
                 else
                     Bk = 1./lambda_k.*eye(size(Bk,1));
                     Bkp1 = Bk+(y-Bk*s)*(y-Bk*s)'/((y-Bk*s)'*s);
-                    coeB =(s'*y)/(s'*Bkp1*s);
-                    if coeB>0 && coeB<1
-                        Bkp1=coeB.*Bkp1;
-                    end
                 end
             else
                 Bkp1 = Bk+(y-Bk*s)*(y-Bk*s)'/((y-Bk*s)'*s);
-                coeB =(s'*y)/(s'*Bkp1*s);
-                if coeB>0 && coeB<1
-                    Bkp1=coeB.*Bkp1;
-                end
             end
         end
 
