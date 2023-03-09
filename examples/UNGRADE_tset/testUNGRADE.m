@@ -16,7 +16,7 @@ ungradetest = ungradetest.setHessianUpdate(eye(numel(orgVal)).*1,0.1,"SR1",12);
 
 
 for i = 1:300
-    ungradetest = ungradetest.updateVariables(@objFun,"direct",cmin,cmax);
+    ungradetest = ungradetest.updateVariables(@objFun,"direct",cmin,cmax);%設計変数微分の計算方法の指定
 end
 %ungradetest = ungradetest.solve
 

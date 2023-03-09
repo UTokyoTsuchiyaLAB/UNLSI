@@ -326,7 +326,7 @@ classdef UNGRADE < UNLSI
 
         function [dx,obj] = finddx(obj,objandConsFun,method,cmin,cmax)
             %%%%%%%%%%%%指定した評価関数と制約条件における設計変数勾配の計算%%%%%%%%
-
+            %method：設計変数に関する偏微分の計算方法，'direct'-->メッシュを再生成，'chain'-->基準メッシュの変位を補間
 
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             %初期点の解析
@@ -346,7 +346,7 @@ classdef UNGRADE < UNLSI
                 u(i) = u(i)+pert;
                 [AERODATA,Cp,Cfe] = obj.solveFlowForAdjoint(u,1,obj.unlsiParam.alpha,obj.unlsiParam.beta);
                 [I,con] = objandConsFun(desOrg,AERODATA,Cp,Cfe,obj.optSREF,obj.optBREF,obj.optCREF,obj.optXYZREF,obj.argin_x);
-                dI_du(i) = (I-I0)/pert;%評価関数のポテンシャルによる微分
+                dI_du(i) = (I-I0)/pert;%評価関数のポテンシャルに関する偏微分
                 if not(isempty(con))
                     dcon_du(:,i) = (con-con0)/pert;
                 end
@@ -371,7 +371,7 @@ classdef UNGRADE < UNLSI
                 elseif strcmpi(method,'chain')
                     obj2 = obj.makeApproximatedInstance(modMesh);
                 else
-                    error("");
+                    error("Supported method is 'direct' or 'chain'.");
                 end
                     
                 %基準面積等の設計変数変化
@@ -384,7 +384,7 @@ classdef UNGRADE < UNLSI
                 obj2 = obj2.setRotationCenter(XYZREF2);
                 [AERODATA,Cp,Cfe,R] = obj2.solveFlowForAdjoint(u0,1,obj.unlsiParam.alpha,obj.unlsiParam.beta);
                 [I,con] = objandConsFun(des,AERODATA,Cp,Cfe,SREF2,BREF2,CREF2,XYZREF2,argin_x2);
-                dI_dx(i) = (I-I0)/pert;
+                dI_dx(i) = (I-I0)/pert;%評価関数の設計変数に関する偏微分
                 if not(isempty(con))
                     dcon_dx(:,i) = (con-con0)/pert;
                 end
