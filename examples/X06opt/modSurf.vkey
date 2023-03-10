@@ -1,0 +1,11 @@
+# VSPGEOM Tag Key File
+modSurf.vspgeom
+6
+
+# tag#,geom#,surf#,gname,gid,ssname1,ssname2,...,ssid1,ssid2,...
+1,2,0,FuselageGeom,CLCNIRPFYA
+2,0,0,WingGeom,YUEIUZTOGU
+3,1,0,WingGeom,LSAVAESTTT
+4,1,1,WingGeom,LSAVAESTTT
+5,1,0,WingGeom,LSAVAESTTT,SS_CONT_0,DIZDIUUCAE
+6,1,1,WingGeom,LSAVAESTTT,SS_CONT_0,DIZDIUUCAE
