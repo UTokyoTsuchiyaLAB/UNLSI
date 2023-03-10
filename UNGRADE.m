@@ -81,9 +81,9 @@ classdef UNGRADE < UNLSI
                     error("Surf connectivity is not match")
                 end
             end
-            md.x = scatteredInterpolant(obj.orgSurf.Points,modSurfVerts(:,1)-obj.orgSurf.Points(:,1),'natural','linear');
-            md.y = scatteredInterpolant(obj.orgSurf.Points,modSurfVerts(:,2)-obj.orgSurf.Points(:,2),'natural','linear');
-            md.z = scatteredInterpolant(obj.orgSurf.Points,modSurfVerts(:,3)-obj.orgSurf.Points(:,3),'natural','linear');
+            md.x = scatteredInterpolant(obj.orgSurf.Points,modSurfVerts(:,1)-obj.orgSurf.Points(:,1),'linear','linear');
+            md.y = scatteredInterpolant(obj.orgSurf.Points,modSurfVerts(:,2)-obj.orgSurf.Points(:,2),'linear','linear');
+            md.z = scatteredInterpolant(obj.orgSurf.Points,modSurfVerts(:,3)-obj.orgSurf.Points(:,3),'linear','linear');
             dVerts(:,1) = md.x(obj.orgMesh.Points);
             dVerts(:,2) = md.y(obj.orgMesh.Points);
             dVerts(:,3) = md.z(obj.orgMesh.Points);
@@ -421,7 +421,7 @@ classdef UNGRADE < UNLSI
                 end
                 lbf = -obj.designVariables;
                 ubf = 1-obj.designVariables;
-                options = optimoptions(@fmincon,'Algorithm','sqp','Display','iter-detailed');
+                options = optimoptions(@fmincon,'Algorithm','interior-point','Display','iter-detailed');
                 [dxscaled,fval,exitflag,output,lambda] = fmincon(@(dx)obj.fminconObj(dx,obj.optimization.H,objTotalGrad),zeros(numel(obj.designVariables),1),alin,blin,[],[],lbf,ubf,@(dx)obj.fminconNlc(dx,obj.optimization.TR),options);
                 if not(isempty(con0))
                     lambdaR = -(dR_du)\(dI_du+lambda.ineqlin'*[-dcon_du;dcon_du])';
@@ -451,7 +451,11 @@ classdef UNGRADE < UNLSI
                 else
                     Ldx = Idx ;
                 end
-                acc = (Ldx-Lorg)/(0.5*dxscaled(:)'*obj.optimization.H*dxscaled(:)+objTotalGrad*dxscaled(:));
+                if not(isempty(con0))
+                    acc = (Ldx-Lorg)/(fval+(lambda.ineqlin'*[-dcon_dx;dcon_dx])*dxscaled(:));
+                else
+                    acc = (Ldx-Lorg)/(fval);
+                end
                 fprintf("Variables:\n")
                 disp(desOrg);
                 fprintf("------>\n")
@@ -461,7 +465,7 @@ classdef UNGRADE < UNLSI
                 fprintf("------>\n");
                 disp([Idx,condx(:)']);
                 fprintf("dx norm :%f\nLagrangian Value : %f -> %f\nHessian Approximation Accuracy:%f\n",norm(dxscaled),Lorg,Ldx,acc);
-                if acc < 0.25
+                if acc < 0.15
                     obj.optimization.TR = obj.optimization.TR * 0.9;
                 elseif acc > 0.5
                     obj.optimization.TR = obj.optimization.TR / 0.9;

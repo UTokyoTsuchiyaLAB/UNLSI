@@ -169,10 +169,10 @@
       </SVGSettings>
       <Screenshot>
         <AutoCropFlag Value="0.000000000000000000e+00" ID="EHGKMCIODLI"/>
-        <Height Value="1.030000000000000000e+03" ID="DVQIKLMEJYL"/>
+        <Height Value="9.220000000000000000e+02" ID="DVQIKLMEJYL"/>
         <Ratio Value="1.000000000000000000e+00" ID="JRTCMXREZCO"/>
         <TransparentBGFlag Value="1.000000000000000000e+00" ID="JXWWKAKVPNF"/>
-        <Width Value="1.080000000000000000e+03" ID="ICQHEHUTXRM"/>
+        <Width Value="9.720000000000000000e+02" ID="ICQHEHUTXRM"/>
       </Screenshot>
       <SetEditor>
         <CopySetsWithGeomsFlag Value="1.000000000000000000e+00" ID="SCZCHYVCJKH"/>
@@ -1550,7 +1550,18 @@
     </ParmContainer>
     <ControlSurfaceGroupCount>0</ControlSurfaceGroupCount>
     <RotorDiskCount>0</RotorDiskCount>
-    <CpSliceCount>18</CpSliceCount>
+    <CpSliceCount>19</CpSliceCount>
+    <CpSlice>
+      <ParmContainer>
+        <ID>HOLLTVPKRM</ID>
+        <Name>Y = 0</Name>
+        <CpSlice>
+          <CutPosition Value="0.000000000000000000e+00" ID="IYSVYKHBTUK"/>
+          <CutType Value="1.000000000000000000e+00" ID="BAXNVOJEPZG"/>
+          <DrawCutFlag Value="1.000000000000000000e+00" ID="BQFYAWPJFMM"/>
+        </CpSlice>
+      </ParmContainer>
+    </CpSlice>
     <CpSlice>
       <ParmContainer>
         <ID>HEZOTKFGCY</ID>
@@ -1892,6 +1903,52 @@
     </ParmContainer>
   </CFDGridDensity>
   <StructureMgr>
+    <FeaPropertyInfo>
+      <ParmContainer>
+        <ID>KOFFUDIPGJ</ID>
+        <Name>DefaultShell</Name>
+        <FeaProperty>
+          <CrossSecArea Value="1.000000000000000056e-01" ID="BBLJHYCKLXL"/>
+          <CrossSectType Value="0.000000000000000000e+00" ID="PLSYGPOXLNZ"/>
+          <Dim1 Value="0.000000000000000000e+00" ID="HIQZAAIZNUD"/>
+          <Dim2 Value="0.000000000000000000e+00" ID="GHFETDOGEPQ"/>
+          <Dim3 Value="0.000000000000000000e+00" ID="ACTRKVKWTNG"/>
+          <Dim4 Value="0.000000000000000000e+00" ID="GEQTHCQPKDL"/>
+          <Dim5 Value="0.000000000000000000e+00" ID="RXDQZBGQHVB"/>
+          <Dim6 Value="0.000000000000000000e+00" ID="FHZDQDYEWEK"/>
+          <FeaMaterialIndex Value="0.000000000000000000e+00" ID="KAXFFJCKXXL"/>
+          <FeaPropertyType Value="0.000000000000000000e+00" ID="GHLSYJCHUIX"/>
+          <Ixx Value="0.000000000000000000e+00" ID="FWGFNSLDBTI"/>
+          <Iyy Value="1.000000000000000056e-01" ID="ZQJFRPZPUKR"/>
+          <Izy Value="0.000000000000000000e+00" ID="LLOCAGHKZOL"/>
+          <Izz Value="1.000000000000000056e-01" ID="STFVLQTTMDP"/>
+          <Thickness Value="1.000000000000000056e-01" ID="QZKFLKDEMOJ"/>
+        </FeaProperty>
+      </ParmContainer>
+    </FeaPropertyInfo>
+    <FeaPropertyInfo>
+      <ParmContainer>
+        <ID>IUEHVYXRLD</ID>
+        <Name>DefaultBeam</Name>
+        <FeaProperty>
+          <CrossSecArea Value="1.000000000000000056e-01" ID="QQMGJYIFYTQ"/>
+          <CrossSectType Value="0.000000000000000000e+00" ID="BPWABVTJBVZ"/>
+          <Dim1 Value="0.000000000000000000e+00" ID="OCLPMWDQAJG"/>
+          <Dim2 Value="0.000000000000000000e+00" ID="WZHICQOWAEQ"/>
+          <Dim3 Value="0.000000000000000000e+00" ID="WFNMJEUIDYJ"/>
+          <Dim4 Value="0.000000000000000000e+00" ID="VCZOZXGCCZZ"/>
+          <Dim5 Value="0.000000000000000000e+00" ID="AONUEAUNCJM"/>
+          <Dim6 Value="0.000000000000000000e+00" ID="ENZLXLCLMZT"/>
+          <FeaMaterialIndex Value="0.000000000000000000e+00" ID="NWUTOWZUUCO"/>
+          <FeaPropertyType Value="1.000000000000000000e+00" ID="KHKBGPSBBUA"/>
+          <Ixx Value="0.000000000000000000e+00" ID="XZWUZZMBQXS"/>
+          <Iyy Value="1.000000000000000056e-01" ID="TAZFRBXGOJO"/>
+          <Izy Value="0.000000000000000000e+00" ID="PIGEYLUUXED"/>
+          <Izz Value="1.000000000000000056e-01" ID="YBAZJXGBMUU"/>
+          <Thickness Value="1.000000000000000056e-01" ID="VRUJOWMFNOH"/>
+        </FeaProperty>
+      </ParmContainer>
+    </FeaPropertyInfo>
     <FeaPropertyInfo>
       <ParmContainer>
         <ID>LZLJNPDTDA</ID>

@@ -12,7 +12,7 @@ cmax = [0.56, 0, 0, 0, 0]';
 ungradetest = UNGRADE(@(x)vspSurfGen(x,"wing","org.des"),orgVal,lb,ub,orgVerts,orgCon,surfID,wakelineID,1);
 ungradetest = ungradetest.setMeshGenFun(@(x)vspMeshGen(x,"wing","org.des"));%基準メッシュ生成関数の指定
 ungradetest = ungradetest.setOptFlowCondition(0.0001,5,0,20,5,10,50,50,500000,4,0.052*(10^-5),0,1);
-ungradetest = ungradetest.setOptimization(eye(numel(orgVal)).*1,0.1,0.001,0.2,"SSR1",12);
+ungradetest = ungradetest.setOptimization(eye(numel(orgVal)).*1,0.1,0.001,0.1,"BFGS",12);
 
 %ungradetest = ungradetest.updateVariables(@objFun,"nonlin",cmin,cmax);%設計変数微分の計算方法の指定
 for i = 1:300
