@@ -1,8 +1,0 @@
-void main()
-{   
-
- string meshid = ExportFile( "modSurf.vspgeom", 0, EXPORT_VSPGEOM );
- DeleteGeom( meshid );
- 
-
-}

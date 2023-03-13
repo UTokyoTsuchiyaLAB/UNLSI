@@ -671,8 +671,8 @@ classdef UNLSI
                             iter = iter+1;
                         end
                     end
-                    
-                    potential = u + sum(Vinf(obj.paneltype == 1,:).*obj.center(obj.paneltype == 1,:),2);
+                    usolve = u(nbPanel*(iterflow-1)+1:nbPanel*iterflow,1);
+                    potential = usolve + sum(Vinf(obj.paneltype == 1,:).*obj.center(obj.paneltype == 1,:),2);
                     dv = zeros(nPanel,3);
                     for i = 1:3
                         dv(:,i) = obj.mu2v{i}*(potential);
@@ -728,12 +728,11 @@ classdef UNLSI
                     CY = T(:,2)'*[CAp+CAf;CYp+CYf;CNp+CNf];
                 end
                 AR = obj.BREF^2/obj.SREF;
-                obj.AERODATA{flowNo}(iterflow,:) = [beta,obj.flow{flowNo}.Mach,alpha,0,CL,CDo,CDi,CDtot,0,0,CY,CL/CDtot,CL^2/pi/AR/CDi,CAp+CAf,CYp+CYf,CNp+CNf,CMX,CMY,CMZ,0,0,0,0];
+                obj.AERODATA{flowNo}(iterflow,:) = [beta(iterflow),obj.flow{flowNo}.Mach,alpha(iterflow),0,CL,CDo,CDi,CDtot,0,0,CY,CL/CDtot,CL^2/pi/AR/CDi,CAp+CAf,CYp+CYf,CNp+CNf,CMX,CMY,CMZ,0,0,0,0];
                 AERODATA = obj.AERODATA;
                 Cp = obj.Cp;
                 Cfe = obj.Cfe;
                 RHV = obj.RHS*sigmas;
-                usolve = u(nbPanel*(iterflow-1)+1:nbPanel*iterflow,1);
                 R(nbPanel*(iterflow-1)+1:nbPanel*iterflow,1) = obj.LHS*usolve+RHV;
             end
             %disp([CL,CDo,CDi,CDtot,CMY]);

@@ -265,25 +265,29 @@ classdef UNGRADE < UNLSI
             randparam = rand(1).*ones(1,ndim);
             randDes = randparam.*obj.designScale+obj.lb;
             modSurforg = obj.surfGenFun(randDes);
-            viewtri = triangulation(obj.orgSurf.ConnectivityList,modSurforg);
-            figure(fig);clf
-            trisurf(viewtri);
-            axis equal;drawnow();
-            fprintf("randamized parameter : ");
-            disp(randDes);
-            pause(1);
+            if nargin == 3
+                viewtri = triangulation(obj.orgSurf.ConnectivityList,modSurforg);
+                figure(fig);clf
+                trisurf(viewtri);
+                axis equal;drawnow();
+                fprintf("randamized parameter : ");
+                disp(randDes);
+                pause(1);
+            end
             for i = 1:ndim
                 sampleDes = randparam.*obj.designScale+obj.lb;
                 sampleDes(i) = (randparam(i) + pert).*obj.designScale(i)+obj.lb(i);
                 modSurf = obj.surfGenFun(sampleDes);
-                viewtri = triangulation(obj.orgSurf.ConnectivityList,modSurf);
                 if all(abs(modSurforg(:)-modSurf(:)) <sqrt(eps))
-                    warning("Variables No. %d : NOT MOVED",i);
+                    error("Variables No. %d : NOT MOVED",i);
                 end
-                figure(fig);clf
-                trisurf(viewtri);
-                axis equal;drawnow();
-                pause(1)
+                if nargin == 3
+                    viewtri = triangulation(obj.orgSurf.ConnectivityList,modSurf);
+                    figure(fig);clf
+                    trisurf(viewtri);
+                    axis equal;drawnow();
+                    pause(1);
+                end
             end
         end
 
@@ -367,7 +371,13 @@ classdef UNGRADE < UNLSI
                         dcon_du(:,i) = (con-con0)/pert;
                     end
                 end
-                dR_du = obj.LHS;
+                for i = 1:numel(obj.unlsiParam.alpha)
+                    if i == 1
+                        dR_du = obj.LHS;
+                    else
+                        dR_du = blkdiag(dR_du,obj.LHS);
+                    end
+                end
                 %x微分の計算
                 %メッシュの節点勾配を作成
                 obj = obj.makeMeshGradient();
