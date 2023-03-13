@@ -60,8 +60,8 @@ classdef UNLSI
             obj.area = zeros(numel(obj.paneltype),1);
             obj.normal = zeros(numel(obj.paneltype),3);
             obj.center = zeros(numel(obj.paneltype),3);
-            obj.Cp = zeros(numel(obj.paneltype),1);
-            obj.Cfe = zeros(numel(obj.paneltype),1);
+            obj.Cp = {};
+            obj.Cfe = {};
             for i = 1:numel(obj.paneltype)
                 [obj.area(i,1),~ , obj.normal(i,:)] = obj.vertex(verts(connectivity(i,1),:),verts(connectivity(i,2),:),verts(connectivity(i,3),:));
                 obj.center(i,:) = [mean(verts(obj.tri.ConnectivityList(i,:),1)),mean(verts(obj.tri.ConnectivityList(i,:),2)),mean(verts(obj.tri.ConnectivityList(i,:),3))];
@@ -157,8 +157,8 @@ classdef UNLSI
             obj.area = zeros(numel(obj.paneltype),1);
             obj.normal = zeros(numel(obj.paneltype),3);
             obj.center = zeros(numel(obj.paneltype),3);
-            obj.Cp = zeros(numel(obj.paneltype),1);
-            obj.Cfe = zeros(numel(obj.paneltype),1);
+            obj.Cp = {};
+            obj.Cfe = {};
             obj.LHS = [];
             obj.RHS = [];
             for i = 1:numel(obj.paneltype)
@@ -380,21 +380,21 @@ classdef UNLSI
 
             if obj.flow{flowNo}.Mach > 1
                 delta = linspace(-pi,pi,500);
-                Cp = zeros(size(delta));
+                Cpfc = zeros(size(delta));
                 for j =1:size(delta,2)
                     if delta(j) >= 0
                         if strcmpi(newtoniantype,'TangentConeEdwards')
                             Mas = (0.87*Mach-0.554)*sin(delta(j))+0.53;
-                            Cp(j) = (2 * sin(delta(j))^2)/(1 - 1/4*((Mas^2+5)/(6*Mas^2)));
+                            Cpfc(j) = (2 * sin(delta(j))^2)/(1 - 1/4*((Mas^2+5)/(6*Mas^2)));
                         elseif strcmpi(newtoniantype,'OldTangentCone')
                             Mas = 1.090909*Mach*sin(delta(j))+exp(-1.090909*Mach*sin(delta(j)));
-                            Cp(j) = (2 * sin(delta(j))^2)/(1 - 1/4*((Mas^2+5)/(6*Mas^2)));
+                            Cpfc(j) = (2 * sin(delta(j))^2)/(1 - 1/4*((Mas^2+5)/(6*Mas^2)));
                         elseif strcmpi(newtoniantype,'TangentWedge')
                             if delta(j)>45.585*pi/180
-                                Cp(j)=((1.2*Mach*sin(delta(j))+exp(-0.6*Mach*sin(delta(j))))^2-1.0)/(0.6*Mach^2);
+                                Cpfc(j)=((1.2*Mach*sin(delta(j))+exp(-0.6*Mach*sin(delta(j))))^2-1.0)/(0.6*Mach^2);
                                 %R=1/Mach^2+(kappa+1)/2*delta(j)/sqrt(Mach^2-1);
                             elseif delta(j)<0.035
-                                Cp(j)=kappa*Mach^2*delta(j)/sqrt(Mach^4-1.0);
+                                Cpfc(j)=kappa*Mach^2*delta(j)/sqrt(Mach^4-1.0);
                             else
                                 b = -((Mach^2+2)/Mach^2)-kappa*sin(delta(j))^2;
                                 c = (2*Mach^2+1)/Mach^4+((kappa+1)^2/4+(kappa-1)/Mach^2)*sin(delta(j))^2;
@@ -403,26 +403,26 @@ classdef UNLSI
                                 rr = (b*(2*b^2-9*c)+27*d)/54;
                                 disc = q^3-rr^2;
                                 if disc<0
-                                    Cp(j)=((1.2*Mach*sin(delta(j))+exp(-0.6*Mach*sin(delta(j))))^2-1.0)/(0.6*Mach^2);
+                                    Cpfc(j)=((1.2*Mach*sin(delta(j))+exp(-0.6*Mach*sin(delta(j))))^2-1.0)/(0.6*Mach^2);
                                 else
                                     r = roots([1,b,c,d]);
                                     %ts = asin(sqrt(r(2)));
                                     R=r(2);
-                                    Cp(j) = 4*(Mach^2*R-1)/((kappa+1)*Mach^2);
+                                    Cpfc(j) = 4*(Mach^2*R-1)/((kappa+1)*Mach^2);
                                 end
                             end
                         end
-                        Pe_Pinf= Cp(j)*(kappa*Mach^2)/2+1;
+                        Pe_Pinf= Cpfc(j)*(kappa*Mach^2)/2+1;
                         Te_Tinf = Pe_Pinf^(1/(kappa/(kappa-1)));
                         Me = sqrt((2+(kappa+1)*Mach^2)/((kappa+1)*Te_Tinf)-2/(kappa+1));
                     else
                         Me = UNLSI.bisection(@(M2)UNLSI.pmsolve(Mach,M2,-delta(j),kappa),Mach,300);
                         Te_Tinf = (2+(kappa+1)*Mach^2)/(2+(kappa+1)*Me^2);
                         Pe_Pinf=(Te_Tinf)^(kappa/(kappa-1));
-                        Cp(j) = 2/(kappa*Mach^2)*(Pe_Pinf-1);
+                        Cpfc(j) = 2/(kappa*Mach^2)*(Pe_Pinf-1);
                     end
                 end
-                obj.flow{flowNo}.pp = griddedInterpolant(delta,Cp,'spline');
+                obj.flow{flowNo}.pp = griddedInterpolant(delta,Cpfc,'spline');
             end
         end
 
@@ -464,7 +464,7 @@ classdef UNLSI
             end
             Cf_L = 1.328./sqrt(Re);
             Cf_T = 0.455/((log10(Re).^(2.58))*((1+0.144*obj.flow{flowNo}.Mach*obj.flow{flowNo}.Mach)^0.65));
-            obj.Cfe(obj.paneltype==1,1) =(LTratio*Cf_L + (1-LTratio)*Cf_T)*coefficient;
+            obj.Cfe{flowNo}(obj.paneltype==1,1) =(LTratio*Cf_L + (1-LTratio)*Cf_T)*coefficient;
         end
 
         function obj = solveFlow(obj,flowNo,alpha,beta,omega)
@@ -477,112 +477,109 @@ classdef UNLSI
             %beta:横滑り角[deg]
             %omega:主流の回転角速度(deg/s)
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            if any(size(alpha) ~= size(beta))
+                error("analysis points are not match");
+            end
             nPanel = numel(obj.paneltype);
             nbPanel = sum(obj.paneltype == 1);
-            T(1,1) = cosd(alpha)*cosd(beta);
-            T(1,2) = cosd(alpha)*sind(beta);
-            T(1,3) = -sind(alpha);
-            T(2,1) = -sind(beta);
-            T(2,2) = cosd(beta);
-            T(2,3) = 0;
-            T(3,1) = sind(alpha)*cosd(beta);
-            T(3,2) = sind(alpha)*sind(beta);
-            T(3,3) = cosd(alpha);
-            if nargin < 5
-                Vinf = repmat((T*[1;0;0])',[nPanel,1]);
-            else
-                Vinf = zeros(nPanel,3);
-                for i = 1:nPanel
-                   rvec = obj.center(i,:)'-obj.XYZREF(:);
-                   Vinf(i,:) = (T*[1;0;0])'-(cross(omega(:)./180.*pi,rvec(:)))';
-                end
-            end
-            Tvec(:,1) = obj.normal(:,2).* Vinf(:,3)-obj.normal(:,3).* Vinf(:,2);
-            Tvec(:,2) = obj.normal(:,3).* Vinf(:,1)-obj.normal(:,1).* Vinf(:,3);
-            Tvec(:,3) = obj.normal(:,1).* Vinf(:,2)-obj.normal(:,2).* Vinf(:,1);
-            s(:,1) = Tvec(:,2).*obj.normal(:,3)-Tvec(:,3).*obj.normal(:,2);
-            s(:,2) = Tvec(:,3).*obj.normal(:,1)-Tvec(:,1).*obj.normal(:,3);
-            s(:,3) = Tvec(:,1).*obj.normal(:,2)-Tvec(:,2).*obj.normal(:,1);
-            if obj.flow{flowNo}.Mach < 1
-                %亜音速
-                sigmas = zeros(nbPanel,1);
-                iter = 1;
-                for i = 1:nPanel
-                    if obj.paneltype(i) == 1
-                        sigmas(iter,1) = -dot(Vinf(i,:)',obj.normal(i,:)');
-                        iter = iter+1;
+            for iterflow = 1:numel(alpha)
+                T = angle2dcm(beta(iterflow)*pi/180,alpha(iterflow)*pi/180,0);
+                if nargin < 5
+                    Vinf = repmat((T*[1;0;0])',[nPanel,1]);
+                else
+                    Vinf = zeros(nPanel,3);
+                    for i = 1:nPanel
+                       rvec = obj.center(i,:)'-obj.XYZREF(:);
+                       Vinf(i,:) = (T*[1;0;0])'-(cross(omega(iterflow,:)./180.*pi,rvec(:)))';
                     end
                 end
-                RHV = obj.RHS*sigmas;
-                u =  -obj.LHS\RHV;
-                potential = -u + sum(Vinf(obj.paneltype == 1,:).*obj.center(obj.paneltype == 1,:),2);
-                dv = zeros(nPanel,3);
-                for i = 1:3
-                    dv(:,i) = obj.mu2v{i}*(potential);
-                end
-            
-                obj.Cp(obj.paneltype==1,1) = (1-sum(dv(obj.paneltype==1,:).^2,2))./sqrt(1-obj.flow{flowNo}.Mach^2);
-                obj.Cp(obj.paneltype==2,1) = (-0.139-0.419.*(obj.flow{flowNo}.Mach-0.161).^2);
-            else
-                %超音速
-                delta = zeros(nbPanel,1);
-                iter = 1;
-                %各パネルが主流となす角度を求める
-                for i = 1:nPanel
-                    if obj.paneltype(i) == 1
-                        delta(iter,1) = acos(dot(obj.normal(i,:)',Vinf(i,:)')/norm(Vinf(i,:)))-pi/2;%パネル角度
-                        iter = iter+1;
+                Tvec(:,1) = obj.normal(:,2).* Vinf(:,3)-obj.normal(:,3).* Vinf(:,2);
+                Tvec(:,2) = obj.normal(:,3).* Vinf(:,1)-obj.normal(:,1).* Vinf(:,3);
+                Tvec(:,3) = obj.normal(:,1).* Vinf(:,2)-obj.normal(:,2).* Vinf(:,1);
+                s(:,1) = Tvec(:,2).*obj.normal(:,3)-Tvec(:,3).*obj.normal(:,2);
+                s(:,2) = Tvec(:,3).*obj.normal(:,1)-Tvec(:,1).*obj.normal(:,3);
+                s(:,3) = Tvec(:,1).*obj.normal(:,2)-Tvec(:,2).*obj.normal(:,1);
+                if obj.flow{flowNo}.Mach < 1
+                    %亜音速
+                    sigmas = zeros(nbPanel,1);
+                    iter = 1;
+                    for i = 1:nPanel
+                        if obj.paneltype(i) == 1
+                            sigmas(iter,1) = dot(Vinf(i,:)',obj.normal(i,:)');
+                            iter = iter+1;
+                        end
                     end
+                    RHV = obj.RHS*sigmas;
+                    u =  -obj.LHS\RHV;
+                    potential = u + sum(Vinf(obj.paneltype == 1,:).*obj.center(obj.paneltype == 1,:),2);
+                    dv = zeros(nPanel,3);
+                    for i = 1:3
+                        dv(:,i) = obj.mu2v{i}*(potential);
+                    end
+                
+                    obj.Cp{flowNo}(obj.paneltype==1,iterflow) = (1-sum(dv(obj.paneltype==1,:).^2,2))./sqrt(1-obj.flow{flowNo}.Mach^2);
+                    obj.Cp{flowNo}(obj.paneltype==2,iterflow) = (-0.139-0.419.*(obj.flow{flowNo}.Mach-0.161).^2);
+                else
+                    %超音速
+                    delta = zeros(nbPanel,1);
+                    iter = 1;
+                    %各パネルが主流となす角度を求める
+                    for i = 1:nPanel
+                        if obj.paneltype(i) == 1
+                            delta(iter,1) = acos(dot(obj.normal(i,:)',Vinf(i,:)')/norm(Vinf(i,:)))-pi/2;%パネル角度
+                            iter = iter+1;
+                        end
+                    end
+                    %用意された応答曲面をもちいてパネルの角度からCpを求める
+                    obj.Cp{flowNo}(obj.paneltype==1,iterflow) = obj.flow{flowNo}.pp(delta);%Cp
+                    obj.Cp{flowNo}(obj.paneltype==2,iterflow) = (-obj.flow{flowNo}.Mach.^(-2)+0.57.*obj.flow{flowNo}.Mach.^(-4));
                 end
-                %用意された応答曲面をもちいてパネルの角度からCpを求める
-                obj.Cp(obj.paneltype==1,1) = obj.flow{flowNo}.pp(delta);%Cp
-                obj.Cp(obj.paneltype==2,1) = (-obj.flow{flowNo}.Mach.^(-2)+0.57.*obj.flow{flowNo}.Mach.^(-4));
+                %Cp⇒力への変換
+                dCA_p = (-obj.Cp{flowNo}(:,iterflow).*obj.normal(:,1)).*obj.area./obj.SREF;
+                dCY_p = (-obj.Cp{flowNo}(:,iterflow).*obj.normal(:,2)).*obj.area./obj.SREF;
+                dCN_p = (-obj.Cp{flowNo}(:,iterflow).*obj.normal(:,3)).*obj.area./obj.SREF;
+                dCA_f = (+obj.Cfe{flowNo}.*s(:,1)).*obj.area./obj.SREF;
+                dCY_f = (+obj.Cfe{flowNo}.*s(:,2)).*obj.area./obj.SREF;
+                dCN_f = (+obj.Cfe{flowNo}.*s(:,3)).*obj.area./obj.SREF;
+                dCM = cross(obj.center-repmat(obj.XYZREF,[size(obj.center,1),1]),[dCA_p+dCA_f,dCY_p+dCY_f,dCN_p+dCN_f]);
+                dCMX = dCM(:,1)./obj.BREF;
+                dCMY = dCM(:,2)./obj.CREF;
+                dCMZ = dCM(:,3)./obj.BREF;
+                if obj.halfmesh == 1
+                    %半裁
+                    CNp = sum(dCN_p)*2;
+                    CAp = sum(dCA_p)*2;
+                    CYp = 0;
+                    CNf = sum(dCN_f)*2;
+                    CAf = sum(dCA_f)*2;
+                    CYf = 0;
+                    CMX = 0;
+                    CMY = sum(dCMY)*2;
+                    CMZ = 0;
+                else
+                    CNp = sum(dCN_p);
+                    CAp = sum(dCA_p);
+                    CYp = sum(dCY_p);
+                    CNf = sum(dCN_f);
+                    CAf = sum(dCA_f);
+                    CYf = sum(dCY_f);
+                    CMX = sum(dCMX);
+                    CMY = sum(dCMY);
+                    CMZ = sum(dCMZ);
+                end
+                CL = T(:,3)'*[CAp+CAf;CYp+CYf;CNp+CNf];
+                CDi = T(:,1)'*[CAp;CYp;CNp];
+                CDo = T(:,1)'*[CAf;CYf;CNf];
+                CDtot = CDi+CDo;
+                if obj.halfmesh == 1
+                    CY = 0;
+                else
+                    CY = T(:,2)'*[CAp+CAf;CYp+CYf;CNp+CNf];
+                end
+                AR = obj.BREF^2/obj.SREF;
+                obj.AERODATA{flowNo}(iterflow,:) = [beta(iterflow),obj.flow{flowNo}.Mach,alpha(iterflow),0,CL,CDo,CDi,CDtot,0,0,CY,CL/CDtot,CL^2/pi/AR/CDi,CAp+CAf,CYp+CYf,CNp+CNf,CMX,CMY,CMZ,0,0,0,0];
             end
-            %Cp⇒力への変換
-            dCA_p = (-obj.Cp.*obj.normal(:,1)).*obj.area./obj.SREF;
-            dCY_p = (-obj.Cp.*obj.normal(:,2)).*obj.area./obj.SREF;
-            dCN_p = (-obj.Cp.*obj.normal(:,3)).*obj.area./obj.SREF;
-            dCA_f = (+obj.Cfe.*s(:,1)).*obj.area./obj.SREF;
-            dCY_f = (+obj.Cfe.*s(:,2)).*obj.area./obj.SREF;
-            dCN_f = (+obj.Cfe.*s(:,3)).*obj.area./obj.SREF;
-            dCM = cross(obj.center-repmat(obj.XYZREF,[size(obj.center,1),1]),[dCA_p+dCA_f,dCY_p+dCY_f,dCN_p+dCN_f]);
-            dCMX = dCM(:,1)./obj.BREF;
-            dCMY = dCM(:,2)./obj.CREF;
-            dCMZ = dCM(:,3)./obj.BREF;
-            if obj.halfmesh == 1
-                %半裁
-                CNp = sum(dCN_p)*2;
-                CAp = sum(dCA_p)*2;
-                CYp = 0;
-                CNf = sum(dCN_f)*2;
-                CAf = sum(dCA_f)*2;
-                CYf = 0;
-                CMX = 0;
-                CMY = sum(dCMY)*2;
-                CMZ = 0;
-            else
-                CNp = sum(dCN_p);
-                CAp = sum(dCA_p);
-                CYp = sum(dCY_p);
-                CNf = sum(dCN_f);
-                CAf = sum(dCA_f);
-                CYf = sum(dCY_f);
-                CMX = sum(dCMX);
-                CMY = sum(dCMY);
-                CMZ = sum(dCMZ);
-            end
-
-            CL = T(:,3)'*[CAp+CAf;CYp+CYf;CNp+CNf];
-            CDi = T(:,1)'*[CAp;CYp;CNp];
-            CDo = T(:,1)'*[CAf;CYf;CNf];
-            CDtot = CDi+CDo;
-            if obj.halfmesh == 1
-                CY = 0;
-            else
-                CY = T(:,2)'*[CAp+CAf;CYp+CYf;CNp+CNf];
-            end
-            obj.AERODATA = [beta,obj.flow{flowNo}.Mach,alpha,0,CL,CDo,CDi,CDtot,0,0,CY,CL/CDtot,0,CAp+CAf,CYp+CYf,CNp+CNf,CMX,CMY,CMZ,0,0,0,0];
-            disp([CL,CDo,CDi,CDtot,CMY]);
+            %disp([CL,CDo,CDi,CDtot,CMY]);
         end
 
         function [u,R] = solvePertPotential(obj,flowNo,alpha,beta,omega)
@@ -590,42 +587,43 @@ classdef UNLSI
             %Adjoint法実装のためポテンシャルの変動値のみ求める。
 
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            if any(size(alpha) ~= size(beta))
+                error("analysis points are not match");
+            end
             nPanel = numel(obj.paneltype);
             nbPanel = sum(obj.paneltype == 1);
-            T(1,1) = cosd(alpha)*cosd(beta);
-            T(1,2) = cosd(alpha)*sind(beta);
-            T(1,3) = -sind(alpha);
-            T(2,1) = -sind(beta);
-            T(2,2) = cosd(beta);
-            T(2,3) = 0;
-            T(3,1) = sind(alpha)*cosd(beta);
-            T(3,2) = sind(alpha)*sind(beta);
-            T(3,3) = cosd(alpha);
-            if nargin < 5
-                Vinf = repmat((T*[1;0;0])',[nPanel,1]);
-            else
-                Vinf = zeros(nPanel,3);
-                for i = 1:nPanel
-                   rvec = obj.center(i,:)'-obj.XYZREF(:);
-                   Vinf(i,:) = (T*[1;0;0])'-(cross(omega(:)./180.*pi,rvec(:)))';
-                end
-            end
-            if obj.flow{flowNo}.Mach < 1
-                %亜音速
-                sigmas = zeros(nbPanel,1);
-                iter = 1;
-                for i = 1:nPanel
-                    if obj.paneltype(i) == 1
-                        sigmas(iter,1) = -dot(Vinf(i,:)',obj.normal(i,:)');
-                        iter = iter+1;
+            R = [];
+            u = [];
+            for iterflow = 1:numel(alpha)
+                T = angle2dcm(beta(iterflow)*pi/180,alpha(iterflow)*pi/180,0);
+                if nargin < 5
+                    Vinf = repmat((T*[1;0;0])',[nPanel,1]);
+                else
+                    Vinf = zeros(nPanel,3);
+                    for i = 1:nPanel
+                       rvec = obj.center(i,:)'-obj.XYZREF(:);
+                       Vinf(i,:) = (T*[1;0;0])'-(cross(omega(iterflow,:)./180.*pi,rvec(:)))';
                     end
                 end
-                RHV = obj.RHS*sigmas;
-                u =  -obj.LHS\RHV;
-                R = obj.LHS*u+RHV;
-            else
-                %超音速
-                error("solveFlowForAdjoint is not supported for hypersonic flow.")
+                if obj.flow{flowNo}.Mach < 1
+                    %亜音速
+                    sigmas = zeros(nbPanel,1);
+                    iter = 1;
+                    for i = 1:nPanel
+                        if obj.paneltype(i) == 1
+                            sigmas(iter,1) = dot(Vinf(i,:)',obj.normal(i,:)');
+                            iter = iter+1;
+                        end
+                    end
+                    RHV = obj.RHS*sigmas;
+                    usolve =  -obj.LHS\RHV;
+                    Rsolve = obj.LHS*usolve+RHV;
+                    u = [u;usolve];
+                    R = [R;Rsolve];
+                else
+                    %超音速
+                    error("solveFlowForAdjoint is not supported for hypersonic flow.")
+                end
             end
         end
         
@@ -641,104 +639,103 @@ classdef UNLSI
             %beta:横滑り角[deg]
             %omega:主流の回転角速度(deg/s)
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-            
+            if any(size(alpha) ~= size(beta))
+                error("analysis points are not match");
+            end
             nPanel = numel(obj.paneltype);
             nbPanel = sum(obj.paneltype == 1);
-            T(1,1) = cosd(alpha)*cosd(beta);
-            T(1,2) = cosd(alpha)*sind(beta);
-            T(1,3) = -sind(alpha);
-            T(2,1) = -sind(beta);
-            T(2,2) = cosd(beta);
-            T(2,3) = 0;
-            T(3,1) = sind(alpha)*cosd(beta);
-            T(3,2) = sind(alpha)*sind(beta);
-            T(3,3) = cosd(alpha);
-            if nargin < 6
-                Vinf = repmat((T*[1;0;0])',[nPanel,1]);
-            else
-                Vinf = zeros(nPanel,3);
-                for i = 1:nPanel
-                   rvec = obj.center(i,:)'-obj.XYZREF(:);
-                   Vinf(i,:) = (T*[1;0;0])'-(cross(omega(:)./180.*pi,rvec(:)))';
-                end
-            end
-            Tvec(:,1) = obj.normal(:,2).* Vinf(:,3)-obj.normal(:,3).* Vinf(:,2);
-            Tvec(:,2) = obj.normal(:,3).* Vinf(:,1)-obj.normal(:,1).* Vinf(:,3);
-            Tvec(:,3) = obj.normal(:,1).* Vinf(:,2)-obj.normal(:,2).* Vinf(:,1);
-            s(:,1) = Tvec(:,2).*obj.normal(:,3)-Tvec(:,3).*obj.normal(:,2);
-            s(:,2) = Tvec(:,3).*obj.normal(:,1)-Tvec(:,1).*obj.normal(:,3);
-            s(:,3) = Tvec(:,1).*obj.normal(:,2)-Tvec(:,2).*obj.normal(:,1);
-            if obj.flow{flowNo}.Mach < 1
-                %亜音速
-                sigmas = zeros(nbPanel,1);
-                iter = 1;
-                for i = 1:nPanel
-                    if obj.paneltype(i) == 1
-                        sigmas(iter,1) = -dot(Vinf(i,:)',obj.normal(i,:)');
-                        iter = iter+1;
+            for iterflow = 1:numel(alpha)
+                T = angle2dcm(beta(iterflow)*pi/180,alpha(iterflow)*pi/180,0);
+                if nargin < 6
+                    Vinf = repmat((T*[1;0;0])',[nPanel,1]);
+                else
+                    Vinf = zeros(nPanel,3);
+                    for i = 1:nPanel
+                       rvec = obj.center(i,:)'-obj.XYZREF(:);
+                       Vinf(i,:) = (T*[1;0;0])'-(cross(omega(iterflow,:)./180.*pi,rvec(:)))';
                     end
                 end
+                Tvec(:,1) = obj.normal(:,2).* Vinf(:,3)-obj.normal(:,3).* Vinf(:,2);
+                Tvec(:,2) = obj.normal(:,3).* Vinf(:,1)-obj.normal(:,1).* Vinf(:,3);
+                Tvec(:,3) = obj.normal(:,1).* Vinf(:,2)-obj.normal(:,2).* Vinf(:,1);
+                s(:,1) = Tvec(:,2).*obj.normal(:,3)-Tvec(:,3).*obj.normal(:,2);
+                s(:,2) = Tvec(:,3).*obj.normal(:,1)-Tvec(:,1).*obj.normal(:,3);
+                s(:,3) = Tvec(:,1).*obj.normal(:,2)-Tvec(:,2).*obj.normal(:,1);
+                if obj.flow{flowNo}.Mach < 1
+                    %亜音速
+                    sigmas = zeros(nbPanel,1);
+                    iter = 1;
+                    for i = 1:nPanel
+                        if obj.paneltype(i) == 1
+                            sigmas(iter,1) = dot(Vinf(i,:)',obj.normal(i,:)');
+                            iter = iter+1;
+                        end
+                    end
+                    
+                    potential = u + sum(Vinf(obj.paneltype == 1,:).*obj.center(obj.paneltype == 1,:),2);
+                    dv = zeros(nPanel,3);
+                    for i = 1:3
+                        dv(:,i) = obj.mu2v{i}*(potential);
+                    end
                 
-                potential = -u + sum(Vinf(obj.paneltype == 1,:).*obj.center(obj.paneltype == 1,:),2);
-                dv = zeros(nPanel,3);
-                for i = 1:3
-                    dv(:,i) = obj.mu2v{i}*(potential);
+                    obj.Cp{flowNo}(obj.paneltype==1,iterflow) = (1-sum(dv(obj.paneltype==1,:).^2,2))./sqrt(1-obj.flow{flowNo}.Mach^2);
+                    obj.Cp{flowNo}(obj.paneltype==2,iterflow) = (-0.139-0.419.*(obj.flow{flowNo}.Mach-0.161).^2);
+                else
+                    %超音速
+                    error("solveFlowForAdjoint is not supported for hypersonic flow.")
                 end
-            
-                obj.Cp(obj.paneltype==1,1) = (1-sum(dv(obj.paneltype==1,:).^2,2))./sqrt(1-obj.flow{flowNo}.Mach^2);
-                obj.Cp(obj.paneltype==2,1) = (-0.139-0.419.*(obj.flow{flowNo}.Mach-0.161).^2);
-            else
-                %超音速
-                error("solveFlowForAdjoint is not supported for hypersonic flow.")
+                %Cp⇒力への変換
+                dCA_p = (-obj.Cp{flowNo}(:,iterflow).*obj.normal(:,1)).*obj.area./obj.SREF;
+                dCY_p = (-obj.Cp{flowNo}(:,iterflow).*obj.normal(:,2)).*obj.area./obj.SREF;
+                dCN_p = (-obj.Cp{flowNo}(:,iterflow).*obj.normal(:,3)).*obj.area./obj.SREF;
+                dCA_f = (+obj.Cfe{flowNo}.*s(:,1)).*obj.area./obj.SREF;
+                dCY_f = (+obj.Cfe{flowNo}.*s(:,2)).*obj.area./obj.SREF;
+                dCN_f = (+obj.Cfe{flowNo}.*s(:,3)).*obj.area./obj.SREF;
+                dCM = cross(obj.center-repmat(obj.XYZREF,[size(obj.center,1),1]),[dCA_p+dCA_f,dCY_p+dCY_f,dCN_p+dCN_f]);
+                dCMX = dCM(:,1)./obj.BREF;
+                dCMY = dCM(:,2)./obj.CREF;
+                dCMZ = dCM(:,3)./obj.BREF;
+                if obj.halfmesh == 1
+                    %半裁
+                    CNp = sum(dCN_p)*2;
+                    CAp = sum(dCA_p)*2;
+                    CYp = 0;
+                    CNf = sum(dCN_f)*2;
+                    CAf = sum(dCA_f)*2;
+                    CYf = 0;
+                    CMX = 0;
+                    CMY = sum(dCMY)*2;
+                    CMZ = 0;
+                else
+                    CNp = sum(dCN_p);
+                    CAp = sum(dCA_p);
+                    CYp = sum(dCY_p);
+                    CNf = sum(dCN_f);
+                    CAf = sum(dCA_f);
+                    CYf = sum(dCY_f);
+                    CMX = sum(dCMX);
+                    CMY = sum(dCMY);
+                    CMZ = sum(dCMZ);
+                end
+    
+                CL = T(:,3)'*[CAp+CAf;CYp+CYf;CNp+CNf];
+                CDi = T(:,1)'*[CAp;CYp;CNp];
+                CDo = T(:,1)'*[CAf;CYf;CNf];
+                CDtot = CDi+CDo;
+                if obj.halfmesh == 1
+                    CY = 0;
+                else
+                    CY = T(:,2)'*[CAp+CAf;CYp+CYf;CNp+CNf];
+                end
+                AR = obj.BREF^2/obj.SREF;
+                obj.AERODATA{flowNo}(iterflow,:) = [beta,obj.flow{flowNo}.Mach,alpha,0,CL,CDo,CDi,CDtot,0,0,CY,CL/CDtot,CL^2/pi/AR/CDi,CAp+CAf,CYp+CYf,CNp+CNf,CMX,CMY,CMZ,0,0,0,0];
+                AERODATA = obj.AERODATA;
+                Cp = obj.Cp;
+                Cfe = obj.Cfe;
+                RHV = obj.RHS*sigmas;
+                usolve = u(nbPanel*(iterflow-1)+1:nbPanel*iterflow,1);
+                R(nbPanel*(iterflow-1)+1:nbPanel*iterflow,1) = obj.LHS*usolve+RHV;
             end
-            %Cp⇒力への変換
-            dCA_p = (-obj.Cp.*obj.normal(:,1)).*obj.area./obj.SREF;
-            dCY_p = (-obj.Cp.*obj.normal(:,2)).*obj.area./obj.SREF;
-            dCN_p = (-obj.Cp.*obj.normal(:,3)).*obj.area./obj.SREF;
-            dCA_f = (+obj.Cfe.*s(:,1)).*obj.area./obj.SREF;
-            dCY_f = (+obj.Cfe.*s(:,2)).*obj.area./obj.SREF;
-            dCN_f = (+obj.Cfe.*s(:,3)).*obj.area./obj.SREF;
-            dCM = cross(obj.center-repmat(obj.XYZREF,[size(obj.center,1),1]),[dCA_p+dCA_f,dCY_p+dCY_f,dCN_p+dCN_f]);
-            dCMX = dCM(:,1)./obj.BREF;
-            dCMY = dCM(:,2)./obj.CREF;
-            dCMZ = dCM(:,3)./obj.BREF;
-            if obj.halfmesh == 1
-                %半裁
-                CNp = sum(dCN_p)*2;
-                CAp = sum(dCA_p)*2;
-                CYp = 0;
-                CNf = sum(dCN_f)*2;
-                CAf = sum(dCA_f)*2;
-                CYf = 0;
-                CMX = 0;
-                CMY = sum(dCMY)*2;
-                CMZ = 0;
-            else
-                CNp = sum(dCN_p);
-                CAp = sum(dCA_p);
-                CYp = sum(dCY_p);
-                CNf = sum(dCN_f);
-                CAf = sum(dCA_f);
-                CYf = sum(dCY_f);
-                CMX = sum(dCMX);
-                CMY = sum(dCMY);
-                CMZ = sum(dCMZ);
-            end
-
-            CL = T(:,3)'*[CAp+CAf;CYp+CYf;CNp+CNf];
-            CDi = T(:,1)'*[CAp;CYp;CNp];
-            CDo = T(:,1)'*[CAf;CYf;CNf];
-            CDtot = CDi+CDo;
-            if obj.halfmesh == 1
-                CY = 0;
-            else
-                CY = T(:,2)'*[CAp+CAf;CYp+CYf;CNp+CNf];
-            end
-            AERODATA = [beta,obj.flow{flowNo}.Mach,alpha,0,CL,CDo,CDi,CDtot,0,0,CY,CL/CDtot,0,CAp+CAf,CYp+CYf,CNp+CNf,CMX,CMY,CMZ,0,0,0,0];
-            Cp = obj.Cp;
-            Cfe = obj.Cfe;
-            RHV = obj.RHS*sigmas;
-            R = obj.LHS*u+RHV;
             %disp([CL,CDo,CDi,CDtot,CMY]);
         end
         
@@ -751,7 +748,7 @@ classdef UNLSI
             %beta:横滑り角[deg]
             %difference:有限差分の方法 "forward"(デフォルト)-前進差分 "central"-中心差分
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-            if ~exist("difference","var") difference = "forward"; end
+            if ~exist("difference","var"); difference = "forward"; end
             
             obj = obj.solveFlow(obj,flowNo,alpha,beta);
             obj.DynCoeff = zeros(1,3);

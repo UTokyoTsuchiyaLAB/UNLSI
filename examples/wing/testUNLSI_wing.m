@@ -10,8 +10,9 @@ wing = wing.makeEquation(20,5,3);
 %}
 
 wing = wing.flowCondition(1,0.0001);
-wing = wing.setREFS(72,18,4);
+wing = wing.setREFS(80,20,4);
 wing = wing.setRotationCenter([0,0,0]);
 wing = wing.setCf(1,500000,0.2,0.052*(10^-5),0);
-wing = wing.solveFlow(1,10,3);
-wing.plotGeometry(1,wing.Cp,[-2,1]);
+wing = wing.solveFlow(1,[0,5,10],[0,0,0]);
+disp(wing.AERODATA{1});
+wing.plotGeometry(1,wing.Cp{1}(:,2),[-2,1]);

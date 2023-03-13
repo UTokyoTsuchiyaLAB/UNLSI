@@ -347,7 +347,9 @@ classdef UNGRADE < UNLSI
             obj = obj.setRotationCenter(obj.optXYZREF);
             [u0,~] = obj.solvePertPotential(1,obj.unlsiParam.alpha,obj.unlsiParam.beta);%ポテンシャルを求める
             [AERODATA0,Cp0,Cfe0,R0,obj] = obj.solveFlowForAdjoint(u0,1,obj.unlsiParam.alpha,obj.unlsiParam.beta);%ポテンシャルから空力係数を計算
-            obj.plotGeometry(1,obj.Cp,[-2,1]);
+            obj.plotGeometry(1,obj.Cp{1}(:,1),[-2,1]);
+            fprintf("AERODATA of Itaration No.%d ->\n",obj.iteration);
+            disp(AERODATA0{1});
             [I0,con0] = objandConsFun(desOrg,AERODATA0,Cp0,Cfe0,obj.optSREF,obj.optBREF,obj.optCREF,obj.optXYZREF,obj.argin_x);
 
             if not(strcmpi(method,"nonlin"))

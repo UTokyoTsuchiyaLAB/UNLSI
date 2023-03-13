@@ -2,14 +2,14 @@
 %%%%%%%%ここから
 clear;
 checkVariables = 1;
-orgVal = [4,4,4,4,4,3];
+orgVal = [4,4,4,4,4,0];
 %orgVal = modifyDesFile("org.des","org.des");
 
 
-ub = [  4,   4,   4,   4,   4, 6];
-lb = [  1,   1,   1,   1,   1, 0];
-cmin = [0.525,-4,-4,-4,-4]';
-cmax = [0.575, 0, 0, 0, 0]';
+ub = [  4,   4,   4,   4,   4, 3];
+lb = [  1,   1,   1,   1,   1, -3];
+cmin = [0.325,-4,-4,-4,-4]';
+cmax = [0.375, 0, 0, 0, 0]';
 [orgVerts,orgCon,surfID,wakelineID,orgVal] = vspMeshGen(orgVal);
 ungradetest = UNGRADE(@(x)vspSurfGen(x,"wing","org.des"),orgVal,lb,ub,orgVerts,orgCon,surfID,wakelineID,1);
 if checkVariables == 1
