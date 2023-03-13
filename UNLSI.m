@@ -119,10 +119,10 @@ classdef UNLSI
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             figure(figureNo);clf;
             if nargin<3
-                trisurf(obj.tri);
+                trisurf(obj.tri,"FaceAlpha",0);
                 if obj.halfmesh == 1
                     hold on
-                    trisurf(obj.tri.ConnectivityList,obj.tri.Points(:,1),-obj.tri.Points(:,2),obj.tri.Points(:,3));
+                    trisurf(obj.tri.ConnectivityList,obj.tri.Points(:,1),-obj.tri.Points(:,2),obj.tri.Points(:,3),"FaceAlpha",0);
                     hold off;
                 end
             else

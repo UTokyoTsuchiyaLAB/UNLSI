@@ -1,6 +1,9 @@
 function [orgVal,modVal] = modifyDesFile(filename,outputname,modVal)
     fid = fopen(filename,"r");
     nrow = fscanf(fid,"%d",1);
+    if numel(modVal) ~= nrow
+        error("No.of variable not match");
+    end
     for i = 1:nrow
         dataName{i} = fscanf(fid,"%s:%s:%s:%s:",1);
         orgVal(i) = fscanf(fid,"%f",1);

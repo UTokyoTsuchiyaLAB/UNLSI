@@ -24,6 +24,7 @@ classdef UNGRADE < UNLSI
         gradXYZREF
         gradArginx
         argin_x
+        iteration
     end
 
     methods(Access = public)
@@ -47,6 +48,7 @@ classdef UNGRADE < UNLSI
             obj = obj.setRotationCenter(obj.optXYZREF);
             obj.designVariables = (desOrg(:)'-obj.lb)./obj.designScale;
             obj.orgSurf =  triangulation(orgSurfCon,orgSurfVerts);
+            obj.iteration = 1;
         end
 
         function obj = setMeshGenFun(obj,meshGenFun)
@@ -421,50 +423,72 @@ classdef UNGRADE < UNLSI
                 end
                 lbf = -obj.designVariables;
                 ubf = 1-obj.designVariables;
-                options = optimoptions(@fmincon,'Algorithm','interior-point','Display','iter-detailed');
-                [dxscaled,fval,exitflag,output,lambda] = fmincon(@(dx)obj.fminconObj(dx,obj.optimization.H,objTotalGrad),zeros(numel(obj.designVariables),1),alin,blin,[],[],lbf,ubf,@(dx)obj.fminconNlc(dx,obj.optimization.TR),options);
-                if not(isempty(con0))
-                    lambdaR = -(dR_du)\(dI_du+lambda.ineqlin'*[-dcon_du;dcon_du])';
-                    Lorg = I0 + lambda.ineqlin'*[-con0;con0];
-                    dL_dx = dI_dx+lambdaR'*dR_dx+lambda.ineqlin'*[-dcon_dx;dcon_dx];
-                else
-                    lambdaR = -(dR_du)\(dI_du)';
-                    Lorg = I0 ;
-                    dL_dx = dI_dx+lambdaR'*dR_dx;
+                options = optimoptions(@fmincon,'Algorithm','interior-point','Display','none','EnableFeasibilityMode',true,"SubproblemAlgorithm","cg",'MaxFunctionEvaluations',10000);
+                while(1)
+                    [dxscaled,fval,exitflag,output,lambda] = fmincon(@(dx)obj.fminconObj(dx,obj.optimization.H,objTotalGrad),zeros(numel(obj.designVariables),1),alin,blin,[],[],lbf,ubf,@(dx)obj.fminconNlc(dx,obj.optimization.TR),options);
+                    rho = 1000;
+                    if not(isempty(con0))
+                        lambdaR = -(dR_du)\(dI_du+lambda.ineqlin'*[-dcon_du;dcon_du])';
+                        Lorg = I0 + lambda.ineqlin'*[-con0;con0];
+                        penaltyorg = rho*sum(max(max(0,cmin-con0),max(con0-cmax)));
+                        dL_dx = dI_dx+lambdaR'*dR_dx+lambda.ineqlin'*[-dcon_dx;dcon_dx];
+                    else
+                        lambdaR = -(dR_du)\(dI_du)';
+                        Lorg = I0 ;
+                        penaltyorg = 0;
+                        dL_dx = dI_dx+lambdaR'*dR_dx;
+                    end
+                    dx = dxscaled(:)'.*obj.designScale;
+                    
+                    %精度評価
+                    desdx = x.*obj.designScale+obj.lb+dx(:)';
+                    [modSurfdx,~,SREFdx,BREFdx,CREFdx,XYZREFdx,argin_xdx,desdx] = obj.surfGenFun(desdx);
+                    modMeshdx = obj.meshDeformation(modSurfdx);
+                    objdx = obj.setVerts(modMeshdx);
+                    objdx = objdx.makeEquation(obj.unlsiParam.wakeLength,obj.unlsiParam.n_wake,obj.unlsiParam.n_divide);
+                    objdx = objdx.setREFS(SREFdx,BREFdx,CREFdx);
+                    objdx = objdx.setRotationCenter(XYZREFdx);
+                    objdx = objdx.solveFlow(1,obj.unlsiParam.alpha,obj.unlsiParam.beta);
+                    %[udx,~] = objdx.solvePertPotential(1,obj.unlsiParam.alpha,obj.unlsiParam.beta);%ポテンシャルを求める
+                    %[AERODATA,Cp,Cfe,Rdx,~] = objdx.solveFlowForAdjoint(udx,1,obj.unlsiParam.alpha,obj.unlsiParam.beta);%ポテンシャルから空力係数を計算
+                    [Idx,condx] = objandConsFun(des,objdx.AERODATA,objdx.Cp,objdx.Cfe,SREFdx,BREFdx,CREFdx,XYZREFdx,argin_xdx);
+                    if not(isempty(con0))
+                        Ldx = Idx + lambda.ineqlin'*[-condx;condx];
+                        if penaltyorg < sqrt(eps)
+                            penaltydx = 0;
+                        else
+                           penaltydx = rho*sum(max(max(0,cmin-condx),max(condx-cmax))); 
+                        end
+                    else
+                        Ldx = Idx ;
+                        penaltydx = 0;
+                    end
+                    if not(isempty(con0))
+                        acc = (Ldx-Lorg)/(fval+(lambda.ineqlin'*[-dcon_dx;dcon_dx])*dxscaled(:));
+                    else
+                        acc = (Ldx-Lorg)/(fval);
+                    end
+                    fprintf("Variables:\n")
+                    disp(desOrg);
+                    fprintf("------>\n")
+                    disp(desdx);
+                    fprintf("Objective and Constraints:\n")
+                    disp([I0,con0(:)']);
+                    fprintf("------>\n");
+                    disp([Idx,condx(:)']);
+                    fprintf("dx norm :%f\nLagrangian Value : %f -> %f\nPenalty Value : %f -> %f\nHessian Approximation Accuracy:%f\n",norm(dxscaled),Lorg,Ldx,penaltyorg,penaltydx,acc);
+                    if obj.optimization.TR <= obj.optimization.TRmin ||  obj.iteration <= 2 
+                        fprintf("\n-----------Acceptable-----------\n\n");
+                        break;
+                    end
+                    if Ldx <= Lorg && penaltydx <= penaltyorg && Ldx+penaltydx <= Lorg+penaltyorg
+                        fprintf("\n-----------Accepted-----------\n\n");
+                        break;
+                    end
+                    fprintf("\n-----------Rejected-----------\n\n")
+                    obj.optimization.TR = obj.optimization.TR * 0.9;
+                    dx = desdx-desOrg;
                 end
-                dx = dxscaled(:)'.*obj.designScale;
-                
-                %精度評価
-                desdx = x.*obj.designScale+obj.lb+dx(:)';
-                [modSurfdx,~,SREFdx,BREFdx,CREFdx,XYZREFdx,argin_xdx,desBuff] = obj.surfGenFun(desdx);
-                modMeshdx = obj.meshDeformation(modSurfdx);
-                objdx = obj.setVerts(modMeshdx);
-                objdx = objdx.makeEquation(obj.unlsiParam.wakeLength,obj.unlsiParam.n_wake,obj.unlsiParam.n_divide);
-                objdx = objdx.setREFS(SREFdx,BREFdx,CREFdx);
-                objdx = objdx.setRotationCenter(XYZREFdx);
-                %objdx = objdx.solveFlow(1,obj.unlsiParam.alpha,obj.unlsiParam.beta);
-                [udx,~] = obj.solvePertPotential(1,obj.unlsiParam.alpha,obj.unlsiParam.beta);%ポテンシャルを求める
-                [AERODATA,Cp,Cfe,Rdx,~] = objdx.solveFlowForAdjoint(udx,1,obj.unlsiParam.alpha,obj.unlsiParam.beta);%ポテンシャルから空力係数を計算
-                [Idx,condx] = objandConsFun(des,AERODATA,Cp,Cfe,SREFdx,BREFdx,CREFdx,XYZREFdx,argin_xdx);
-                if not(isempty(con0))
-                    Ldx = Idx + lambda.ineqlin'*[-condx;condx];
-                else
-                    Ldx = Idx ;
-                end
-                if not(isempty(con0))
-                    acc = (Ldx-Lorg)/(fval+(lambda.ineqlin'*[-dcon_dx;dcon_dx])*dxscaled(:));
-                else
-                    acc = (Ldx-Lorg)/(fval);
-                end
-                fprintf("Variables:\n")
-                disp(desOrg);
-                fprintf("------>\n")
-                disp(desdx);
-                fprintf("Objective and Constraints:\n")
-                disp([I0,con0(:)']);
-                fprintf("------>\n");
-                disp([Idx,condx(:)']);
-                fprintf("dx norm :%f\nLagrangian Value : %f -> %f\nHessian Approximation Accuracy:%f\n",norm(dxscaled),Lorg,Ldx,acc);
                 if acc < 0.15
                     obj.optimization.TR = obj.optimization.TR * 0.9;
                 elseif acc > 0.5
@@ -513,16 +537,16 @@ classdef UNGRADE < UNLSI
                 dx = dxscaled(:)'.*obj.designScale;
                 %精度評価
                 desdx = desOrg+dx(:)';
-                [modSurfdx,~,SREFdx,BREFdx,CREFdx,XYZREFdx,argin_xdx,desBuff] = obj.surfGenFun(desdx);
+                [modSurfdx,~,SREFdx,BREFdx,CREFdx,XYZREFdx,argin_xdx,desdx] = obj.surfGenFun(desdx);
                 modMeshdx = obj.meshDeformation(modSurfdx);
                 objdx = obj.setVerts(modMeshdx);
                 objdx = objdx.makeEquation(obj.unlsiParam.wakeLength,obj.unlsiParam.n_wake,obj.unlsiParam.n_divide);
                 objdx = objdx.setREFS(SREFdx,BREFdx,CREFdx);
                 objdx = objdx.setRotationCenter(XYZREFdx);
-                %objdx = objdx.solveFlow(1,obj.unlsiParam.alpha,obj.unlsiParam.beta);
-                [udx,~] = obj.solvePertPotential(1,obj.unlsiParam.alpha,obj.unlsiParam.beta);%ポテンシャルを求める
-                [AERODATA,Cp,Cfe,Rdx,~] = objdx.solveFlowForAdjoint(udx,1,obj.unlsiParam.alpha,obj.unlsiParam.beta);%ポテンシャルから空力係数を計算
-                [Idx,condx] = objandConsFun(desdx,AERODATA,Cp,Cfe,SREFdx,BREFdx,CREFdx,XYZREFdx,argin_xdx);
+                objdx = objdx.solveFlow(1,obj.unlsiParam.alpha,obj.unlsiParam.beta);
+                %[udx,~] = obj.solvePertPotential(1,obj.unlsiParam.alpha,obj.unlsiParam.beta);%ポテンシャルを求める
+                %[AERODATA,Cp,Cfe,Rdx,~] = objdx.solveFlowForAdjoint(udx,1,obj.unlsiParam.alpha,obj.unlsiParam.beta);%ポテンシャルから空力係数を計算
+                [Idx,condx] = objandConsFun(desdx,objdx.AERODATA,objdx.Cp,objdx.Cfe,SREFdx,BREFdx,CREFdx,XYZREFdx,argin_xdx);
                 fprintf("Variables:\n")
                 disp(desOrg);
                 fprintf("------>\n")
@@ -538,11 +562,14 @@ classdef UNGRADE < UNLSI
         end
 
         function [dx,obj] = updateVariables(obj,FcnObjandCon,method,cmin,cmax)
+            fprintf("Itaration No. %d : Started -- Method : %s\n",obj.iteration,method);
             [dx,obj] = obj.finddx(FcnObjandCon,method,cmin,cmax);
             newDes = obj.designVariables.*obj.designScale+obj.lb+dx;
             obj = obj.modifyMeshfromVariables(newDes);
             obj = obj.setCf(1,obj.unlsiParam.Re,obj.unlsiParam.Lch,obj.unlsiParam.k,obj.unlsiParam.LTratio,obj.unlsiParam.coefficient);
             obj = obj.makeCluster(obj.unlsiParam.nCluster,obj.unlsiParam.edgeAngleThreshold);
+            fprintf("Itaration No. %d : Completed\n",obj.iteration);
+            obj.iteration = obj.iteration + 1;
         end
     end
 
