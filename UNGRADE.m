@@ -25,6 +25,7 @@ classdef UNGRADE < UNLSI
         gradArginx
         argin_x
         iteration
+        flowNoList
     end
 
     methods(Access = public)
@@ -63,7 +64,9 @@ classdef UNGRADE < UNLSI
             obj = obj.setRotationCenter(obj.optXYZREF);
             obj.designVariables = (desOrg(:)'-obj.lb)./obj.designScale;
             obj.orgSurf =  triangulation(orgSurfCon,orgSurfVerts);
-            obj = obj.makeCluster(obj.unlsiParam.nCluster,obj.unlsiParam.edgeAngleThreshold);
+            if any(obj.flowNoList(:,3) == 1)
+                obj = obj.makeCluster(obj.unlsiParam.nCluster,obj.unlsiParam.edgeAngleThreshold);
+            end
         end
 
         function obj = modifyMeshfromVariables(obj,designVariables)
@@ -292,7 +295,6 @@ classdef UNGRADE < UNLSI
         end
 
         function obj = setOptFlowCondition(obj,Mach,alpha,beta,wakeLength,n_wake,n_divide,nCluster,edgeAngleThreshold,Re,Lch,k,LTratio,CfeCoefficient)
-            obj = obj.flowCondition(1,Mach);
             obj.unlsiParam.alpha = alpha;
             obj.unlsiParam.beta = beta;        
             obj.unlsiParam.n_wake = n_wake;
@@ -305,8 +307,19 @@ classdef UNGRADE < UNLSI
             obj.unlsiParam.k = k;
             obj.unlsiParam.LTratio = LTratio;
             obj.unlsiParam.coefficient = CfeCoefficient;
-            obj = obj.setCf(1,obj.unlsiParam.Re,obj.unlsiParam.Lch,obj.unlsiParam.k,obj.unlsiParam.LTratio,obj.unlsiParam.coefficient);
-            obj = obj.makeCluster(obj.unlsiParam.nCluster,obj.unlsiParam.edgeAngleThreshold);
+            uniMach = unique(Mach);
+            for i = 1:numel(uniMach)
+                obj = obj.flowCondition(i,uniMach(i));
+                obj = obj.setCf(i,obj.unlsiParam.Re,obj.unlsiParam.Lch,obj.unlsiParam.k,obj.unlsiParam.LTratio,obj.unlsiParam.coefficient);
+            end
+            for i = 1:numel(Mach)
+                obj.flowNoList(i,1) = find(uniMach == Mach(i));
+                obj.flowNoList(i,2) = uniMach(obj.flowNoList(i,1));
+                obj.flowNoList(i,3) = obj.flowNoList(i,2)<1;
+            end
+            if any(obj.flowNoList(:,3) == 1)
+                obj = obj.makeCluster(obj.unlsiParam.nCluster,obj.unlsiParam.edgeAngleThreshold);
+            end
         end
 
         function obj = setOptimization(obj,H0,TR,TRmin,TRmax,method,nMemory)
@@ -344,16 +357,33 @@ classdef UNGRADE < UNLSI
 
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             %初期点の解析
-            obj = obj.makeEquation(obj.unlsiParam.wakeLength,obj.unlsiParam.n_wake,obj.unlsiParam.n_divide);
+            nPanel = numel(obj.paneltype);
+            nbPanel = sum(obj.paneltype == 1);
+            if any(obj.flowNoList(:,3) == 1)
+                obj = obj.makeEquation(obj.unlsiParam.wakeLength,obj.unlsiParam.n_wake,obj.unlsiParam.n_divide);
+            end
             obj.approximated = 0;
             desOrg = obj.designVariables.*obj.designScale+obj.lb;
             obj = obj.setREFS(obj.optSREF,obj.optBREF,obj.optCREF);
             obj = obj.setRotationCenter(obj.optXYZREF);
-            [u0,~] = obj.solvePertPotential(1,obj.unlsiParam.alpha,obj.unlsiParam.beta);%ポテンシャルを求める
-            [AERODATA0,Cp0,Cfe0,R0,obj] = obj.solveFlowForAdjoint(u0,1,obj.unlsiParam.alpha,obj.unlsiParam.beta);%ポテンシャルから空力係数を計算
+            u0 = zeros(nbPanel*size(obj.flowNoList,1),1);
+            R0 = zeros(nbPanel*size(obj.flowNoList,1),1);
+            for iter = 1:numel(obj.flow)
+                alphabuff = obj.unlsiParam.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
+                betabuff = obj.unlsiParam.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
+                [u0solve,~] = obj.solvePertPotential(iter,alphabuff,betabuff);%ポテンシャルを求める
+                [AERODATA0,Cp0,Cfe0,R0solve,obj] = obj.solveFlowForAdjoint(u0solve,iter,alphabuff,betabuff);%ポテンシャルから空力係数を計算
+                %結果をマッピング
+                lktable = find(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
+                for i = 1:numel(lktable)
+                    u0((lktable(i)-1)*nbPanel+1:lktable(i)*nbPanel,1) = u0solve(nbPanel*(i-1)+1:nbPanel*i,1);
+                    R0((lktable(i)-1)*nbPanel+1:lktable(i)*nbPanel,1) = R0solve(nbPanel*(i-1)+1:nbPanel*i,1);
+                end
+
+            end
             obj.plotGeometry(1,obj.Cp{1}(:,1),[-2,1]);
             fprintf("AERODATA of Itaration No.%d ->\n",obj.iteration);
-            disp(AERODATA0{1});
+            disp(vertcat(AERODATA0{:}));
             [I0,con0] = objandConsFun(desOrg,AERODATA0,Cp0,Cfe0,obj.optSREF,obj.optBREF,obj.optCREF,obj.optXYZREF,obj.argin_x);
 
             if not(strcmpi(method,"nonlin"))
@@ -364,25 +394,44 @@ classdef UNGRADE < UNLSI
                 for i = 1:numel(u0)
                     u = u0;
                     u(i) = u(i)+pert;
-                    [AERODATA,Cp,Cfe] = obj.solveFlowForAdjoint(u,1,obj.unlsiParam.alpha,obj.unlsiParam.beta);
+                    for iter = 1:numel(obj.flow)
+                        lktable = find(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
+                        usolve = zeros(nbPanel*numel(lktable),1);
+                        for k = 1:numel(lktable)
+                            usolve(nbPanel*(k-1)+1:nbPanel*k,1) = u((lktable(k)-1)*nbPanel+1:lktable(k)*nbPanel,1);
+                        end
+                        alphabuff = obj.unlsiParam.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
+                        betabuff = obj.unlsiParam.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
+                        [AERODATA,Cp,Cfe,~,obj] = obj.solveFlowForAdjoint(usolve,iter,alphabuff,betabuff);
+                    end
                     [I,con] = objandConsFun(desOrg,AERODATA,Cp,Cfe,obj.optSREF,obj.optBREF,obj.optCREF,obj.optXYZREF,obj.argin_x);
                     dI_du(i) = (I-I0)/pert;%評価関数のポテンシャルに関する偏微分
                     if not(isempty(con))
                         dcon_du(:,i) = (con-con0)/pert;
                     end
                 end
-                for i = 1:numel(obj.unlsiParam.alpha)
+                for i = 1:size(obj.flowNoList,1)
                     if i == 1
-                        dR_du = obj.LHS;
+                        if obj.flowNoList(i,3) == 1
+                            dR_du = obj.LHS; %亜音速
+                        else
+                            dR_du = eye(nbPanel);
+                        end
                     else
-                        dR_du = blkdiag(dR_du,obj.LHS);
+                        if obj.flowNoList(i,3) == 1
+                            dR_du = blkdiag(dR_du,obj.LHS);
+                        else
+                            dR_du = blkdiag(dR_du,eye(nbPanel));
+                        end
                     end
                 end
                 %x微分の計算
                 %メッシュの節点勾配を作成
                 obj = obj.makeMeshGradient();
                 if strcmpi(method,'chain')
-                    obj = obj.calcApproximatedEquation();
+                    if any(obj.flowNoList(:,3) == 1)
+                        obj = obj.calcApproximatedEquation();
+                    end
                 end
                 for i= 1:numel(obj.designVariables)
                     x = obj.designVariables;
@@ -392,10 +441,16 @@ classdef UNGRADE < UNLSI
                     if strcmpi(method,'direct')
                         %変数が少ないときは直接作成
                         obj2 = obj.setVerts(modMesh);
-                        obj2 = obj2.makeEquation(obj.unlsiParam.wakeLength,obj.unlsiParam.n_wake,obj.unlsiParam.n_divide);
+                        if any(obj.flowNoList(:,3) == 1)
+                            obj2 = obj2.makeEquation(obj.unlsiParam.wakeLength,obj.unlsiParam.n_wake,obj.unlsiParam.n_divide);
+                        end
                         obj2.approximated = 0;
                     elseif strcmpi(method,'chain')
-                        obj2 = obj.makeApproximatedInstance(modMesh);
+                        if any(obj.flowNoList(:,3) == 1)
+                            obj2 = obj.makeApproximatedInstance(modMesh);
+                        else
+                            obj2 = obj.setVerts(modMesh);
+                        end
                     else
                         error("Supported method is 'direct' or 'chain'.");
                     end
@@ -408,7 +463,21 @@ classdef UNGRADE < UNLSI
                     argin_x2 = obj.argin_x+obj.gradArginx*(x(:)-obj.designVariables(:));
                     obj2 = obj2.setREFS(SREF2,BREF2,CREF2);
                     obj2 = obj2.setRotationCenter(XYZREF2);
-                    [AERODATA,Cp,Cfe,R] = obj2.solveFlowForAdjoint(u0,1,obj.unlsiParam.alpha,obj.unlsiParam.beta);
+                    R = zeros(nbPanel*size(obj.flowNoList,1),1);
+                    for iter = 1:numel(obj.flow)
+                        lktable = find(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
+                        u0solve = zeros(nbPanel*numel(lktable),1);
+                        for k = 1:numel(lktable)
+                            u0solve(nbPanel*(k-1)+1:nbPanel*k,1) = u0((lktable(k)-1)*nbPanel+1:lktable(k)*nbPanel,1);
+                        end
+                        alphabuff = obj.unlsiParam.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
+                        betabuff = obj.unlsiParam.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
+                        [AERODATA,Cp,Cfe,Rsolve,obj2] = obj2.solveFlowForAdjoint(u0solve,iter,alphabuff,betabuff);
+                        for k = 1:numel(lktable)
+                            R((lktable(k)-1)*nbPanel+1:lktable(k)*nbPanel,1) = Rsolve(nbPanel*(k-1)+1:nbPanel*k,1);
+                        end
+                    end
+                    
                     [I,con] = objandConsFun(des,AERODATA,Cp,Cfe,SREF2,BREF2,CREF2,XYZREF2,argin_x2);
                     dI_dx(i) = (I-I0)/pert;%評価関数の設計変数に関する偏微分
                     if not(isempty(con))
@@ -457,10 +526,16 @@ classdef UNGRADE < UNLSI
                     [modSurfdx,~,SREFdx,BREFdx,CREFdx,XYZREFdx,argin_xdx,desdx] = obj.surfGenFun(desdx);
                     modMeshdx = obj.meshDeformation(modSurfdx);
                     objdx = obj.setVerts(modMeshdx);
-                    objdx = objdx.makeEquation(obj.unlsiParam.wakeLength,obj.unlsiParam.n_wake,obj.unlsiParam.n_divide);
+                    if any(obj.flowNoList(:,3) == 1)
+                        objdx = objdx.makeEquation(obj.unlsiParam.wakeLength,obj.unlsiParam.n_wake,obj.unlsiParam.n_divide);
+                    end
                     objdx = objdx.setREFS(SREFdx,BREFdx,CREFdx);
                     objdx = objdx.setRotationCenter(XYZREFdx);
-                    objdx = objdx.solveFlow(1,obj.unlsiParam.alpha,obj.unlsiParam.beta);
+                    for iter = 1:numel(obj.flow)
+                        alphabuff = obj.unlsiParam.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
+                        betabuff = obj.unlsiParam.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
+                        objdx = objdx.solveFlow(iter,alphabuff,betabuff);
+                    end
                     %[udx,~] = objdx.solvePertPotential(1,obj.unlsiParam.alpha,obj.unlsiParam.beta);%ポテンシャルを求める
                     %[AERODATA,Cp,Cfe,Rdx,~] = objdx.solveFlowForAdjoint(udx,1,obj.unlsiParam.alpha,obj.unlsiParam.beta);%ポテンシャルから空力係数を計算
                     [Idx,condx] = objandConsFun(des,objdx.AERODATA,objdx.Cp,objdx.Cfe,SREFdx,BREFdx,CREFdx,XYZREFdx,argin_xdx);
@@ -530,7 +605,10 @@ classdef UNGRADE < UNLSI
             else
                 %近似行列による直接最適化
                 obj = obj.makeMeshGradient();
-                obj = obj.calcApproximatedEquation();
+                %%%%TODO : 超音速のみの時の実装を考える
+                if any(obj.flowNoList(:,3) == 1)
+                    obj = obj.calcApproximatedEquation();
+                end
                 lbf = -obj.designVariables;
                 ubf = 1-obj.designVariables;
                 
@@ -552,7 +630,9 @@ classdef UNGRADE < UNLSI
                 [modSurfdx,~,SREFdx,BREFdx,CREFdx,XYZREFdx,argin_xdx,desdx] = obj.surfGenFun(desdx);
                 modMeshdx = obj.meshDeformation(modSurfdx);
                 objdx = obj.setVerts(modMeshdx);
-                objdx = objdx.makeEquation(obj.unlsiParam.wakeLength,obj.unlsiParam.n_wake,obj.unlsiParam.n_divide);
+                if any(obj.flowNoList(:,3) == 1)
+                    objdx = objdx.makeEquation(obj.unlsiParam.wakeLength,obj.unlsiParam.n_wake,obj.unlsiParam.n_divide);
+                end
                 objdx = objdx.setREFS(SREFdx,BREFdx,CREFdx);
                 objdx = objdx.setRotationCenter(XYZREFdx);
                 objdx = objdx.solveFlow(1,obj.unlsiParam.alpha,obj.unlsiParam.beta);
@@ -578,8 +658,12 @@ classdef UNGRADE < UNLSI
             [dx,obj] = obj.finddx(FcnObjandCon,method,cmin,cmax);
             newDes = obj.designVariables.*obj.designScale+obj.lb+dx;
             obj = obj.modifyMeshfromVariables(newDes);
-            obj = obj.setCf(1,obj.unlsiParam.Re,obj.unlsiParam.Lch,obj.unlsiParam.k,obj.unlsiParam.LTratio,obj.unlsiParam.coefficient);
-            obj = obj.makeCluster(obj.unlsiParam.nCluster,obj.unlsiParam.edgeAngleThreshold);
+            for i = 1:numel(obj.flow)
+                obj = obj.setCf(i,obj.unlsiParam.Re,obj.unlsiParam.Lch,obj.unlsiParam.k,obj.unlsiParam.LTratio,obj.unlsiParam.coefficient);
+            end
+            if any(obj.flowNoList(:,3) == 1)
+                obj = obj.makeCluster(obj.unlsiParam.nCluster,obj.unlsiParam.edgeAngleThreshold);
+            end
             fprintf("Itaration No. %d : Completed\n",obj.iteration);
             obj.iteration = obj.iteration + 1;
         end
@@ -590,7 +674,11 @@ classdef UNGRADE < UNLSI
                 x = dx(:)'+obj.designVariables;
                 des = x.*obj.designScale+obj.lb;
                 [~,modMesh] = obj.variables2Mesh(des,'linear');
-                obj2 = obj.makeApproximatedInstance(modMesh);
+                if any(obj.flowNoList(:,3) == 1)
+                    obj2 = obj.makeApproximatedInstance(modMesh);
+                else
+                    obj2 = obj.setVerts(modMesh);
+                end
                 SREF2 = obj.optSREF+obj.gradSREF*dx(:);
                 BREF2 = obj.optBREF+obj.gradBREF*dx(:);
                 CREF2 = obj.optCREF+obj.gradCREF*dx(:);
@@ -607,7 +695,11 @@ classdef UNGRADE < UNLSI
                 x = dx(:)'+obj.designVariables;
                 des = x.*obj.designScale+obj.lb;
                 [~,modMesh] = obj.variables2Mesh(des,'linear');
-                obj2 = obj.makeApproximatedInstance(modMesh);
+                if any(obj.flowNoList(:,3) == 1)
+                    obj2 = obj.makeApproximatedInstance(modMesh);
+                else
+                    obj2 = obj.setVerts(modMesh);
+                end
                 SREF2 = obj.optSREF+obj.gradSREF*dx(:);
                 BREF2 = obj.optBREF+obj.gradBREF*dx(:);
                 CREF2 = obj.optCREF+obj.gradCREF*dx(:);

@@ -480,6 +480,8 @@ classdef UNLSI
             if any(size(alpha) ~= size(beta))
                 error("analysis points are not match");
             end
+            obj.AERODATA{flowNo} = [];
+            obj.Cp{flowNo} = [];
             nPanel = numel(obj.paneltype);
             nbPanel = sum(obj.paneltype == 1);
             for iterflow = 1:numel(alpha)
@@ -622,7 +624,20 @@ classdef UNLSI
                     R = [R;Rsolve];
                 else
                     %超音速
-                    error("solveFlowForAdjoint is not supported for hypersonic flow.")
+                    delta = zeros(nbPanel,1);
+                    iter = 1;
+                    %各パネルが主流となす角度を求める
+                    for i = 1:nPanel
+                        if obj.paneltype(i) == 1
+                            delta(iter,1) = acos(dot(obj.normal(i,:)',Vinf(i,:)')/norm(Vinf(i,:)))-pi/2;%パネル角度
+                            iter = iter+1;
+                        end
+                    end
+                    %用意された応答曲面をもちいてパネルの角度からCpを求める
+                    usolve = obj.flow{flowNo}.pp(delta);%Cp
+                    Rsolve = usolve-obj.flow{flowNo}.pp(delta);%Cp
+                    u = [u;usolve];
+                    R = [R;Rsolve];
                 end
             end
         end
@@ -642,6 +657,8 @@ classdef UNLSI
             if any(size(alpha) ~= size(beta))
                 error("analysis points are not match");
             end
+            obj.AERODATA{flowNo} = [];
+            obj.Cp{flowNo} = [];
             nPanel = numel(obj.paneltype);
             nbPanel = sum(obj.paneltype == 1);
             for iterflow = 1:numel(alpha)
@@ -682,7 +699,19 @@ classdef UNLSI
                     obj.Cp{flowNo}(obj.paneltype==2,iterflow) = (-0.139-0.419.*(obj.flow{flowNo}.Mach-0.161).^2);
                 else
                     %超音速
-                    error("solveFlowForAdjoint is not supported for hypersonic flow.")
+                    delta = zeros(nbPanel,1);
+                    iter = 1;
+                    %各パネルが主流となす角度を求める
+                    for i = 1:nPanel
+                        if obj.paneltype(i) == 1
+                            delta(iter,1) = acos(dot(obj.normal(i,:)',Vinf(i,:)')/norm(Vinf(i,:)))-pi/2;%パネル角度
+                            iter = iter+1;
+                        end
+                    end
+                    usolve = u(nbPanel*(iterflow-1)+1:nbPanel*iterflow,1);
+                    obj.Cp{flowNo}(obj.paneltype==1,iterflow) = usolve;%Cp
+                    obj.Cp{flowNo}(obj.paneltype==2,iterflow) = (-obj.flow{flowNo}.Mach.^(-2)+0.57.*obj.flow{flowNo}.Mach.^(-4));
+                    
                 end
                 %Cp⇒力への変換
                 dCA_p = (-obj.Cp{flowNo}(:,iterflow).*obj.normal(:,1)).*obj.area./obj.SREF;
@@ -732,8 +761,12 @@ classdef UNLSI
                 AERODATA = obj.AERODATA;
                 Cp = obj.Cp;
                 Cfe = obj.Cfe;
-                RHV = obj.RHS*sigmas;
-                R(nbPanel*(iterflow-1)+1:nbPanel*iterflow,1) = obj.LHS*usolve+RHV;
+                if obj.flow{flowNo}.Mach < 1
+                    RHV = obj.RHS*sigmas;
+                    R(nbPanel*(iterflow-1)+1:nbPanel*iterflow,1) = obj.LHS*usolve+RHV;
+                else
+                    R(nbPanel*(iterflow-1)+1:nbPanel*iterflow,1) = usolve-obj.flow{flowNo}.pp(delta);
+                end
             end
             %disp([CL,CDo,CDi,CDtot,CMY]);
         end
