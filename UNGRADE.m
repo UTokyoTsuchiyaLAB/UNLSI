@@ -26,6 +26,7 @@ classdef UNGRADE < UNLSI
         argin_x
         iteration
         flowNoList
+        stabbbScaling
     end
 
     methods(Access = public)
@@ -50,6 +51,7 @@ classdef UNGRADE < UNLSI
             obj.designVariables = (desOrg(:)'-obj.lb)./obj.designScale;
             obj.orgSurf =  triangulation(orgSurfCon,orgSurfVerts);
             obj.iteration = 1;
+            
         end
 
         function obj = setMeshGenFun(obj,meshGenFun)
@@ -331,6 +333,7 @@ classdef UNGRADE < UNLSI
             obj.optimization.TRmax = TRmax;
             obj.optimization.xScaled = [];
             obj.optimization.dL_dx = [];
+            obj.stabbbScaling = 1;%デフォで使用
             if strcmpi(method,"SR1")
                 obj.optimization.updateFunction = @obj.SR1;
             elseif strcmpi(method,"SSR1")
@@ -345,6 +348,8 @@ classdef UNGRADE < UNLSI
                 obj.optimization.updateFunction = @(s,y,H)obj.SR1_BFGS(obj,s,y,H);
             elseif strcmpi(method,"SSR1_MBFGS")
                 obj.optimization.updateFunction = @(s,y,H)obj.SSR1_MBFGS(obj,s,y,H);
+            elseif strcmpi(method,"BB")
+                obj.optimization.updateFunction = @obj.Barzilai_Borwein;
             end
         end
 
@@ -596,10 +601,20 @@ classdef UNGRADE < UNLSI
                         n_iter = obj.optimization.nMemory;
                     end
                     obj.optimization.H = obj.optimization.H0;
-                    for i = 1:n_iter
+                    obj.stabbbScaling = 1;
+                    if obj.stabbbScaling == 1
+                        s = obj.optimization.xScaled(end,:)-obj.optimization.xScaled(end-1,:);
+                        y = obj.optimization.dL_dx(end,:)-obj.optimization.dL_dx(end-1,:);
+                        if norm(s)>sqrt(eps) && norm(y)>sqrt(eps)
+                            obj.optimization.H = obj.Barzilai_Borwein(s,y,obj.optimization.H);
+                        end
+                    end
+                    for i = n_iter:1
                         s = obj.optimization.xScaled(end-(i-1),:)-obj.optimization.xScaled(end-i,:);
                         y = obj.optimization.dL_dx(end-(i-1),:)-obj.optimization.dL_dx(end-i,:);
-                        obj.optimization.H = obj.optimization.updateFunction(s,y,obj.optimization.H);
+                        if norm(s)>sqrt(eps) && norm(y)>sqrt(eps)
+                            obj.optimization.H = obj.optimization.updateFunction(s,y,obj.optimization.H);
+                        end
                     end
                 end
             else
@@ -843,6 +858,19 @@ classdef UNGRADE < UNLSI
             else
                 Bkp1 = Bk+(y-Bk*s)*(y-Bk*s)'/((y-Bk*s)'*s);
             end
+        end
+        
+        function Bkp1 = Barzilai_Borwein(s,y,Bk)
+            s = s(:);
+            y=y(:);
+            delta = 100.0;
+            alpha = (s'*y)/(s'*s);
+            if alpha <= 0
+                alpha = norm(s)/norm(y);
+            end
+            alphak = min(alpha, delta / norm(y));
+            Bk = eye(numel(s));
+            Bkp1 = alphak * Bk;
         end
 
     end
