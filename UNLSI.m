@@ -72,6 +72,7 @@ classdef UNLSI
             
             %半裁メッシュの境界表面上のwakeを削除
             if halfmesh == 1
+                deleteiter = [];
                 for iter = 1:numel(obj.wakeline)
                     deletelist = [];
                     for j = 1:numel(obj.wakeline{iter}.edge)-1
@@ -82,9 +83,10 @@ classdef UNLSI
                     end
                     obj.wakeline{iter}.edge(deletelist) = [];
                     if numel(obj.wakeline{iter}.edge) == 1
-                        obj.wakeline(iter) = [];
+                        deleteiter = [deleteiter,iter];
                     end
                 end
+                obj.wakeline(deleteiter) = [];
             end
             %wakeのつくパネルIDを特定
             for wakeNo = 1:numel(obj.wakeline)

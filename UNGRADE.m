@@ -536,9 +536,9 @@
                 tempTR = obj.optimization.TR;
                 while(1)
                     if exitflag < 0
-                        [dxscaled,fval,~,~,lambda] = fmincon(@(x)obj.fminconObj(x,obj.optimization.H,objTotalGrad),zeros(numel(obj.designVariables),1),alin,blin,[],[],lbf,ubf,@(x)obj.fminconNlc(x,tempTR),options);
+                        [dxscaled,fval,exitflagdx,~,lambda] = fmincon(@(x)obj.fminconObj(x,obj.optimization.H,objTotalGrad),zeros(numel(obj.designVariables),1),alin,blin,[],[],lbf,ubf,@(x)obj.fminconNlc(x,tempTR),options);
                     else
-                        [dxscaled,fval] = fmincon(@(x)obj.fminconObj(x,obj.optimization.H,objTotalGrad),zeros(numel(obj.designVariables),1),alin,blin,[],[],lbf,ubf,@(x)obj.fminconNlc(x,tempTR),options);
+                        [dxscaled,fval,exitflagdx] = fmincon(@(x)obj.fminconObj(x,obj.optimization.H,objTotalGrad),zeros(numel(obj.designVariables),1),alin,blin,[],[],lbf,ubf,@(x)obj.fminconNlc(x,tempTR),options);
                     end
                         rho = 1000;
                     if not(isempty(con0))
@@ -597,7 +597,7 @@
                     fprintf("------>\n");
                     disp([Idx,condx(:)']);
                     fprintf("dx norm :%f\nLagrangian Value : %f -> %f\nPenalty Value : %f -> %f\nHessian Approximation Accuracy:%f\n",norm(dxscaled),Lorg,Ldx,penaltyorg,penaltydx,acc);
-                    if obj.optimization.TR <= obj.optimization.TRmin || strcmpi(HessianUpdateMethod,'BB')
+                    if tempTR <= obj.optimization.TRmin || strcmpi(HessianUpdateMethod,'BB')
                         fprintf("\n-----------Acceptable-----------\n\n");
                         break;
                     end
@@ -610,6 +610,9 @@
                         tempTR = norm(dxscaled) * 0.9;
                     else
                         tempTR = tempTR * 0.9;
+                    end
+                    if exitflagdx < 0
+                        tempTR = obj.optimization.TRmin;
                     end
                     dx = desdx-desOrg;
                 end
