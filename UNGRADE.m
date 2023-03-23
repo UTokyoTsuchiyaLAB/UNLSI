@@ -1,4 +1,4 @@
-classdef UNGRADE < UNLSI
+ classdef UNGRADE < UNLSI
 
     properties
         orgMesh
@@ -43,6 +43,9 @@ classdef UNGRADE < UNLSI
             obj.lb = lb(:)';
             obj.ub = ub(:)';
             obj.designScale = (ub-lb);
+            if any(obj.designScale<0)
+                error("check the ub and lb setting");
+            end
             obj.orgMesh = triangulation(orgCon,orgVerts);
             obj.surfGenFun = surfGenFun;
             [orgSurfVerts,orgSurfCon,obj.optSREF,obj.optBREF,obj.optCREF,obj.optXYZREF,obj.argin_x,desOrg] = obj.surfGenFun(designVariables(:)');
@@ -228,6 +231,36 @@ classdef UNGRADE < UNLSI
                         end
                     end
                 end
+            
+                
+                for wakeNo = 1:numel(obj.wakeline)
+                    theta = linspace(pi,0,numel(obj.wakeline{wakeNo}.edge)*obj.LLT.n_interp+1);
+                    iter = 1;
+                    obj.LLT.sp{wakeNo} = [];
+                    obj.LLT.calcMu{wakeNo} = zeros(1,nbPanel);
+                    s = zeros(1,numel(obj.wakeline{wakeNo}.edge));
+                    for edgeNo = 1:numel(obj.wakeline{wakeNo}.edge)-1
+                        s(edgeNo+1) = s(edgeNo) + norm([obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo),2:3)-obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo+1),2:3)]);
+                    end
+                    for edgeNo = 1:numel(obj.wakeline{wakeNo}.edge)-1
+                        obj.LLT.sp{wakeNo} =  [obj.LLT.sp{wakeNo},(s(edgeNo)+s(edgeNo+1))./2];
+                        obj.LLT.calcMu{wakeNo}(iter,interpID(1)) = -1;
+                        obj.LLT.calcMu{wakeNo}(iter,interpID(2)) = 1;
+                        iter = iter+1;
+                    end
+                    sd = (s(end)-s(1))*(cos(theta)./2+0.5)+s(1);
+                    obj.LLT.sinterp{wakeNo} = (sd(2:end)+sd(1:end-1))./2;
+                    obj.LLT.yinterp{wakeNo} = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),2),obj.LLT.sinterp{wakeNo},'spline','extrap');
+                    obj.LLT.zinterp{wakeNo} = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),3),obj.LLT.sinterp{wakeNo},'spline','extrap');
+                    yd = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),2),sd,'spline','extrap');
+                    zd = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),3),sd,'spline','extrap');
+                    obj.LLT.phiinterp{wakeNo} = atan2(zd(2:end)-zd(1:end-1),yd(2:end)-yd(1:end-1));
+                    obj.LLT.spanel{wakeNo} = (sd(2:end)-sd(1:end-1))./2;
+                    
+                end
+                obj.LLT.Qij = obj.Calc_Q(horzcat(obj.LLT.yinterp{:}),horzcat(obj.LLT.zinterp{:}),horzcat(obj.LLT.phiinterp{:}),horzcat(obj.LLT.spanel{:}),obj.halfmesh);
+
+
                 approxmatedObj.approxMat = [];
                 approxmatedObj.approximated = 1;
                 for i = 1:size(modifiedVerts,1)
@@ -324,36 +357,18 @@ classdef UNGRADE < UNLSI
             end
         end
 
-        function obj = setOptimization(obj,H0,TR,TRmin,TRmax,method,nMemory)
+        function obj = setOptimization(obj,H0,TR,TRmin,TRmax)
             obj.optimization.H0 = H0;
             obj.optimization.H = H0;
-            obj.optimization.nMemory = nMemory;
             obj.optimization.TR = TR;
             obj.optimization.TRmin = TRmin;
             obj.optimization.TRmax = TRmax;
             obj.optimization.xScaled = [];
             obj.optimization.dL_dx = [];
-            obj.stabbbScaling = 1;%デフォで使用
-            if strcmpi(method,"SR1")
-                obj.optimization.updateFunction = @obj.SR1;
-            elseif strcmpi(method,"SSR1")
-                obj.optimization.updateFunction = @obj.SSR1;
-            elseif strcmpi(method,"BFGS")
-                obj.optimization.updateFunction = @obj.BFGS;
-            elseif strcmpi(method,"MBFGS")
-                obj.optimization.updateFunction = @obj.MBFGS;
-            elseif strcmpi(method,"DBFGS")
-                obj.optimization.updateFunction = @obj.DBFGS;
-            elseif strcmpi(method,"SR1_BFGS")
-                obj.optimization.updateFunction = @(s,y,H)obj.SR1_BFGS(obj,s,y,H);
-            elseif strcmpi(method,"SSR1_MBFGS")
-                obj.optimization.updateFunction = @(s,y,H)obj.SSR1_MBFGS(obj,s,y,H);
-            elseif strcmpi(method,"BB")
-                obj.optimization.updateFunction = @obj.Barzilai_Borwein;
-            end
+            obj.optimization.stabbbScaling = 1;
         end
 
-        function [dx,obj] = finddx(obj,objandConsFun,method,cmin,cmax)
+        function [dx,convergenceFlag,obj] = finddx(obj,objandConsFun,minNorm,GradientCalcMethod,HessianUpdateMethod,nMemory,cmin,cmax)
             %%%%%%%%%%%%指定した評価関数と制約条件における設計変数勾配の計算%%%%%%%%
             %method：設計変数に関する偏微分の計算方法
             % 'direct'-->メッシュを再生成，'chain'-->基準メッシュの変位を補間,
@@ -391,7 +406,7 @@ classdef UNGRADE < UNLSI
             disp(vertcat(AERODATA0{:}));
             [I0,con0] = objandConsFun(desOrg,AERODATA0,Cp0,Cfe0,obj.optSREF,obj.optBREF,obj.optCREF,obj.optXYZREF,obj.argin_x);
 
-            if not(strcmpi(method,"nonlin"))
+            if not(strcmpi(GradientCalcMethod,"nonlin"))
                 %%%
                 %明示・非明示随伴方程式法の実装
                 %u微分の計算
@@ -433,7 +448,7 @@ classdef UNGRADE < UNLSI
                 %x微分の計算
                 %メッシュの節点勾配を作成
                 obj = obj.makeMeshGradient();
-                if strcmpi(method,'chain')
+                if strcmpi(GradientCalcMethod,'chain')
                     if any(obj.flowNoList(:,3) == 1)
                         obj = obj.calcApproximatedEquation();
                     end
@@ -443,14 +458,14 @@ classdef UNGRADE < UNLSI
                     x(i) = obj.designVariables(i)+pert;
                     des = x.*obj.designScale+obj.lb;
                     [~,modMesh] = obj.variables2Mesh(des,'linear');
-                    if strcmpi(method,'direct')
+                    if strcmpi(GradientCalcMethod,'direct')
                         %変数が少ないときは直接作成
                         obj2 = obj.setVerts(modMesh);
                         if any(obj.flowNoList(:,3) == 1)
                             obj2 = obj2.makeEquation(obj.unlsiParam.wakeLength,obj.unlsiParam.n_wake,obj.unlsiParam.n_divide);
                         end
                         obj2.approximated = 0;
-                    elseif strcmpi(method,'chain')
+                    elseif strcmpi(GradientCalcMethod,'chain')
                         if any(obj.flowNoList(:,3) == 1)
                             obj2 = obj.makeApproximatedInstance(modMesh);
                         else
@@ -509,10 +524,16 @@ classdef UNGRADE < UNLSI
                 end
                 lbf = -obj.designVariables;
                 ubf = 1-obj.designVariables;
-                options = optimoptions(@fmincon,'Algorithm','interior-point','Display','none','EnableFeasibilityMode',true,"SubproblemAlgorithm","cg",'MaxFunctionEvaluations',10000);
+                options = optimoptions(@fmincon,'Algorithm','interior-point','Display','final-detailed','EnableFeasibilityMode',true,"SubproblemAlgorithm","cg",'MaxFunctionEvaluations',10000);
+                [~,~,exitflag,~,lambda] = linprog(objTotalGrad,alin,blin,[],[],lbf,ubf);
+                tempTR = obj.optimization.TR;
                 while(1)
-                    [dxscaled,fval,exitflag,output,lambda] = fmincon(@(dx)obj.fminconObj(dx,obj.optimization.H,objTotalGrad),zeros(numel(obj.designVariables),1),alin,blin,[],[],lbf,ubf,@(dx)obj.fminconNlc(dx,obj.optimization.TR),options);
-                    rho = 1000;
+                    if exitflag < 0
+                        [dxscaled,fval,~,~,lambda] = fmincon(@(x)obj.fminconObj(x,obj.optimization.H,objTotalGrad),zeros(numel(obj.designVariables),1),alin,blin,[],[],lbf,ubf,@(x)obj.fminconNlc(x,tempTR),options);
+                    else
+                        [dxscaled,fval] = fmincon(@(x)obj.fminconObj(x,obj.optimization.H,objTotalGrad),zeros(numel(obj.designVariables),1),alin,blin,[],[],lbf,ubf,@(x)obj.fminconNlc(x,tempTR),options);
+                    end
+                        rho = 1000;
                     if not(isempty(con0))
                         lambdaR = -(dR_du)\(dI_du+lambda.ineqlin'*[-dcon_du;dcon_du])';
                         Lorg = I0 + lambda.ineqlin'*[-con0;con0];
@@ -543,7 +564,7 @@ classdef UNGRADE < UNLSI
                     end
                     %[udx,~] = objdx.solvePertPotential(1,obj.unlsiParam.alpha,obj.unlsiParam.beta);%ポテンシャルを求める
                     %[AERODATA,Cp,Cfe,Rdx,~] = objdx.solveFlowForAdjoint(udx,1,obj.unlsiParam.alpha,obj.unlsiParam.beta);%ポテンシャルから空力係数を計算
-                    [Idx,condx] = objandConsFun(des,objdx.AERODATA,objdx.Cp,objdx.Cfe,SREFdx,BREFdx,CREFdx,XYZREFdx,argin_xdx);
+                    [Idx,condx] = objandConsFun(desdx,objdx.AERODATA,objdx.Cp,objdx.Cfe,SREFdx,BREFdx,CREFdx,XYZREFdx,argin_xdx);
                     if not(isempty(con0))
                         Ldx = Idx + lambda.ineqlin'*[-condx;condx];
                         if penaltyorg < sqrt(eps)
@@ -569,7 +590,7 @@ classdef UNGRADE < UNLSI
                     fprintf("------>\n");
                     disp([Idx,condx(:)']);
                     fprintf("dx norm :%f\nLagrangian Value : %f -> %f\nPenalty Value : %f -> %f\nHessian Approximation Accuracy:%f\n",norm(dxscaled),Lorg,Ldx,penaltyorg,penaltydx,acc);
-                    if obj.optimization.TR <= obj.optimization.TRmin ||  obj.iteration <= 2 
+                    if obj.optimization.TR <= obj.optimization.TRmin || strcmpi(HessianUpdateMethod,'BB')
                         fprintf("\n-----------Acceptable-----------\n\n");
                         break;
                     end
@@ -578,18 +599,41 @@ classdef UNGRADE < UNLSI
                         break;
                     end
                     fprintf("\n-----------Rejected-----------\n\n")
-                    obj.optimization.TR = obj.optimization.TR * 0.9;
+                    if norm(dxscaled)<tempTR
+                        tempTR = norm(dxscaled) * 0.9;
+                    else
+                        tempTR = tempTR * 0.9;
+                    end
                     dx = desdx-desOrg;
                 end
-                if acc < 0.15
-                    obj.optimization.TR = obj.optimization.TR * 0.9;
-                elseif acc > 0.5
-                    obj.optimization.TR = obj.optimization.TR / 0.9;
+                if strcmpi(HessianUpdateMethod,"SR1")
+                    obj.optimization.updateFunction = @obj.SR1;
+                elseif strcmpi(HessianUpdateMethod,"SSR1")
+                    obj.optimization.updateFunction = @obj.SSR1;
+                elseif strcmpi(HessianUpdateMethod,"BFGS")
+                    obj.optimization.updateFunction = @obj.BFGS;
+                elseif strcmpi(HessianUpdateMethod,"MBFGS")
+                    obj.optimization.updateFunction = @obj.MBFGS;
+                elseif strcmpi(HessianUpdateMethod,"DBFGS")
+                    obj.optimization.updateFunction = @obj.DBFGS;
+                elseif strcmpi(HessianUpdateMethod,"SR1_BFGS")
+                    obj.optimization.updateFunction = @(s,y,H)obj.SR1_BFGS(obj,s,y,H);
+                elseif strcmpi(HessianUpdateMethod,"SSR1_MBFGS")
+                    obj.optimization.updateFunction = @(s,y,H)obj.SSR1_MBFGS(obj,s,y,H);
+                elseif strcmpi(HessianUpdateMethod,"BB")
+                    obj.optimization.updateFunction = @obj.Barzilai_Borwein;
                 end
-                if obj.optimization.TR > obj.optimization.TRmax
-                    obj.optimization.TR = obj.optimization.TRmax;
-                elseif obj.optimization.TR < obj.optimization.TRmin
-                    obj.optimization.TR = obj.optimization.TRmin;
+                if not(strcmpi(HessianUpdateMethod,'BB'))
+                    if acc < 0.15
+                        obj.optimization.TR = obj.optimization.TR * 0.9;
+                    elseif acc > 0.5
+                        obj.optimization.TR = obj.optimization.TR / 0.9;
+                    end
+                    if obj.optimization.TR > obj.optimization.TRmax
+                        obj.optimization.TR = obj.optimization.TRmax;
+                    elseif obj.optimization.TR < obj.optimization.TRmin
+                        obj.optimization.TR = obj.optimization.TRmin;
+                    end
                 end
 
                 %Hessianの更新
@@ -597,19 +641,22 @@ classdef UNGRADE < UNLSI
                 obj.optimization.dL_dx = [obj.optimization.dL_dx;dL_dx];
                 if size(obj.optimization.xScaled,1) > 1
                     n_iter = size(obj.optimization.xScaled,1)-1;
-                    if n_iter > obj.optimization.nMemory
-                        n_iter = obj.optimization.nMemory;
+                    if n_iter > nMemory
+                        n_iter = nMemory;
+                    end
+                    if strcmpi(HessianUpdateMethod,'BB')
+                        obj.optimization.stabbbScaling = 0;
+                        n_iter = 1;
                     end
                     obj.optimization.H = obj.optimization.H0;
-                    obj.stabbbScaling = 1;
-                    if obj.stabbbScaling == 1
+                    if obj.optimization.stabbbScaling == 1
                         s = obj.optimization.xScaled(end,:)-obj.optimization.xScaled(end-1,:);
                         y = obj.optimization.dL_dx(end,:)-obj.optimization.dL_dx(end-1,:);
                         if norm(s)>sqrt(eps) && norm(y)>sqrt(eps)
                             obj.optimization.H = obj.Barzilai_Borwein(s,y,obj.optimization.H);
                         end
                     end
-                    for i = n_iter:1
+                    for i = n_iter:-1:1
                         s = obj.optimization.xScaled(end-(i-1),:)-obj.optimization.xScaled(end-i,:);
                         y = obj.optimization.dL_dx(end-(i-1),:)-obj.optimization.dL_dx(end-i,:);
                         if norm(s)>sqrt(eps) && norm(y)>sqrt(eps)
@@ -631,12 +678,12 @@ classdef UNGRADE < UNLSI
                     %options = optimoptions(@patternsearch,'MaxIterations',100,'Display','iter');
                     %dxscaled = patternsearch(@(dx)obj.nonlnObj(dx,obj,objandConsFun,cmin,cmax),zeros(numel(obj.designVariables),1),[],[],[],[],lbf,ubf,[],options);
                     options = optimoptions(@fmincon,'Algorithm','sqp','Display','iter-detailed');
-                    [dxscaled,fval,exitflag,output,lambda] = fmincon(@(dx)obj.nonlnObj(dx,obj,objandConsFun,cmin,cmax),zeros(numel(obj.designVariables),1),[],[],[],[],lbf,ubf,@(dx)obj.nonlnNormCon(dx,obj.optimization.TRmax),options);
+                    [dxscaled,fval,exitflag,output,lambda] = fmincon(@(x)obj.nonlnObj(x,obj,objandConsFun,cmin,cmax),zeros(numel(obj.designVariables),1),[],[],[],[],lbf,ubf,@(x)obj.nonlnNormCon(x,obj.optimization.TRmax),options);
                 else
                     %options = optimoptions(@patternsearch,'MaxIterations',100,'Display','iter');
                     %dxscaled = patternsearch(@(dx)obj.nonlnObj(dx,obj,objandConsFun,cmin,cmax),zeros(numel(obj.designVariables),1),[],[],[],[],lbf,ubf,@(dx)obj.nonlnCon(dx,obj,objandConsFun,cmin,cmax),options);
                     options = optimoptions(@fmincon,'Algorithm','sqp','Display','iter-detailed');
-                    [dxscaled,fval,exitflag,output,lambda] = fmincon(@(dx)obj.nonlnObj(dx,obj,objandConsFun,cmin,cmax),zeros(numel(obj.designVariables),1),[],[],[],[],lbf,ubf,@(dx)obj.nonlnCon(dx,obj,objandConsFun,cmin,cmax,obj.optimization.TRmax),options);                
+                    [dxscaled,fval,exitflag,output,lambda] = fmincon(@(x)obj.nonlnObj(x,obj,objandConsFun,cmin,cmax),zeros(numel(obj.designVariables),1),[],[],[],[],lbf,ubf,@(x)obj.nonlnCon(x,obj,objandConsFun,cmin,cmax,obj.optimization.TRmax),options);                
                 end
                 %dxscaled = ga(@(dx)obj.nonlnObj(dx,obj,objandConsFun,cmin,cmax),numel(obj.designVariables),[],[],[],[],lbf,ubf,@(dx)obj.nonlnCon(dx,obj,objandConsFun,cmin,cmax,1),options);
                 dx = dxscaled(:)'.*obj.designScale;
@@ -664,13 +711,18 @@ classdef UNGRADE < UNLSI
                 disp([Idx,condx(:)']);
                 fprintf("dx norm :%f\n",norm(dxscaled));
             end
-
+            if norm((desdx-desOrg)./obj.designScale) < minNorm
+                convergenceFlag = 1;
+                fprintf("This Optimization is CONVERGED\n");
+            else
+                convergenceFlag = 0;
+            end
            
         end
 
-        function [dx,obj] = updateVariables(obj,FcnObjandCon,method,cmin,cmax)
-            fprintf("Itaration No. %d : Started -- Method : %s\n",obj.iteration,method);
-            [dx,obj] = obj.finddx(FcnObjandCon,method,cmin,cmax);
+        function [dx,convergenceFlag,obj] = updateVariables(obj,FcnObjandCon,minNorm,GradientCalcMethod,HessianUpdateMethod,nMemory,cmin,cmax)
+            fprintf("Itaration No. %d : Started\n -- GradientCalcMethod : %s\n -- HessianUpdateMethod : %s\n",obj.iteration,GradientCalcMethod,HessianUpdateMethod);
+            [dx,convergenceFlag,obj] = obj.finddx(FcnObjandCon,minNorm,GradientCalcMethod,HessianUpdateMethod,nMemory,cmin,cmax);
             newDes = obj.designVariables.*obj.designScale+obj.lb+dx;
             obj = obj.modifyMeshfromVariables(newDes);
             for i = 1:numel(obj.flow)

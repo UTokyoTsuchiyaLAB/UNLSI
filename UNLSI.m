@@ -16,7 +16,7 @@ classdef UNLSI
         XYZREF %回転中心
         paneltype %各パネルのタイプ 1:body 2:base 3:structure
         IndexPanel2Solver %パネルのインデックス⇒ソルバー上でのインデックス
-
+        VindWake
         wakePanelLength
         nWake
         normal %各パネルの法線ベクトル
@@ -31,6 +31,7 @@ classdef UNLSI
         Cfe %表面摩擦係数
         AERODATA %結果の格納
         DynCoeff %動微係数
+        LLT
     end
 
     methods(Access = public)
@@ -51,6 +52,7 @@ classdef UNLSI
             obj.paneltype = ones(size(connectivity,1),1);
             obj.IndexPanel2Solver = 1:numel(obj.paneltype);
             obj.halfmesh = halfmesh;
+            obj.LLT.n_interp = 10;
             obj.flow = {};
             obj.SREF = 1;
             obj.CREF = 1;
@@ -79,6 +81,9 @@ classdef UNLSI
                         end
                     end
                     obj.wakeline{iter}.edge(deletelist) = [];
+                    if numel(obj.wakeline{iter}.edge) == 1
+                        obj.wakeline(iter) = [];
+                    end
                 end
             end
             %wakeのつくパネルIDを特定
@@ -178,6 +183,9 @@ classdef UNLSI
                         end
                     end
                     obj.wakeline{iter}.edge(deletelist) = [];
+                    if numel(obj.wakeline{iter}.edge) == 1
+                        obj.wakeline(iter) = [];
+                    end 
                 end
             end
             %wakeのつくパネルIDを特定
@@ -326,6 +334,8 @@ classdef UNLSI
                     end
                 end
             end
+
+            %誘導抗力計算用の行列の作成
             
             %パネル方連立方程式行列の作成
             %機体パネル⇒機体パネルへの影響
@@ -344,17 +354,41 @@ classdef UNLSI
 
             %wakeパネル⇒機体パネルへの影響
             %
+            
             for wakeNo = 1:numel(obj.wakeline)
+                theta = linspace(pi,0,numel(obj.wakeline{wakeNo}.edge)*obj.LLT.n_interp+1);
+                iter = 1;
+                obj.LLT.sp{wakeNo} = [];
+                obj.LLT.calcMu{wakeNo} = zeros(1,nbPanel);
+                s = zeros(1,numel(obj.wakeline{wakeNo}.edge));
+                for edgeNo = 1:numel(obj.wakeline{wakeNo}.edge)-1
+                    s(edgeNo+1) = s(edgeNo) + norm([obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo),2:3)-obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo+1),2:3)]);
+                end
                 for edgeNo = 1:numel(obj.wakeline{wakeNo}.edge)-1
                     interpID(1) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.upperID(edgeNo));
                     interpID(2) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.lowerID(edgeNo));
                     [influence] = obj.wakeInfluenceMatrix(obj,wakeNo,edgeNo,1:nbPanel,wakepanellength,nwake);
                     obj.LHS(:,interpID(1)) = obj.LHS(:,interpID(1)) - influence;
                     obj.LHS(:,interpID(2)) = obj.LHS(:,interpID(2)) + influence;
+                    obj.LLT.sp{wakeNo} =  [obj.LLT.sp{wakeNo},(s(edgeNo)+s(edgeNo+1))./2];
+                    obj.LLT.calcMu{wakeNo}(iter,interpID(1)) = -1;
+                    obj.LLT.calcMu{wakeNo}(iter,interpID(2)) = 1;
+                    iter = iter+1;
                 end
+                sd = (s(end)-s(1))*(cos(theta)./2+0.5)+s(1);
+                obj.LLT.sinterp{wakeNo} = (sd(2:end)+sd(1:end-1))./2;
+                obj.LLT.yinterp{wakeNo} = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),2),obj.LLT.sinterp{wakeNo},'linear','extrap');
+                obj.LLT.zinterp{wakeNo} = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),3),obj.LLT.sinterp{wakeNo},'linear','extrap');
+                yd = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),2),sd,'linear','extrap');
+                zd = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),3),sd,'linear','extrap');
+                obj.LLT.phiinterp{wakeNo} = atan2(zd(2:end)-zd(1:end-1),yd(2:end)-yd(1:end-1));
+                obj.LLT.spanel{wakeNo} = (sd(2:end)-sd(1:end-1))./2;
+                
             end
-            %}
+            obj.LLT.Qij = obj.Calc_Q(horzcat(obj.LLT.yinterp{:}),horzcat(obj.LLT.zinterp{:}),horzcat(obj.LLT.phiinterp{:}),horzcat(obj.LLT.spanel{:}),obj.halfmesh);
         end
+
+
 
         function obj = flowCondition(obj,flowNo,Mach,newtoniantype)
             %%%%%%%%%%%%%%%%主流の設定%%%%%%%%%%%%%%%%%%%%%%
@@ -519,8 +553,21 @@ classdef UNLSI
                         dv(:,i) = obj.mu2v{i}*(potential);
                     end
                 
-                    obj.Cp{flowNo}(obj.paneltype==1,iterflow) = (1-sum(dv(obj.paneltype==1,:).^2,2))./sqrt(1-obj.flow{flowNo}.Mach^2);
+                    obj.Cp{flowNo}(obj.paneltype==1,iterflow) = (1-sum(dv(obj.paneltype==1,:).^2,2))./(1-obj.flow{flowNo}.Mach^2);
                     obj.Cp{flowNo}(obj.paneltype==2,iterflow) = (-0.139-0.419.*(obj.flow{flowNo}.Mach-0.161).^2);
+                    uinterp = [];
+                    for i = 1:numel(obj.wakeline)
+                        uinterp = [uinterp,interp1(obj.LLT.sp{i},obj.LLT.calcMu{i}*u,obj.LLT.sinterp{i},'linear','extrap')];
+                    end
+                    Vind = obj.LLT.Qij*uinterp';
+                    %{
+                    figure(2);clf;hold on;
+                    plot(horzcat(obj.LLT.sinterp{:}),Vind');
+                    plot(horzcat(obj.LLT.sinterp{:}),uinterp);
+                    ylim([-0.5,3]);
+                    %}
+                    CLt = (2.*horzcat(obj.LLT.spanel{:})*uinterp')/(0.5*obj.SREF)/(1-obj.flow{flowNo}.Mach^2);
+                    CDt = ((uinterp.*horzcat(obj.LLT.spanel{:}))*Vind)/(0.5*obj.SREF)/norm(1-obj.flow{flowNo}.Mach^2)^3;
                 else
                     %超音速
                     delta = zeros(nbPanel,1);
@@ -535,6 +582,8 @@ classdef UNLSI
                     %用意された応答曲面をもちいてパネルの角度からCpを求める
                     obj.Cp{flowNo}(obj.paneltype==1,iterflow) = obj.flow{flowNo}.pp(delta);%Cp
                     obj.Cp{flowNo}(obj.paneltype==2,iterflow) = (-obj.flow{flowNo}.Mach.^(-2)+0.57.*obj.flow{flowNo}.Mach.^(-4));
+                    CLt = 0;
+                    CDt = 0;
                 end
                 %Cp⇒力への変換
                 dCA_p = (-obj.Cp{flowNo}(:,iterflow).*obj.normal(:,1)).*obj.area./obj.SREF;
@@ -558,6 +607,8 @@ classdef UNLSI
                     CMX = 0;
                     CMY = sum(dCMY)*2;
                     CMZ = 0;
+                    CLt = 2*CLt;
+                    CDt = 2*CDt;
                 else
                     CNp = sum(dCN_p);
                     CAp = sum(dCA_p);
@@ -568,18 +619,22 @@ classdef UNLSI
                     CMX = sum(dCMX);
                     CMY = sum(dCMY);
                     CMZ = sum(dCMZ);
+                    %CDt = CDt;
                 end
                 CL = T(:,3)'*[CAp+CAf;CYp+CYf;CNp+CNf];
                 CDi = T(:,1)'*[CAp;CYp;CNp];
                 CDo = T(:,1)'*[CAf;CYf;CNf];
                 CDtot = CDi+CDo;
+                CDtott = CDt+CDo;
                 if obj.halfmesh == 1
                     CY = 0;
                 else
                     CY = T(:,2)'*[CAp+CAf;CYp+CYf;CNp+CNf];
                 end
                 AR = obj.BREF^2/obj.SREF;
-                obj.AERODATA{flowNo}(iterflow,:) = [beta(iterflow),obj.flow{flowNo}.Mach,alpha(iterflow),0,CL,CDo,CDi,CDtot,0,0,CY,CL/CDtot,CL^2/pi/AR/CDi,CAp+CAf,CYp+CYf,CNp+CNf,CMX,CMY,CMZ,0,0,0,0];
+                
+                obj.AERODATA{flowNo}(iterflow,:) = [beta(iterflow),obj.flow{flowNo}.Mach,alpha(iterflow),0,CL,CLt,CDo,CDi,CDtot,CDt,CDtott,CY,CL/CDtot,CLt^2/pi/AR/CDt,CAp+CAf,CYp+CYf,CNp+CNf,CMX,CMY,CMZ,0,0,0,0];
+                
             end
             %disp([CL,CDo,CDi,CDtot,CMY]);
         end
@@ -695,8 +750,15 @@ classdef UNLSI
                         dv(:,i) = obj.mu2v{i}*(potential);
                     end
                 
-                    obj.Cp{flowNo}(obj.paneltype==1,iterflow) = (1-sum(dv(obj.paneltype==1,:).^2,2))./sqrt(1-obj.flow{flowNo}.Mach^2);
+                    obj.Cp{flowNo}(obj.paneltype==1,iterflow) = (1-sum(dv(obj.paneltype==1,:).^2,2))./(1-obj.flow{flowNo}.Mach^2);
                     obj.Cp{flowNo}(obj.paneltype==2,iterflow) = (-0.139-0.419.*(obj.flow{flowNo}.Mach-0.161).^2);
+                    uinterp = [];
+                    for i = 1:numel(obj.wakeline)
+                        uinterp = [uinterp,interp1(obj.LLT.sp{i},obj.LLT.calcMu{i}*usolve,obj.LLT.sinterp{i},'linear','extrap')];
+                    end
+                    Vind = obj.LLT.Qij*uinterp';
+                    CLt = (2.*horzcat(obj.LLT.spanel{:})*uinterp')/(0.5*obj.SREF)/(1-obj.flow{flowNo}.Mach^2);
+                    CDt = ((uinterp.*horzcat(obj.LLT.spanel{:}))*Vind)/(0.5*obj.SREF)/norm(1-obj.flow{flowNo}.Mach^2)^3;
                 else
                     %超音速
                     delta = zeros(nbPanel,1);
@@ -711,7 +773,8 @@ classdef UNLSI
                     usolve = u(nbPanel*(iterflow-1)+1:nbPanel*iterflow,1);
                     obj.Cp{flowNo}(obj.paneltype==1,iterflow) = usolve;%Cp
                     obj.Cp{flowNo}(obj.paneltype==2,iterflow) = (-obj.flow{flowNo}.Mach.^(-2)+0.57.*obj.flow{flowNo}.Mach.^(-4));
-                    
+                    CLt = 0;
+                    CDt = 0;
                 end
                 %Cp⇒力への変換
                 dCA_p = (-obj.Cp{flowNo}(:,iterflow).*obj.normal(:,1)).*obj.area./obj.SREF;
@@ -735,6 +798,8 @@ classdef UNLSI
                     CMX = 0;
                     CMY = sum(dCMY)*2;
                     CMZ = 0;
+                    CLt = 2*CLt;
+                    CDt = 2*CDt;
                 else
                     CNp = sum(dCN_p);
                     CAp = sum(dCA_p);
@@ -751,13 +816,14 @@ classdef UNLSI
                 CDi = T(:,1)'*[CAp;CYp;CNp];
                 CDo = T(:,1)'*[CAf;CYf;CNf];
                 CDtot = CDi+CDo;
+                CDtott = CDt+CDo;
                 if obj.halfmesh == 1
                     CY = 0;
                 else
                     CY = T(:,2)'*[CAp+CAf;CYp+CYf;CNp+CNf];
                 end
                 AR = obj.BREF^2/obj.SREF;
-                obj.AERODATA{flowNo}(iterflow,:) = [beta(iterflow),obj.flow{flowNo}.Mach,alpha(iterflow),0,CL,CDo,CDi,CDtot,0,0,CY,CL/CDtot,CL^2/pi/AR/CDi,CAp+CAf,CYp+CYf,CNp+CNf,CMX,CMY,CMZ,0,0,0,0];
+                obj.AERODATA{flowNo}(iterflow,:) = [beta(iterflow),obj.flow{flowNo}.Mach,alpha(iterflow),0,CL,CLt,CDo,CDi,CDtot,CDt,CDtott,CY,CL/CDtot,CLt^2/pi/AR/CDt,CAp+CAf,CYp+CYf,CNp+CNf,CMX,CMY,CMZ,0,0,0,0];
                 AERODATA = obj.AERODATA;
                 Cp = obj.Cp;
                 Cfe = obj.Cfe;
@@ -1318,6 +1384,45 @@ classdef UNLSI
                 end
             end
 
+        end
+        function Q_ij=Calc_Q(y,z,phi,dS,halfmesh)
+            yd_ij = zeros(numel(y),numel(y));
+            zd_ij = zeros(numel(y),numel(y));
+            ydd_ij = zeros(numel(y),numel(y));
+            zdd_ij = zeros(numel(y),numel(y));
+            R_2_Pij = zeros(numel(y),numel(y));
+            R_2_Mij = zeros(numel(y),numel(y));
+            Rd_2_Pij = zeros(numel(y),numel(y));
+            Rd_2_Mij = zeros(numel(y),numel(y));
+            Q_ij_1 = zeros(numel(y),numel(y));
+            Q_ij_2 = zeros(numel(y),numel(y));
+            Q_ij_3 = zeros(numel(y),numel(y));
+            Q_ij_4 = zeros(numel(y),numel(y));
+            Q_ij = zeros(numel(y),numel(y));
+	        for i=1:numel(y)
+		        for j=1:numel(y)
+			        yd_ij(i,j)=(y(i)-y(j))*cos(phi(j))+(z(i)-z(j))*sin(phi(j));
+			        zd_ij(i,j)=-(y(i)-y(j))*sin(phi(j))+(z(i)-z(j))*cos(phi(j));
+			        R_2_Pij(i,j)=(yd_ij(i,j)-dS(j))^2+zd_ij(i,j)^2;
+			        R_2_Mij(i,j)=(yd_ij(i,j)+dS(j))^2+zd_ij(i,j)^2;
+			        Q_ij_1(i,j)=((yd_ij(i,j)-dS(j))/R_2_Pij(i,j)-(yd_ij(i,j)+dS(j))/R_2_Mij(i,j))*cos(phi(i)-phi(j));
+			        Q_ij_2(i,j)=((zd_ij(i,j))/R_2_Pij(i,j)-(zd_ij(i,j))/R_2_Mij(i,j))*sin(phi(i)-phi(j));
+			        
+                    if halfmesh == 1
+                        ydd_ij(i,j)=(y(i)+y(j))*cos(phi(j))-(z(i)-z(j))*sin(phi(j));
+			            zdd_ij(i,j)=(y(i)+y(j))*sin(phi(j))+(z(i)-z(j))*cos(phi(j));
+			            Rd_2_Pij(i,j)=(ydd_ij(i,j)+dS(j))^2+zdd_ij(i,j)^2;
+			            Rd_2_Mij(i,j)=(ydd_ij(i,j)-dS(j))^2+zdd_ij(i,j)^2;
+                        Q_ij_3(i,j)=((ydd_ij(i,j)-dS(j))/Rd_2_Mij(i,j)-(ydd_ij(i,j)+dS(j))/Rd_2_Pij(i,j))*cos(phi(i)+phi(j));
+			            Q_ij_4(i,j)=((zdd_ij(i,j))/Rd_2_Mij(i,j)-(zdd_ij(i,j))/Rd_2_Pij(i,j))*sin(phi(i)+phi(j));
+                    end
+                    if halfmesh == 1
+			            Q_ij(i,j)=-1/2/pi*(Q_ij_1(i,j)+Q_ij_2(i,j)+Q_ij_3(i,j)+Q_ij_4(i,j));
+                    else
+                        Q_ij(i,j)=-1/2/pi*(Q_ij_1(i,j)+Q_ij_2(i,j));
+                    end
+		        end
+	        end
         end
 
         function res = pmsolve(M1,M2,nu,kappa)
