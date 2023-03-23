@@ -1,7 +1,0 @@
-# VSPGEOM Tag Key File
-modSurf.vspgeom
-2
-
-# tag#,geom#,surf#,gname,gid,ssname1,ssname2,...,ssid1,ssid2,...
-1,0,0,WingGeom,ZAXWQEUVZC
-2,0,1,WingGeom,ZAXWQEUVZC

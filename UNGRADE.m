@@ -358,6 +358,13 @@
         end
 
         function obj = setOptimization(obj,H0,TR,TRmin,TRmax)
+            %%%最適化の設定%%%%%%%%%%%
+            %H0：ヘシアンの初期値
+            %TR：不等式制約の許容残差の初期値
+            %TRmin：不等式制約の許容残差の最小値
+            %TRmax：不等式制約の許容残差の最大値
+            %stabbbScaling : stabilized BB方による初期ヘシアンのスケーリングを行うかどうか
+            %%%%%%%%%%%%%%%%%%%%%
             obj.optimization.H0 = H0;
             obj.optimization.H = H0;
             obj.optimization.TR = TR;
@@ -787,6 +794,11 @@
         end
 
         function res = fminconObj(dx,H,g)
+            %%%SQPの更新ベクトルの目的関数%%%%%
+            %dx：更新ベクトル
+            %H：ヘシアン
+            %g：勾配
+            %%%%%%%%%%%%%%%%%%%%%%
             res = 0.5 * dx(:)'*H*dx(:) + g*dx(:);
         end
 
