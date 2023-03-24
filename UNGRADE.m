@@ -244,16 +244,13 @@
                     end
                     for edgeNo = 1:numel(obj.wakeline{wakeNo}.edge)-1
                         obj.LLT.sp{wakeNo} =  [obj.LLT.sp{wakeNo},(s(edgeNo)+s(edgeNo+1))./2];
-                        obj.LLT.calcMu{wakeNo}(iter,interpID(1)) = -1;
-                        obj.LLT.calcMu{wakeNo}(iter,interpID(2)) = 1;
-                        iter = iter+1;
                     end
                     sd = (s(end)-s(1))*(cos(theta)./2+0.5)+s(1);
                     obj.LLT.sinterp{wakeNo} = (sd(2:end)+sd(1:end-1))./2;
-                    obj.LLT.yinterp{wakeNo} = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),2),obj.LLT.sinterp{wakeNo},'spline','extrap');
-                    obj.LLT.zinterp{wakeNo} = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),3),obj.LLT.sinterp{wakeNo},'spline','extrap');
-                    yd = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),2),sd,'spline','extrap');
-                    zd = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),3),sd,'spline','extrap');
+                    obj.LLT.yinterp{wakeNo} = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),2),obj.LLT.sinterp{wakeNo},'linear','extrap');
+                    obj.LLT.zinterp{wakeNo} = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),3),obj.LLT.sinterp{wakeNo},'linear','extrap');
+                    yd = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),2),sd,'linear','extrap');
+                    zd = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),3),sd,'linear','extrap');
                     obj.LLT.phiinterp{wakeNo} = atan2(zd(2:end)-zd(1:end-1),yd(2:end)-yd(1:end-1));
                     obj.LLT.spanel{wakeNo} = (sd(2:end)-sd(1:end-1))./2;
                     
@@ -276,25 +273,35 @@
                 end
         end
 
-        function viewMesh(obj,modMesh,fig)
+        function viewMesh(obj,modMesh,fig,deformPlot)
             %%%%%%%%%%%設計変数勾配による標本表面の近似関数の作成%%%%%
 
 
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             viewtri = triangulation(obj.orgMesh.ConnectivityList,modMesh);
             figure(fig);
-            trisurf(viewtri, 'FaceAlpha', 0, 'EdgeColor', 'black');
+            if nargin < 4
+                trisurf(viewtri, 'FaceAlpha', 0, 'EdgeColor', 'black');
+            else
+                deform = vecnorm(modMesh-obj.orgMesh.Points,2,2);
+                trisurf(viewtri, deform ,'FaceAlpha', 0.8, 'EdgeColor', 'black');
+            end
             axis equal;drawnow();
         end
 
-        function viewSurf(obj,modSurf,fig)
+        function viewSurf(obj,modSurf,fig,deformPlot)
             %%%%%%%%%%%設計変数勾配による標本表面の近似関数の作成%%%%%
 
 
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             viewtri = triangulation(obj.orgSurf.ConnectivityList,modSurf);
             figure(fig);
-            trisurf(viewtri, 'FaceAlpha', 0, 'EdgeColor', 'black');
+            if nargin < 4
+                trisurf(viewtri, 'FaceAlpha', 0, 'EdgeColor', 'black');
+            else
+                deform = vecnorm(modSurf-obj.orgSurf.Points,2,2);
+                trisurf(viewtri, deform ,'FaceAlpha', 0.8, 'EdgeColor', 'black');
+            end
             axis equal;drawnow();
         end
 
