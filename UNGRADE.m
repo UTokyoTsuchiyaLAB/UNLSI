@@ -53,7 +53,7 @@
             obj = obj.setRotationCenter(obj.optXYZREF);
             obj.designVariables = (desOrg(:)'-obj.lb)./obj.designScale;
             obj.orgSurf =  triangulation(orgSurfCon,orgSurfVerts);
-            obj.iteration = 1;
+            obj.iteration = 0;
             
         end
 
@@ -416,10 +416,13 @@
 
             end
             obj.plotGeometry(1,obj.Cp{1}(:,1),[-2,1]);
+            [I0,con0] = objandConsFun(desOrg,AERODATA0,Cp0,Cfe0,obj.optSREF,obj.optBREF,obj.optCREF,obj.optXYZREF,obj.argin_x);
+            fprintf("Orginal Objective Value and Constraints:\n")
+            disp([I0,con0(:)']);
+            obj.optimization.objVal(obj.iteration) = I0;
+            obj.optimization.conVal(:,obj.iteration) = con0(:);
             fprintf("AERODATA of Itaration No.%d ->\n",obj.iteration);
             disp(vertcat(AERODATA0{:}));
-            [I0,con0] = objandConsFun(desOrg,AERODATA0,Cp0,Cfe0,obj.optSREF,obj.optBREF,obj.optCREF,obj.optXYZREF,obj.argin_x);
-
             if not(strcmpi(GradientCalcMethod,"nonlin"))
                 %%%
                 %明示・非明示随伴方程式法の実装
@@ -559,6 +562,8 @@
                         penaltyorg = 0;
                         dL_dx = dI_dx+lambdaR'*dR_dx;
                     end
+                    obj.optimization.LagrangianVal(obj.iteration) = Lorg;
+                    obj.optimization.penaltyVal(obj.iteration) = Lorg;
                     dx = dxscaled(:)'.*obj.designScale;
                     
                     %精度評価
@@ -595,6 +600,9 @@
                     else
                         acc = (Ldx-Lorg)/(fval);
                     end
+                    obj.optimization.LpredictVal(obj.iteration) = Ldx;
+                    obj.optimization.trAccuracyVal(obj.iteration) = acc;
+                    obj.optimization.dxNormVal(obj.iteration) = norm(dxscaled);
                     fprintf("Variables:\n")
                     disp(desOrg);
                     fprintf("------>\n")
@@ -738,6 +746,7 @@
         end
 
         function [dx,convergenceFlag,obj] = updateVariables(obj,FcnObjandCon,minNorm,GradientCalcMethod,HessianUpdateMethod,nMemory,cmin,cmax)
+            obj.iteration = obj.iteration + 1;
             fprintf("Itaration No. %d : Started\n -- GradientCalcMethod : %s\n -- HessianUpdateMethod : %s\n",obj.iteration,GradientCalcMethod,HessianUpdateMethod);
             [dx,convergenceFlag,obj] = obj.finddx(FcnObjandCon,minNorm,GradientCalcMethod,HessianUpdateMethod,nMemory,cmin,cmax);
             newDes = obj.designVariables.*obj.designScale+obj.lb+dx;
@@ -749,7 +758,21 @@
                 obj = obj.makeCluster(obj.unlsiParam.nCluster,obj.unlsiParam.edgeAngleThreshold);
             end
             fprintf("Itaration No. %d : Completed\n",obj.iteration);
-            obj.iteration = obj.iteration + 1;
+        end
+
+        function plotOptimizationState(obj,fig)
+            figure(fig);clf;
+            plotiter = 1:obj.iteration;
+            subplot(5,1,1);grid on;
+            plot(plotiter,obj.optimization.objVal,"-o");
+            subplot(5,1,2);grid on;
+            plot(plotiter,obj.optimization.conVal,"-o");
+            subplot(5,1,3);grid on;
+            plot(plotiter,obj.optimization.LagrangianVal,"-o");
+            subplot(5,1,4);grid on;
+            plot(plotiter,obj.optimization.trAccuracyVal,"-o");
+            subplot(5,1,5);grid on;
+            plot(plotiter,obj.optimization.dxNormVal,"-o");
         end
     end
 
