@@ -773,6 +773,7 @@
             plot(plotiter,obj.optimization.trAccuracyVal,"-o");
             subplot(5,1,5);grid on;
             plot(plotiter,obj.optimization.dxNormVal,"-o");
+            drawnow();
         end
     end
 

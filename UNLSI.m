@@ -523,7 +523,16 @@ classdef UNLSI
             nPanel = numel(obj.paneltype);
             nbPanel = sum(obj.paneltype == 1);
             for iterflow = 1:numel(alpha)
-                T = angle2dcm(beta(iterflow)*pi/180,alpha(iterflow)*pi/180,0);
+                T(1,1) = cosd(alpha(iterflow))*cosd(beta(iterflow));
+                T(1,2) = cosd(alpha(iterflow))*sind(beta(iterflow));
+                T(1,3) = -sind(alpha(iterflow));
+                T(2,1) = -sind(beta(iterflow));
+                T(2,2) = cosd(beta(iterflow));
+                T(2,3) = 0;
+                T(3,1) = sind(alpha(iterflow))*cosd(beta(iterflow));
+                T(3,2) = sind(alpha(iterflow))*sind(beta(iterflow));
+                T(3,3) = cosd(alpha(iterflow));
+
                 if nargin < 5
                     Vinf = repmat((T*[1;0;0])',[nPanel,1]);
                 else
@@ -656,7 +665,15 @@ classdef UNLSI
             R = [];
             u = [];
             for iterflow = 1:numel(alpha)
-                T = angle2dcm(beta(iterflow)*pi/180,alpha(iterflow)*pi/180,0);
+                T(1,1) = cosd(alpha(iterflow))*cosd(beta(iterflow));
+                T(1,2) = cosd(alpha(iterflow))*sind(beta(iterflow));
+                T(1,3) = -sind(alpha(iterflow));
+                T(2,1) = -sind(beta(iterflow));
+                T(2,2) = cosd(beta(iterflow));
+                T(2,3) = 0;
+                T(3,1) = sind(alpha(iterflow))*cosd(beta(iterflow));
+                T(3,2) = sind(alpha(iterflow))*sind(beta(iterflow));
+                T(3,3) = cosd(alpha(iterflow));
                 if nargin < 5
                     Vinf = repmat((T*[1;0;0])',[nPanel,1]);
                 else
@@ -721,7 +738,15 @@ classdef UNLSI
             nPanel = numel(obj.paneltype);
             nbPanel = sum(obj.paneltype == 1);
             for iterflow = 1:numel(alpha)
-                T = angle2dcm(beta(iterflow)*pi/180,alpha(iterflow)*pi/180,0);
+                T(1,1) = cosd(alpha(iterflow))*cosd(beta(iterflow));
+                T(1,2) = cosd(alpha(iterflow))*sind(beta(iterflow));
+                T(1,3) = -sind(alpha(iterflow));
+                T(2,1) = -sind(beta(iterflow));
+                T(2,2) = cosd(beta(iterflow));
+                T(2,3) = 0;
+                T(3,1) = sind(alpha(iterflow))*cosd(beta(iterflow));
+                T(3,2) = sind(alpha(iterflow))*sind(beta(iterflow));
+                T(3,3) = cosd(alpha(iterflow));
                 if nargin < 6
                     Vinf = repmat((T*[1;0;0])',[nPanel,1]);
                 else
