@@ -3,8 +3,9 @@
     properties
         orgMesh
         orgSurf
-        designVariables
-        surfGenFun
+        unscaledVar
+        scaledVar
+        geomGenFun
         meshGenFun
         lb
         ub
@@ -14,10 +15,6 @@
         approxMat %ソルバーの近似行列
         approximated
         optimization
-        optSREF
-        optBREF
-        optCREF
-        optXYZREF
         gradSREF
         gradBREF
         gradCREF
@@ -31,7 +28,7 @@
 
     methods(Access = public)
 
-        function obj = UNGRADE(surfGenFun,designVariables,lb,ub,orgVerts,orgCon,surfID,wakelineID,halfmesh)
+        function obj = UNGRADE(meshGenFun,geomGenFun,unscaledVariables,lb,ub,halfmesh,Mach,alpha,beta)
             %%%%%%%%%%%%メッシュの登録と基準サーフェス生成関数の登録%%%%%%%%%%%%%%%
             %orgVerts,orgCon　実際に解析を行うメッシュ（openVSPのCFDツール等で生成した（基本的に）オーバーラップのない非構造メッシュ）
             %meshGenFun　設計変数（スケールされていない）から基準サーフェス（解析メッシュと同じ表面を持つ、トリムされていないメッシュ）
@@ -39,46 +36,72 @@
             %lb：設計変数の下限
             %ub：設計変数の上限
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-            obj = obj@UNLSI(orgVerts,orgCon,surfID,wakelineID,halfmesh)
+            
+            [orgMeshVerts, orgMeshCon,surfID,wakeLineID, desOrg] = meshGenFun(unscaledVariables(:)');
+            obj = obj@UNLSI(orgMeshVerts,orgMeshCon,surfID,wakeLineID,halfmesh)
+            
             obj.lb = lb(:)';
             obj.ub = ub(:)';
             obj.designScale = (ub-lb);
             if any(obj.designScale<0)
                 error("check the ub and lb setting");
             end
-            obj.orgMesh = triangulation(orgCon,orgVerts);
-            obj.surfGenFun = surfGenFun;
-            [orgSurfVerts,orgSurfCon,obj.optSREF,obj.optBREF,obj.optCREF,obj.optXYZREF,obj.argin_x,desOrg] = obj.surfGenFun(designVariables(:)');
-            obj = obj.setREFS(obj.optSREF,obj.optBREF,obj.optCREF);
-            obj = obj.setRotationCenter(obj.optXYZREF);
-            obj.designVariables = (desOrg(:)'-obj.lb)./obj.designScale;
-            obj.orgSurf =  triangulation(orgSurfCon,orgSurfVerts);
-            obj.iteration = 0;
-            
-        end
-
-        function obj = setMeshGenFun(obj,meshGenFun)
+            obj.geomGenFun = geomGenFun;
             obj.meshGenFun = meshGenFun;
-        end
+            [orgGeomVerts,orgGeomCon,optSREF,optBREF,optCREF,optXYZREF,obj.argin_x,desOrg] = obj.geomGenFun(desOrg);
+            obj.orgMesh = triangulation(orgMeshCon,orgMeshVerts);
+            obj = obj.setREFS(optSREF,optBREF,optCREF);
+            obj = obj.setRotationCenter(optXYZREF);
+            obj.unscaledVar = desOrg(:)';
+            obj.scaledVar = (desOrg(:)'-obj.lb)./obj.designScale;
+            obj.orgGeom =  triangulation(orgGeomCon,orgGeomVerts);
+            obj.iteration = 0;
+            obj.unlsiParam.Mach = Mach;
+            obj.unlsiParam.alpha = alpha;
+            obj.unlsiParam.beta = beta;
 
-        function obj = modifyMesh(obj,designVariables,orgVerts,orgCon,surfID,wakelineID)
-            obj = obj.setMesh(orgVerts,orgCon,surfID,wakelineID);
-            obj.orgMesh = triangulation(orgCon,orgVerts);
-            [orgSurfVerts,orgSurfCon,obj.optSREF,obj.optBREF,obj.optCREF,obj.optXYZREF,obj.argin_x,desOrg] = obj.surfGenFun(designVariables(:)');
-            obj = obj.setREFS(obj.optSREF,obj.optBREF,obj.optCREF);
-            obj = obj.setRotationCenter(obj.optXYZREF);
-            obj.designVariables = (desOrg(:)'-obj.lb)./obj.designScale;
-            obj.orgSurf =  triangulation(orgSurfCon,orgSurfVerts);
+            obj.unlsiParam.n_wake = n_wake;
+            obj.unlsiParam.wakeLength = wakeLength;
+            obj.unlsiParam.n_divide = n_divide;
+            obj.unlsiParam.nCluster = nCluster;
+            obj.unlsiParam.edgeAngleThreshold = edgeAngleThreshold;
+            obj.unlsiParam.Re = Re;
+            obj.unlsiParam.Lch = Lch;
+            obj.unlsiParam.k = k;
+            obj.unlsiParam.LTratio = LTratio;
+            obj.unlsiParam.coefficient = CfeCoefficient;
+            uniMach = unique(Mach);
+            for i = 1:numel(uniMach)
+                obj = obj.flowCondition(i,uniMach(i));
+                obj = obj.setCf(i,obj.unlsiParam.Re,obj.unlsiParam.Lch,obj.unlsiParam.k,obj.unlsiParam.LTratio,obj.unlsiParam.coefficient);
+            end
+            for i = 1:numel(Mach)
+                obj.flowNoList(i,1) = find(uniMach == Mach(i));
+                obj.flowNoList(i,2) = uniMach(obj.flowNoList(i,1));
+                obj.flowNoList(i,3) = obj.flowNoList(i,2)<1;
+            end
+            if any(obj.flowNoList(:,3) == 1)
+                obj = obj.makeCluster(obj.unlsiParam.nCluster,obj.unlsiParam.edgeAngleThreshold);
+            end
+
+        end
+        
+        function obj = updateMeshGeomfromVariables(obj,unscaledVariables)
+            [orgMeshVerts, orgMeshCon,surfID,wakeLineID, unscaledVariables] = obj.meshGenFun(unscaledVariables(:)');
+            obj = obj.setMesh(orgMeshVerts,orgMeshCon,surfID,wakeLineID,halfmesh);
+            [orgGeomVerts,orgGeomCon,optSREF,optBREF,optCREF,optXYZREF,obj.argin_x,desOrg] = obj.geomGenFun(unscaledVariables);
+            obj.orgMesh = triangulation(orgMeshCon,orgMeshVerts);
+            obj = obj.setREFS(optSREF,optBREF,optCREF);
+            obj = obj.setRotationCenter(optXYZREF);
+            obj.unscaledVariables = desOrg(:)';
+            obj.scaledVariables = (desOrg(:)'-obj.lb)./obj.designScale;
+            obj.orgGeom =  triangulation(orgGeomCon,orgGeomVerts);
             if any(obj.flowNoList(:,3) == 1)
                 obj = obj.makeCluster(obj.unlsiParam.nCluster,obj.unlsiParam.edgeAngleThreshold);
             end
         end
 
-        function obj = modifyMeshfromVariables(obj,designVariables)
-            [orgVerts,orgCon,surfID,wakelineID,designVariables] = obj.meshGenFun(designVariables);
-            obj = obj.modifyMesh(designVariables,orgVerts,orgCon,surfID,wakelineID);
-        end
-
+        
         function [modVerts,con] = meshDeformation(obj,modSurfVerts,modSurfCon)
             %%%%%%%%%%%%非構造メッシュのメッシュ変形%%%%%%%
             %補間ベースのメッシュ変形
@@ -109,17 +132,17 @@
             pert = 0.01./obj.designScale;
             ndim = numel(obj.designVariables);
             desOrg = obj.designVariables.*obj.designScale+obj.lb;
-            [surforg,~,obj.optSREF,obj.optBREF,obj.optCREF,obj.optXYZREF,obj.argin_x,desOrg] = obj.surfGenFun(desOrg);
+            [surforg,~,obj.optSREF,obj.optBREF,obj.optCREF,obj.optXYZREF,obj.argin_x,desOrg] = obj.geomGenFun(desOrg);
             for i = 1:ndim
                 sampleDes = obj.designVariables.*obj.designScale+obj.lb;
                 sampleDes(i) = (obj.designVariables(i) + pert(i)).*obj.designScale(i)+obj.lb(i);
-                [modSurf,~,SREFf,BREFf,CREFf,XYZREFf,argin_xf,desBuff] = obj.surfGenFun(sampleDes);
+                [modSurf,~,SREFf,BREFf,CREFf,XYZREFf,argin_xf,desBuff] = obj.geomGenFun(sampleDes);
                 pertf = (desBuff(i)-desOrg(i))/obj.designScale(i);
                 dmodSurf = modSurf-surforg;
                 sampleSurff = dmodSurf(:);
                 sampleDes = obj.designVariables.*obj.designScale+obj.lb;
                 sampleDes(i) = (obj.designVariables(i) - pert(i)).*obj.designScale(i)+obj.lb(i);
-                [modSurf,~,SREFr,BREFr,CREFr,XYZREFr,argin_xr,desBuff] = obj.surfGenFun(sampleDes);
+                [modSurf,~,SREFr,BREFr,CREFr,XYZREFr,argin_xr,desBuff] = obj.geomGenFun(sampleDes);
                 pertr = (desBuff(i)-desOrg(i))/obj.designScale(i);
                 dmodSurf = modSurf-surforg;
                 sampleSurfr = dmodSurf(:);
@@ -133,20 +156,13 @@
             end
         end
 
-        function [modSurf,modMesh] = variables2Mesh(obj,x,method)
-           %%%%%%%%%%%%設計変数を変更した場合の標本近似表面の節点値の計算
+        function [modGeomVerts,modGeomCon,SREFo,BREFo,CREFo,XYZREFo,argin_xo,unscaledVariables] = calcGeomfromVariables(unscaledVariables)
+            [modGeomVerts,modGeomCon,SREFo,BREFo,CREFo,XYZREFo,argin_xo,unscaledVariables] = obj.geomGenFun(unscaledVariables);
+        end
 
-
-           %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-           if nargin == 2
-               method = "raw";
-           end
-           if strcmpi(method,"raw")
-               modSurf = obj.surfGenFun(x(:)');
-           elseif strcmpi(method,"linear")
-               scaledVar = (x(:)'- obj.lb) ./ obj.designScale; 
-               modSurf = obj.orgSurf.Points + reshape(obj.gradSurf*(scaledVar(:)-obj.designVariables(:)),size(obj.orgSurf.Points));
-           end
+        function [modSurf,modMesh] = calcApproximatedMeshandGeom(obj,unscaledVariables)
+           scaledVariables = (unscaledVariables(:)'- obj.lb) ./ obj.designScale; 
+           modSurf = obj.orgSurf.Points + reshape(obj.gradSurf*(scaledVariables(:)-obj.designVariables(:)),size(obj.orgSurf.Points));
            if nargout == 2
                modMesh = obj.meshDeformation(modSurf);
            end
@@ -309,7 +325,7 @@
             ndim = numel(obj.designVariables);
             randparam = rand(1).*ones(1,ndim);
             randDes = randparam.*obj.designScale+obj.lb;
-            modSurforg = obj.surfGenFun(randDes);
+            modSurforg = obj.geomGenFun(randDes);
             if nargin == 3
                 viewtri = triangulation(obj.orgSurf.ConnectivityList,modSurforg);
                 figure(fig);clf
@@ -322,7 +338,7 @@
             for i = 1:ndim
                 sampleDes = randparam.*obj.designScale+obj.lb;
                 sampleDes(i) = (randparam(i) + pert).*obj.designScale(i)+obj.lb(i);
-                modSurf = obj.surfGenFun(sampleDes);
+                modSurf = obj.geomGenFun(sampleDes);
                 if all(abs(modSurforg(:)-modSurf(:)) <sqrt(eps))
                     error("Variables No. %d : NOT MOVED",i);
                 end
@@ -364,7 +380,7 @@
             end
         end
 
-        function obj = setOptimization(obj,H0,TR,TRmin,TRmax)
+        function obj = setOptimization(obj,H0,stabbbScaling)
             %%%最適化の設定%%%%%%%%%%%
             %H0：ヘシアンの初期値
             %TR：不等式制約の許容残差の初期値
@@ -374,15 +390,13 @@
             %%%%%%%%%%%%%%%%%%%%%
             obj.optimization.H0 = H0;
             obj.optimization.H = H0;
-            obj.optimization.TR = TR;
-            obj.optimization.TRmin = TRmin;
-            obj.optimization.TRmax = TRmax;
             obj.optimization.xScaled = [];
             obj.optimization.dL_dx = [];
             obj.optimization.stabbbScaling = 1;
+            obj.optimization.BBMatrix = H0;
         end
 
-        function [dx,convergenceFlag,obj] = finddx(obj,objandConsFun,minNorm,GradientCalcMethod,HessianUpdateMethod,nMemory,cmin,cmax)
+        function [dx,convergenceFlag,obj] = finddx(obj,objandConsFun,minNorm,TrustRegion,betaLM,GradientCalcMethod,HessianUpdateMethod,nMemory,cmin,cmax)
             %%%%%%%%%%%%指定した評価関数と制約条件における設計変数勾配の計算%%%%%%%%
             %method：設計変数に関する偏微分の計算方法
             % 'direct'-->メッシュを再生成，'chain'-->基準メッシュの変位を補間,
@@ -543,100 +557,80 @@
                 ubf = 1-obj.designVariables;
                 options = optimoptions(@fmincon,'Algorithm','interior-point','Display','final-detailed','EnableFeasibilityMode',true,"SubproblemAlgorithm","cg",'MaxFunctionEvaluations',10000);
                 [~,~,exitflag,~,lambda] = linprog(objTotalGrad,alin,blin,[],[],lbf,ubf);
-                tempTR = obj.optimization.TR;
-                while(1)
-                    if exitflag < 0
-                        [dxscaled,fval,exitflagdx,~,lambda] = fmincon(@(x)obj.fminconObj(x,obj.optimization.H,objTotalGrad),zeros(numel(obj.designVariables),1),alin,blin,[],[],lbf,ubf,@(x)obj.fminconNlc(x,tempTR),options);
-                    else
-                        [dxscaled,fval,exitflagdx] = fmincon(@(x)obj.fminconObj(x,obj.optimization.H,objTotalGrad),zeros(numel(obj.designVariables),1),alin,blin,[],[],lbf,ubf,@(x)obj.fminconNlc(x,tempTR),options);
-                    end
-                        rho = 1000;
-                    if not(isempty(con0))
-                        lambdaR = -(dR_du)\(dI_du+lambda.ineqlin'*[-dcon_du;dcon_du])';
-                        Lorg = I0 + lambda.ineqlin'*[-con0;con0];
-                        penaltyorg = rho*sum(max(max(0,cmin-con0),max(con0-cmax)));
-                        dL_dx = dI_dx+lambdaR'*dR_dx+lambda.ineqlin'*[-dcon_dx;dcon_dx];
-                    else
-                        lambdaR = -(dR_du)\(dI_du)';
-                        Lorg = I0 ;
-                        penaltyorg = 0;
-                        dL_dx = dI_dx+lambdaR'*dR_dx;
-                    end
-                    obj.optimization.LagrangianVal(obj.iteration) = Lorg;
-                    obj.optimization.penaltyVal(obj.iteration) = Lorg;
-                    dx = dxscaled(:)'.*obj.designScale;
-                    
-                    %精度評価
-                    desdx = x.*obj.designScale+obj.lb+dx(:)';
-                    [modSurfdx,~,SREFdx,BREFdx,CREFdx,XYZREFdx,argin_xdx,desdx] = obj.surfGenFun(desdx);
-                    modMeshdx = obj.meshDeformation(modSurfdx);
-                    objdx = obj.setVerts(modMeshdx);
-                    if any(obj.flowNoList(:,3) == 1)
-                        objdx = objdx.makeEquation(obj.unlsiParam.wakeLength,obj.unlsiParam.n_wake,obj.unlsiParam.n_divide);
-                    end
-                    objdx = objdx.setREFS(SREFdx,BREFdx,CREFdx);
-                    objdx = objdx.setRotationCenter(XYZREFdx);
-                    for iter = 1:numel(obj.flow)
-                        alphabuff = obj.unlsiParam.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
-                        betabuff = obj.unlsiParam.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
-                        objdx = objdx.solveFlow(iter,alphabuff,betabuff);
-                    end
-                    %[udx,~] = objdx.solvePertPotential(1,obj.unlsiParam.alpha,obj.unlsiParam.beta);%ポテンシャルを求める
-                    %[AERODATA,Cp,Cfe,Rdx,~] = objdx.solveFlowForAdjoint(udx,1,obj.unlsiParam.alpha,obj.unlsiParam.beta);%ポテンシャルから空力係数を計算
-                    [Idx,condx] = objandConsFun(desdx,objdx.AERODATA,objdx.Cp,objdx.Cfe,SREFdx,BREFdx,CREFdx,XYZREFdx,argin_xdx);
-                    if not(isempty(con0))
-                        Ldx = Idx + lambda.ineqlin'*[-condx;condx];
-                        if penaltyorg < sqrt(eps)
-                            penaltydx = 0;
-                        else
-                           penaltydx = rho*sum(max(max(0,cmin-condx),max(condx-cmax))); 
-                        end
-                    else
-                        Ldx = Idx ;
-                        penaltydx = 0;
-                    end
-                    if not(isempty(con0))
-                        acc = (Ldx-Lorg)/(fval+(lambda.ineqlin'*[-dcon_dx;dcon_dx])*dxscaled(:));
-                    else
-                        acc = (Ldx-Lorg)/(fval);
-                    end
-                    obj.optimization.LpredictVal(obj.iteration) = Ldx;
-                    obj.optimization.trAccuracyVal(obj.iteration) = acc;
-                    obj.optimization.dxNormVal(obj.iteration) = norm(dxscaled);
-                    fprintf("Variables:\n")
-                    disp(desOrg);
-                    fprintf("------>\n")
-                    disp(desdx);
-                    fprintf("Objective and Constraints:\n")
-                    disp([I0,con0(:)']);
-                    fprintf("------>\n");
-                    disp([Idx,condx(:)']);
-                    fprintf("dx norm :%f\nLagrangian Value : %f -> %f\nPenalty Value : %f -> %f\nHessian Approximation Accuracy:%f\n",norm(dxscaled),Lorg,Ldx,penaltyorg,penaltydx,acc);
-                    if tempTR <= obj.optimization.TRmin || strcmpi(HessianUpdateMethod,'BB')
-                        fprintf("\n-----------Acceptable-----------\n\n");
-                        break;
-                    end
-                    if Ldx <= Lorg && penaltydx <= penaltyorg && Ldx+penaltydx <= Lorg+penaltyorg
-                        fprintf("\n-----------Accepted-----------\n\n");
-                        break;
-                    end
-                    fprintf("\n-----------Rejected-----------\n\n")
-                    if norm(dxscaled)<tempTR
-                        tempTR = norm(dxscaled) * 0.9;
-                    else
-                        tempTR = tempTR * 0.9;
-                    end
-                    if exitflagdx < 0
-                        tempTR = obj.optimization.TRmin;
-                    end
-                    dx = desdx-desOrg;
+                
+                rho = 1000;
+                if not(isempty(con0))
+                    lambdaR = -(dR_du)\(dI_du+lambda.ineqlin'*[-dcon_du;dcon_du])';
+                    Lorg = I0 + lambda.ineqlin'*[-con0;con0];
+                    penaltyorg = rho*sum(max(max(0,cmin-con0),max(con0-cmax)));
+                    dL_dx = dI_dx+lambdaR'*dR_dx+lambda.ineqlin'*[-dcon_dx;dcon_dx];
+                else
+                    lambdaR = -(dR_du)\(dI_du)';
+                    Lorg = I0 ;
+                    penaltyorg = 0;
+                    dL_dx = dI_dx+lambdaR'*dR_dx;
                 end
+                obj.optimization.LagrangianVal(obj.iteration) = Lorg;
+                obj.optimization.penaltyVal(obj.iteration) = penaltyorg;
+                [dxscaled,fval,exitflagdx] = fmincon(@(x)obj.fminconObj(x,(betaLM)*obj.optimization.H+(1-betaLM)*obj.optimization.BBMatrix,dL_dx),zeros(numel(obj.designVariables),1),alin,blin,[],[],lbf,ubf,@(x)obj.fminconNlc(x,TrustRegion),options);
+                dx = dxscaled(:)'.*obj.designScale;
+                
+                %精度評価
+                desdx = obj.designVariables.*obj.designScale+obj.lb+dx(:)';
+                [modSurfdx,~,SREFdx,BREFdx,CREFdx,XYZREFdx,argin_xdx,desdx] = obj.geomGenFun(desdx);
+                modMeshdx = obj.meshDeformation(modSurfdx);
+                objdx = obj.setVerts(modMeshdx);
+                if any(obj.flowNoList(:,3) == 1)
+                    objdx = objdx.makeEquation(obj.unlsiParam.wakeLength,obj.unlsiParam.n_wake,obj.unlsiParam.n_divide);
+                end
+                objdx = objdx.setREFS(SREFdx,BREFdx,CREFdx);
+                objdx = objdx.setRotationCenter(XYZREFdx);
+                for iter = 1:numel(obj.flow)
+                    alphabuff = obj.unlsiParam.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
+                    betabuff = obj.unlsiParam.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
+                    [udx,~] = objdx.solvePertPotential(iter,alphabuff,betabuff);%ポテンシャルを求める
+                    [AERODATA,Cp,Cfe,Rdx,objdx] = objdx.solveFlowForAdjoint(udx,iter,alphabuff,betabuff);%ポテンシャルから空力係数を計算
+                end
+               
+                [Idx,condx] = objandConsFun(desdx,AERODATA,Cp,Cfe,SREFdx,BREFdx,CREFdx,XYZREFdx,argin_xdx);
+                if not(isempty(con0))
+                    Ldx = Idx + lambda.ineqlin'*[-condx;condx];
+                    if penaltyorg < sqrt(eps)
+                        penaltydx = 0;
+                    else
+                       penaltydx = rho*sum(max(max(0,cmin-condx),max(condx-cmax))); 
+                    end
+                else
+                    Ldx = Idx ;
+                    penaltydx = 0;
+                end
+                acc = (Ldx-Lorg)/(0.5*(dxscaled(:)'*obj.optimization.H*dxscaled(:))+dL_dx*dxscaled(:));
+               
+                obj.optimization.LpredictVal(obj.iteration) = Ldx;
+                obj.optimization.trAccuracyVal(obj.iteration) = acc;
+                obj.optimization.dxNormVal(obj.iteration) = norm(dxscaled);
+                fprintf("Variables:\n")
+                disp(desOrg);
+                fprintf("------>\n")
+                disp(desdx);
+                fprintf("Objective and Constraints:\n")
+                disp([I0,con0(:)']);
+                fprintf("------>\n");
+                disp([Idx,condx(:)']);
+                fprintf("dx norm :%f\nLagrangian Value : %f -> %f\nPenalty Value : %f -> %f\nHessian Approximation Accuracy:%f\n",norm(dxscaled),Lorg,Ldx,penaltyorg,penaltydx,acc);
+                dx = desdx-desOrg;
+
+
                 if strcmpi(HessianUpdateMethod,"SR1")
                     obj.optimization.updateFunction = @obj.SR1;
                 elseif strcmpi(HessianUpdateMethod,"SSR1")
                     obj.optimization.updateFunction = @obj.SSR1;
                 elseif strcmpi(HessianUpdateMethod,"BFGS")
                     obj.optimization.updateFunction = @obj.BFGS;
+                elseif strcmpi(HessianUpdateMethod,"DFP")
+                    obj.optimization.updateFunction = @obj.DFP;
+                elseif strcmpi(HessianUpdateMethod,"Broyden")
+                    obj.optimization.updateFunction = @obj.Broyden;
                 elseif strcmpi(HessianUpdateMethod,"MBFGS")
                     obj.optimization.updateFunction = @obj.MBFGS;
                 elseif strcmpi(HessianUpdateMethod,"DBFGS")
@@ -648,19 +642,25 @@
                 elseif strcmpi(HessianUpdateMethod,"BB")
                     obj.optimization.updateFunction = @obj.Barzilai_Borwein;
                 end
-                if not(strcmpi(HessianUpdateMethod,'BB'))
-                    if acc < 0.15
-                        obj.optimization.TR = obj.optimization.TR * 0.9;
-                    elseif acc > 0.5
-                        obj.optimization.TR = obj.optimization.TR / 0.9;
-                    end
-                    if obj.optimization.TR > obj.optimization.TRmax
-                        obj.optimization.TR = obj.optimization.TRmax;
-                    elseif obj.optimization.TR < obj.optimization.TRmin
-                        obj.optimization.TR = obj.optimization.TRmin;
-                    end
+%{
+                if acc < 0.15
+                    obj.optimization.TR = obj.optimization.TR * 0.9;
+                    obj.optimization.BetaLM = obj.optimization.BetaLM - 0.1;
+                elseif acc > 0.5
+                    obj.optimization.TR = obj.optimization.TR / 0.9;
+                    obj.optimization.BetaLM = obj.optimization.BetaLM + 0.1;
                 end
-
+                if obj.optimization.TR > obj.optimization.TRmax
+                    obj.optimization.TR = obj.optimization.TRmax;
+                elseif obj.optimization.TR < obj.optimization.TRmin
+                    obj.optimization.TR = obj.optimization.TRmin;
+                end
+                if obj.optimization.BetaLM >=1
+                    obj.optimization.BetaLM = 1;
+                elseif obj.optimization.BetaLM <= 0
+                    obj.optimization.BetaLM = 0;
+                end
+%}
                 %Hessianの更新
                 obj.optimization.xScaled = [obj.optimization.xScaled;obj.designVariables];
                 obj.optimization.dL_dx = [obj.optimization.dL_dx;dL_dx];
@@ -688,6 +688,9 @@
                             obj.optimization.H = obj.optimization.updateFunction(s,y,obj.optimization.H);
                         end
                     end
+                    s = obj.optimization.xScaled(end,:)-obj.optimization.xScaled(end-1,:);
+                    y = obj.optimization.dL_dx(end,:)-obj.optimization.dL_dx(end-1,:);
+                    obj.optimization.BBMatrix = obj.Barzilai_Borwein(s,y,obj.optimization.H);
                 end
             else
                 %近似行列による直接最適化
@@ -714,7 +717,7 @@
                 dx = dxscaled(:)'.*obj.designScale;
                 %精度評価
                 desdx = desOrg+dx(:)';
-                [modSurfdx,~,SREFdx,BREFdx,CREFdx,XYZREFdx,argin_xdx,desdx] = obj.surfGenFun(desdx);
+                [modSurfdx,~,SREFdx,BREFdx,CREFdx,XYZREFdx,argin_xdx,desdx] = obj.geomGenFun(desdx);
                 modMeshdx = obj.meshDeformation(modSurfdx);
                 objdx = obj.setVerts(modMeshdx);
                 if any(obj.flowNoList(:,3) == 1)
@@ -734,7 +737,7 @@
                 disp([I0,con0(:)']);
                 fprintf("------>\n");
                 disp([Idx,condx(:)']);
-                fprintf("dx norm :%f\n",norm(dxscaled));
+                fprintf("dx norm :%f\n",norm((desdx-desOrg)./obj.designScale));
             end
             if norm((desdx-desOrg)./obj.designScale) < minNorm
                 convergenceFlag = 1;
@@ -745,10 +748,10 @@
            
         end
 
-        function [dx,convergenceFlag,obj] = updateVariables(obj,FcnObjandCon,minNorm,GradientCalcMethod,HessianUpdateMethod,nMemory,cmin,cmax)
+        function [dx,convergenceFlag,obj] = updateVariables(obj,FcnObjandCon,minNorm,TrustRegion,betaLM,GradientCalcMethod,HessianUpdateMethod,nMemory,cmin,cmax)
             obj.iteration = obj.iteration + 1;
             fprintf("Itaration No. %d : Started\n -- GradientCalcMethod : %s\n -- HessianUpdateMethod : %s\n",obj.iteration,GradientCalcMethod,HessianUpdateMethod);
-            [dx,convergenceFlag,obj] = obj.finddx(FcnObjandCon,minNorm,GradientCalcMethod,HessianUpdateMethod,nMemory,cmin,cmax);
+            [dx,convergenceFlag,obj] = obj.finddx(FcnObjandCon,minNorm,TrustRegion,betaLM,GradientCalcMethod,HessianUpdateMethod,nMemory,cmin,cmax);
             newDes = obj.designVariables.*obj.designScale+obj.lb+dx;
             obj = obj.modifyMeshfromVariables(newDes);
             for i = 1:numel(obj.flow)
@@ -841,6 +844,11 @@
             c = sum(dx.^2)-(TR)^2;
         end
 
+        function [c,ceq] = fminconNlc2(dx,TR,H,dx1scaled)
+            c = sum(dx.^2)-(TR)^2;
+            ceq = dx1scaled'*H*dx;
+        end
+
         %%%%%%%%%%%%%%%%%%%%%%%%
         %準ニュートン法のアップデートの手実装
         %s 設計変数の変化量
@@ -868,6 +876,20 @@
                 Bkp1 = obj.MBFGS(s,y,Bk);
             end
         end
+        function Bkp1 = DFP(s,y,Bk)
+            s = s(:);
+            y=y(:);
+            ndim = numel(s);
+            if s'*y<=0
+                Bkp1 = Bk;
+            else
+                Bkp1 = (eye(ndim)-(y*s')/(y'*s))*Bk*(eye(ndim)-(s*y')/(y'*s))+(y*y')/(y'*s);
+                coeB=(s'*y)/(s'*Bkp1*s);
+                if coeB>0 && coeB<1
+                    Bkp1=coeB.*Bkp1;
+                end
+            end
+        end
         function Bkp1 = BFGS(s,y,Bk)
             s = s(:);
             y=y(:);
@@ -875,6 +897,19 @@
                 Bkp1 = Bk;
             else
                 Bkp1 = Bk-(Bk*s*(Bk*s)')/(s.'*Bk*s)+(y*y.')/(s.'*y);
+                coeB=(s'*y)/(s'*Bkp1*s);
+                if coeB>0 && coeB<1
+                    Bkp1=coeB.*Bkp1;
+                end
+            end
+        end
+        function Bkp1 = Broyden(s,y,Bk)
+            s = s(:);
+            y=y(:);
+            if s'*y<=0
+                Bkp1 = Bk;
+            else
+                Bkp1 = Bk+((y-Bk*s)/(s'*s))*s';
                 coeB=(s'*y)/(s'*Bkp1*s);
                 if coeB>0 && coeB<1
                     Bkp1=coeB.*Bkp1;
