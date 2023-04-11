@@ -60,16 +60,16 @@
             obj.unlsiParam.alpha = alpha;
             obj.unlsiParam.beta = beta;
 
-            obj.unlsiParam.n_wake = n_wake;
-            obj.unlsiParam.wakeLength = wakeLength;
-            obj.unlsiParam.n_divide = n_divide;
-            obj.unlsiParam.nCluster = nCluster;
-            obj.unlsiParam.edgeAngleThreshold = edgeAngleThreshold;
-            obj.unlsiParam.Re = Re;
-            obj.unlsiParam.Lch = Lch;
-            obj.unlsiParam.k = k;
-            obj.unlsiParam.LTratio = LTratio;
-            obj.unlsiParam.coefficient = CfeCoefficient;
+            obj.unlsiParam.n_wake = 5;
+            obj.unlsiParam.wakeLength = 20;
+            obj.unlsiParam.n_divide = 10;
+            obj.unlsiParam.nCluster = 50;
+            obj.unlsiParam.edgeAngleThreshold = 50;
+            obj.unlsiParam.Re = 500000;
+            obj.unlsiParam.Lch = 1;
+            obj.unlsiParam.k = 0.052*(10^-5);
+            obj.unlsiParam.LTratio = 0;
+            obj.unlsiParam.coefficient = 1;
             uniMach = unique(Mach);
             for i = 1:numel(uniMach)
                 obj = obj.flowCondition(i,uniMach(i));
@@ -101,195 +101,21 @@
             end
         end
 
-        
-        function [modVerts,con] = meshDeformation(obj,modSurfVerts,modSurfCon)
-            %%%%%%%%%%%%非構造メッシュのメッシュ変形%%%%%%%
-            %補間ベースのメッシュ変形
-            %modSurfVers : 変形後の基準サーフェスの接点情報
-            %modSurfCon : 入力すると一応conが一致しているかチェックする
-            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-            if nargin == 3
-                %connectivityが一致しているか確認
-                if any(obj.orgSurf.ConnectivityList(:) ~= modSurfCon(:))
-                    error("Surf connectivity is not match")
-                end
-            end
-            md.x = scatteredInterpolant(obj.orgSurf.Points,modSurfVerts(:,1)-obj.orgSurf.Points(:,1),'linear','linear');
-            md.y = scatteredInterpolant(obj.orgSurf.Points,modSurfVerts(:,2)-obj.orgSurf.Points(:,2),'linear','linear');
-            md.z = scatteredInterpolant(obj.orgSurf.Points,modSurfVerts(:,3)-obj.orgSurf.Points(:,3),'linear','linear');
-            dVerts(:,1) = md.x(obj.orgMesh.Points);
-            dVerts(:,2) = md.y(obj.orgMesh.Points);
-            dVerts(:,3) = md.z(obj.orgMesh.Points);
-            modVerts = obj.orgMesh.Points+dVerts;
-            con = obj.orgSurf.ConnectivityList;
+        function [modGeomVerts,modSREF,modBREF,modCREF,modXYZREF,modargin_x,unscaledVariables] = calcGeomfromVariables(obj,unscaledVariables)
+            [modGeomVerts,~,modSREF,modBREF,modCREF,modXYZREF,modargin_x,unscaledVariables] = obj.geomGenFun(unscaledVariables);
         end
         
-        function obj = makeMeshGradient(obj)
-            %%%%%%%%%%%設計変数勾配による標本表面の近似関数の作成%%%%%
-
-
-            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-            pert = 0.01./obj.designScale;
-            ndim = numel(obj.designVariables);
-            desOrg = obj.designVariables.*obj.designScale+obj.lb;
-            [surforg,~,obj.optSREF,obj.optBREF,obj.optCREF,obj.optXYZREF,obj.argin_x,desOrg] = obj.geomGenFun(desOrg);
-            for i = 1:ndim
-                sampleDes = obj.designVariables.*obj.designScale+obj.lb;
-                sampleDes(i) = (obj.designVariables(i) + pert(i)).*obj.designScale(i)+obj.lb(i);
-                [modSurf,~,SREFf,BREFf,CREFf,XYZREFf,argin_xf,desBuff] = obj.geomGenFun(sampleDes);
-                pertf = (desBuff(i)-desOrg(i))/obj.designScale(i);
-                dmodSurf = modSurf-surforg;
-                sampleSurff = dmodSurf(:);
-                sampleDes = obj.designVariables.*obj.designScale+obj.lb;
-                sampleDes(i) = (obj.designVariables(i) - pert(i)).*obj.designScale(i)+obj.lb(i);
-                [modSurf,~,SREFr,BREFr,CREFr,XYZREFr,argin_xr,desBuff] = obj.geomGenFun(sampleDes);
-                pertr = (desBuff(i)-desOrg(i))/obj.designScale(i);
-                dmodSurf = modSurf-surforg;
-                sampleSurfr = dmodSurf(:);
-                obj.gradSurf(:,i) = (sampleSurff-sampleSurfr)./(pertf-pertr);
-                obj.gradSREF(i) = (SREFf-SREFr)./(pertf-pertr);
-                obj.gradBREF(i) = (BREFf-BREFr)./(pertf-pertr);
-                obj.gradCREF(i) = (CREFf-CREFr)./(pertf-pertr);
-                obj.gradXYZREF(:,i) = (XYZREFf(:)-XYZREFr(:))./(pertf-pertr);
-                obj.gradArginx(:,i) = (argin_xf(:)-argin_xr(:))./(pertf-pertr);
-
-            end
-        end
-
-        function [modGeomVerts,modGeomCon,SREFo,BREFo,CREFo,XYZREFo,argin_xo,unscaledVariables] = calcGeomfromVariables(unscaledVariables)
-            [modGeomVerts,modGeomCon,SREFo,BREFo,CREFo,XYZREFo,argin_xo,unscaledVariables] = obj.geomGenFun(unscaledVariables);
-        end
-
-        function [modSurf,modMesh] = calcApproximatedMeshandGeom(obj,unscaledVariables)
+   
+        function [modGeomVerts,modMeshVerts] = calcApproximatedMeshGeom(obj,unscaledVariables)
            scaledVariables = (unscaledVariables(:)'- obj.lb) ./ obj.designScale; 
-           modSurf = obj.orgSurf.Points + reshape(obj.gradSurf*(scaledVariables(:)-obj.designVariables(:)),size(obj.orgSurf.Points));
+           modGeomVerts = obj.orgSurf.Points + reshape(obj.gradSurf*(scaledVariables(:)-obj.designVariables(:)),size(obj.orgSurf.Points));
            if nargout == 2
-               modMesh = obj.meshDeformation(modSurf);
+               modMeshVerts = obj.meshDeformation(modGeomVerts);
            end
         end
         
-        function obj = calcApproximatedEquation(obj)
-            if obj.approximated == 1
-                error("This instance is approximated. Please execute obj.makeEquation()");
-            end
-            nbPanel = sum(obj.paneltype == 1);
-            %接点に繋がるIDを決定
-            vertAttach = obj.tri.vertexAttachments();
-            pert = sqrt(eps);
-            for i = 1:numel(vertAttach)
-                if mod(i,floor(numel(vertAttach)/10))==0 || i == 1
-                    fprintf("%d/%d ",i,numel(vertAttach));
-                end
-                %paneltype == 1以外を削除する
-                vertAttach{i}(obj.paneltype(vertAttach{i}) ~=1) = [];
-                obj.approxMat.calcIndex{i} = sort(obj.IndexPanel2Solver(vertAttach{i}));
-                %このvertsがwakeに含まれているか
-                for j = 1:3
-                    newVerts = obj.tri.Points;
-                    newVerts(i,j) = obj.tri.Points(i,j)+pert;
-                    obj2 = obj.setVerts(newVerts);
-                    [VortexAr,VortexBr,VortexAc,VortexBc] = obj2.influenceMatrix(obj2,obj.approxMat.calcIndex{i},obj.approxMat.calcIndex{i});
-                    %
-                    for wakeNo = 1:numel(obj.wakeline)
-                        for edgeNo = 1:numel(obj.wakeline{wakeNo}.edge)-1
-                            interpID(1) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.upperID(edgeNo));
-                            interpID(2) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.lowerID(edgeNo));
-                            if isempty(intersect(interpID,obj.approxMat.calcIndex{i}))
-                                influence = obj2.wakeInfluenceMatrix(obj2,wakeNo,edgeNo,obj.approxMat.calcIndex{i},obj.wakePanelLength,obj.nWake);
-                                VortexAr(:,interpID(1)) = VortexAr(:,interpID(1)) - influence;
-                                VortexAr(:,interpID(2)) = VortexAr(:,interpID(2)) + influence;
-                            else
-                                influence = obj2.wakeInfluenceMatrix(obj2,wakeNo,edgeNo,1:nbPanel,obj.wakePanelLength,obj.nWake);
-                                VortexAr(:,interpID(1)) = VortexAr(:,interpID(1)) - influence(obj.approxMat.calcIndex{i},:);
-                                VortexAr(:,interpID(2)) = VortexAr(:,interpID(2)) + influence(obj.approxMat.calcIndex{i},:);
-                                if not(isempty(intersect(interpID(1),obj.approxMat.calcIndex{i})))
-                                    [~,b] = find(obj.approxMat.calcIndex{i}==interpID(1));
-                                    VortexAc(:,b) = VortexAc(:,b) - influence;
-                                end
-                                if not(isempty(intersect(interpID(2),obj.approxMat.calcIndex{i})))
-                                    [~,b] = find(obj.approxMat.calcIndex{i}==interpID(2));
-                                    VortexAc(:,b) = VortexAc(:,b) + influence;
-                                end
-                            end
-                        end
-                    end
-                    obj.approxMat.dVAr{i,j} = (VortexAr-obj.LHS(obj.approxMat.calcIndex{i},:))./pert;
-                    obj.approxMat.dVBr{i,j} = (VortexBr-obj.RHS(obj.approxMat.calcIndex{i},:))./pert;
-                    obj.approxMat.dVAc{i,j} = (VortexAc-obj.LHS(:,obj.approxMat.calcIndex{i}))./pert;
-                    obj.approxMat.dVBc{i,j} = (VortexBc-obj.RHS(:,obj.approxMat.calcIndex{i}))./pert;
-                end
-            end
-            fprintf("\n");
-        end
-
-        function approxmatedObj = makeApproximatedInstance(obj,modifiedVerts)
-                nPanel = numel(obj.paneltype);
-                nbPanel = sum(obj.paneltype == 1);
-                approxmatedObj = obj.setVerts(modifiedVerts);
-                approxmatedObj.mu2v{1} = sparse(nPanel,nbPanel);
-                approxmatedObj.mu2v{2} = sparse(nPanel,nbPanel);
-                approxmatedObj.mu2v{3} = sparse(nPanel,nbPanel);
-            
-                for i = 1:nPanel
-                    if approxmatedObj.paneltype(i) == 1
-                        CPmat =approxmatedObj.center(approxmatedObj.cluster{i},1:3);
-                        pnt = approxmatedObj.center(i,:);
-                        m = approxmatedObj.tri.Points(approxmatedObj.tri.ConnectivityList(i,1),:)'-pnt(:);
-                        m = m./norm(m);
-                        l = cross(m,approxmatedObj.normal(i,:)');
-                        Minv = [l,m,approxmatedObj.normal(i,:)'];
-                        lmnMat = (Minv\(CPmat-repmat(pnt,[size(CPmat,1),1]))')';
-                        bb = [lmnMat(1:end,1),lmnMat(1:end,2),lmnMat(1:end,3),ones(size(lmnMat,1),1)];
-                        Bmat=pinv(bb,sqrt(eps));
-                        Vnmat = Minv(:,[1,2])*[1,0,0,0;0,1,0,0]*Bmat;
-                        for iter = 1:3
-                            approxmatedObj.mu2v{iter}(i,approxmatedObj.IndexPanel2Solver(approxmatedObj.cluster{i})) = Vnmat(iter,:);
-                        end
-                    end
-                end
-            
-                
-                for wakeNo = 1:numel(obj.wakeline)
-                    theta = linspace(pi,0,numel(obj.wakeline{wakeNo}.edge)*obj.LLT.n_interp+1);
-                    iter = 1;
-                    obj.LLT.sp{wakeNo} = [];
-                    obj.LLT.calcMu{wakeNo} = zeros(1,nbPanel);
-                    s = zeros(1,numel(obj.wakeline{wakeNo}.edge));
-                    for edgeNo = 1:numel(obj.wakeline{wakeNo}.edge)-1
-                        s(edgeNo+1) = s(edgeNo) + norm([obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo),2:3)-obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo+1),2:3)]);
-                    end
-                    for edgeNo = 1:numel(obj.wakeline{wakeNo}.edge)-1
-                        obj.LLT.sp{wakeNo} =  [obj.LLT.sp{wakeNo},(s(edgeNo)+s(edgeNo+1))./2];
-                    end
-                    sd = (s(end)-s(1))*(cos(theta)./2+0.5)+s(1);
-                    obj.LLT.sinterp{wakeNo} = (sd(2:end)+sd(1:end-1))./2;
-                    obj.LLT.yinterp{wakeNo} = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),2),obj.LLT.sinterp{wakeNo},'linear','extrap');
-                    obj.LLT.zinterp{wakeNo} = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),3),obj.LLT.sinterp{wakeNo},'linear','extrap');
-                    yd = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),2),sd,'linear','extrap');
-                    zd = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),3),sd,'linear','extrap');
-                    obj.LLT.phiinterp{wakeNo} = atan2(zd(2:end)-zd(1:end-1),yd(2:end)-yd(1:end-1));
-                    obj.LLT.spanel{wakeNo} = (sd(2:end)-sd(1:end-1))./2;
-                    
-                end
-                obj.LLT.Qij = obj.Calc_Q(horzcat(obj.LLT.yinterp{:}),horzcat(obj.LLT.zinterp{:}),horzcat(obj.LLT.phiinterp{:}),horzcat(obj.LLT.spanel{:}),obj.halfmesh);
-
-
-                approxmatedObj.approxMat = [];
-                approxmatedObj.approximated = 1;
-                for i = 1:size(modifiedVerts,1)
-                    for j = 1:3
-                        dv = (approxmatedObj.tri.Points(i,j)-obj.tri.Points(i,j));
-                        obj.approxMat.dVAc{i,j}(obj.approxMat.calcIndex{i},:) = 0; 
-                        obj.approxMat.dVBc{i,j}(obj.approxMat.calcIndex{i},:) = 0; 
-                        approxmatedObj.LHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.LHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVAr{i,j}.*dv;
-                        approxmatedObj.RHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.RHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVBr{i,j}.*dv;
-                        approxmatedObj.LHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.LHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVAc{i,j}.*dv;
-                        approxmatedObj.RHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.RHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVBc{i,j}.*dv;
-                    end
-                end
-        end
-
-        function viewMesh(obj,modMesh,fig,deformPlot)
+    
+        function viewMesh(obj,modMesh,fig,~)
             %%%%%%%%%%%設計変数勾配による標本表面の近似関数の作成%%%%%
 
 
@@ -300,23 +126,23 @@
                 trisurf(viewtri, 'FaceAlpha', 0, 'EdgeColor', 'black');
             else
                 deform = vecnorm(modMesh-obj.orgMesh.Points,2,2);
-                trisurf(viewtri, deform ,'FaceAlpha', 0.8, 'EdgeColor', 'black');
+                trisurf(viewtri, deform ,'FaceAlpha', 0.8,'EdgeAlpha',0.15);
             end
             axis equal;drawnow();
         end
 
-        function viewSurf(obj,modSurf,fig,deformPlot)
+        function viewGeom(obj,modGeom,fig,~)
             %%%%%%%%%%%設計変数勾配による標本表面の近似関数の作成%%%%%
 
 
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-            viewtri = triangulation(obj.orgSurf.ConnectivityList,modSurf);
+            viewtri = triangulation(obj.orgSurf.ConnectivityList,modGeom);
             figure(fig);
             if nargin < 4
                 trisurf(viewtri, 'FaceAlpha', 0, 'EdgeColor', 'black');
             else
-                deform = vecnorm(modSurf-obj.orgSurf.Points,2,2);
-                trisurf(viewtri, deform ,'FaceAlpha', 0.8, 'EdgeColor', 'black');
+                deform = vecnorm(modGeom-obj.orgSurf.Points,2,2);
+                trisurf(viewtri, deform ,'FaceAlpha', 0.8,'EdgeAlpha',0.15);
             end
             axis equal;drawnow();
         end
@@ -352,31 +178,14 @@
             end
         end
 
-        function obj = setOptFlowCondition(obj,Mach,alpha,beta,wakeLength,n_wake,n_divide,nCluster,edgeAngleThreshold,Re,Lch,k,LTratio,CfeCoefficient)
-            obj.unlsiParam.alpha = alpha;
-            obj.unlsiParam.beta = beta;        
-            obj.unlsiParam.n_wake = n_wake;
-            obj.unlsiParam.wakeLength = wakeLength;
-            obj.unlsiParam.n_divide = n_divide;
-            obj.unlsiParam.nCluster = nCluster;
-            obj.unlsiParam.edgeAngleThreshold = edgeAngleThreshold;
+        function obj = setCfParameter(obj,Re,Lch,k,LTratio,CfeCoefficient)       
             obj.unlsiParam.Re = Re;
             obj.unlsiParam.Lch = Lch;
             obj.unlsiParam.k = k;
             obj.unlsiParam.LTratio = LTratio;
             obj.unlsiParam.coefficient = CfeCoefficient;
-            uniMach = unique(Mach);
-            for i = 1:numel(uniMach)
-                obj = obj.flowCondition(i,uniMach(i));
+            for i = 1:numel(obj.flow)
                 obj = obj.setCf(i,obj.unlsiParam.Re,obj.unlsiParam.Lch,obj.unlsiParam.k,obj.unlsiParam.LTratio,obj.unlsiParam.coefficient);
-            end
-            for i = 1:numel(Mach)
-                obj.flowNoList(i,1) = find(uniMach == Mach(i));
-                obj.flowNoList(i,2) = uniMach(obj.flowNoList(i,1));
-                obj.flowNoList(i,3) = obj.flowNoList(i,2)<1;
-            end
-            if any(obj.flowNoList(:,3) == 1)
-                obj = obj.makeCluster(obj.unlsiParam.nCluster,obj.unlsiParam.edgeAngleThreshold);
             end
         end
 
@@ -847,6 +656,181 @@
         function [c,ceq] = fminconNlc2(dx,TR,H,dx1scaled)
             c = sum(dx.^2)-(TR)^2;
             ceq = dx1scaled'*H*dx;
+        end
+
+        function [modVerts,con] = meshDeformation(obj,modSurfVerts,modSurfCon)
+            %%%%%%%%%%%%非構造メッシュのメッシュ変形%%%%%%%
+            %補間ベースのメッシュ変形
+            %modSurfVers : 変形後の基準サーフェスの接点情報
+            %modSurfCon : 入力すると一応conが一致しているかチェックする
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            if nargin == 3
+                %connectivityが一致しているか確認
+                if any(obj.orgSurf.ConnectivityList(:) ~= modSurfCon(:))
+                    error("Surf connectivity is not match")
+                end
+            end
+            md.x = scatteredInterpolant(obj.orgSurf.Points,modSurfVerts(:,1)-obj.orgSurf.Points(:,1),'linear','linear');
+            md.y = scatteredInterpolant(obj.orgSurf.Points,modSurfVerts(:,2)-obj.orgSurf.Points(:,2),'linear','linear');
+            md.z = scatteredInterpolant(obj.orgSurf.Points,modSurfVerts(:,3)-obj.orgSurf.Points(:,3),'linear','linear');
+            dVerts(:,1) = md.x(obj.orgMesh.Points);
+            dVerts(:,2) = md.y(obj.orgMesh.Points);
+            dVerts(:,3) = md.z(obj.orgMesh.Points);
+            modVerts = obj.orgMesh.Points+dVerts;
+            con = obj.orgSurf.ConnectivityList;
+        end
+        
+        function obj = makeMeshGradient(obj)
+            %%%%%%%%%%%設計変数勾配による標本表面の近似関数の作成%%%%%
+
+
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            pert = 0.01./obj.designScale;
+            ndim = numel(obj.designVariables);
+            desOrg = obj.designVariables.*obj.designScale+obj.lb;
+            [surforg,~,obj.optSREF,obj.optBREF,obj.optCREF,obj.optXYZREF,obj.argin_x,desOrg] = obj.geomGenFun(desOrg);
+            for i = 1:ndim
+                sampleDes = obj.designVariables.*obj.designScale+obj.lb;
+                sampleDes(i) = (obj.designVariables(i) + pert(i)).*obj.designScale(i)+obj.lb(i);
+                [modSurf,~,SREFf,BREFf,CREFf,XYZREFf,argin_xf,desBuff] = obj.geomGenFun(sampleDes);
+                pertf = (desBuff(i)-desOrg(i))/obj.designScale(i);
+                dmodSurf = modSurf-surforg;
+                sampleSurff = dmodSurf(:);
+                sampleDes = obj.designVariables.*obj.designScale+obj.lb;
+                sampleDes(i) = (obj.designVariables(i) - pert(i)).*obj.designScale(i)+obj.lb(i);
+                [modSurf,~,SREFr,BREFr,CREFr,XYZREFr,argin_xr,desBuff] = obj.geomGenFun(sampleDes);
+                pertr = (desBuff(i)-desOrg(i))/obj.designScale(i);
+                dmodSurf = modSurf-surforg;
+                sampleSurfr = dmodSurf(:);
+                obj.gradSurf(:,i) = (sampleSurff-sampleSurfr)./(pertf-pertr);
+                obj.gradSREF(i) = (SREFf-SREFr)./(pertf-pertr);
+                obj.gradBREF(i) = (BREFf-BREFr)./(pertf-pertr);
+                obj.gradCREF(i) = (CREFf-CREFr)./(pertf-pertr);
+                obj.gradXYZREF(:,i) = (XYZREFf(:)-XYZREFr(:))./(pertf-pertr);
+                obj.gradArginx(:,i) = (argin_xf(:)-argin_xr(:))./(pertf-pertr);
+
+            end
+        end
+
+        function obj = calcApproximatedEquation(obj)
+            if obj.approximated == 1
+                error("This instance is approximated. Please execute obj.makeEquation()");
+            end
+            nbPanel = sum(obj.paneltype == 1);
+            %接点に繋がるIDを決定
+            vertAttach = obj.tri.vertexAttachments();
+            pert = sqrt(eps);
+            for i = 1:numel(vertAttach)
+                if mod(i,floor(numel(vertAttach)/10))==0 || i == 1
+                    fprintf("%d/%d ",i,numel(vertAttach));
+                end
+                %paneltype == 1以外を削除する
+                vertAttach{i}(obj.paneltype(vertAttach{i}) ~=1) = [];
+                obj.approxMat.calcIndex{i} = sort(obj.IndexPanel2Solver(vertAttach{i}));
+                %このvertsがwakeに含まれているか
+                for j = 1:3
+                    newVerts = obj.tri.Points;
+                    newVerts(i,j) = obj.tri.Points(i,j)+pert;
+                    obj2 = obj.setVerts(newVerts);
+                    [VortexAr,VortexBr,VortexAc,VortexBc] = obj2.influenceMatrix(obj2,obj.approxMat.calcIndex{i},obj.approxMat.calcIndex{i});
+                    %
+                    for wakeNo = 1:numel(obj.wakeline)
+                        for edgeNo = 1:numel(obj.wakeline{wakeNo}.edge)-1
+                            interpID(1) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.upperID(edgeNo));
+                            interpID(2) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.lowerID(edgeNo));
+                            if isempty(intersect(interpID,obj.approxMat.calcIndex{i}))
+                                influence = obj2.wakeInfluenceMatrix(obj2,wakeNo,edgeNo,obj.approxMat.calcIndex{i},obj.wakePanelLength,obj.nWake);
+                                VortexAr(:,interpID(1)) = VortexAr(:,interpID(1)) - influence;
+                                VortexAr(:,interpID(2)) = VortexAr(:,interpID(2)) + influence;
+                            else
+                                influence = obj2.wakeInfluenceMatrix(obj2,wakeNo,edgeNo,1:nbPanel,obj.wakePanelLength,obj.nWake);
+                                VortexAr(:,interpID(1)) = VortexAr(:,interpID(1)) - influence(obj.approxMat.calcIndex{i},:);
+                                VortexAr(:,interpID(2)) = VortexAr(:,interpID(2)) + influence(obj.approxMat.calcIndex{i},:);
+                                if not(isempty(intersect(interpID(1),obj.approxMat.calcIndex{i})))
+                                    [~,b] = find(obj.approxMat.calcIndex{i}==interpID(1));
+                                    VortexAc(:,b) = VortexAc(:,b) - influence;
+                                end
+                                if not(isempty(intersect(interpID(2),obj.approxMat.calcIndex{i})))
+                                    [~,b] = find(obj.approxMat.calcIndex{i}==interpID(2));
+                                    VortexAc(:,b) = VortexAc(:,b) + influence;
+                                end
+                            end
+                        end
+                    end
+                    obj.approxMat.dVAr{i,j} = (VortexAr-obj.LHS(obj.approxMat.calcIndex{i},:))./pert;
+                    obj.approxMat.dVBr{i,j} = (VortexBr-obj.RHS(obj.approxMat.calcIndex{i},:))./pert;
+                    obj.approxMat.dVAc{i,j} = (VortexAc-obj.LHS(:,obj.approxMat.calcIndex{i}))./pert;
+                    obj.approxMat.dVBc{i,j} = (VortexBc-obj.RHS(:,obj.approxMat.calcIndex{i}))./pert;
+                end
+            end
+            fprintf("\n");
+        end
+
+        function approxmatedObj = makeApproximatedInstance(obj,modifiedVerts)
+                nPanel = numel(obj.paneltype);
+                nbPanel = sum(obj.paneltype == 1);
+                approxmatedObj = obj.setVerts(modifiedVerts);
+                approxmatedObj.mu2v{1} = sparse(nPanel,nbPanel);
+                approxmatedObj.mu2v{2} = sparse(nPanel,nbPanel);
+                approxmatedObj.mu2v{3} = sparse(nPanel,nbPanel);
+            
+                for i = 1:nPanel
+                    if approxmatedObj.paneltype(i) == 1
+                        CPmat =approxmatedObj.center(approxmatedObj.cluster{i},1:3);
+                        pnt = approxmatedObj.center(i,:);
+                        m = approxmatedObj.tri.Points(approxmatedObj.tri.ConnectivityList(i,1),:)'-pnt(:);
+                        m = m./norm(m);
+                        l = cross(m,approxmatedObj.normal(i,:)');
+                        Minv = [l,m,approxmatedObj.normal(i,:)'];
+                        lmnMat = (Minv\(CPmat-repmat(pnt,[size(CPmat,1),1]))')';
+                        bb = [lmnMat(1:end,1),lmnMat(1:end,2),lmnMat(1:end,3),ones(size(lmnMat,1),1)];
+                        Bmat=pinv(bb,sqrt(eps));
+                        Vnmat = Minv(:,[1,2])*[1,0,0,0;0,1,0,0]*Bmat;
+                        for iter = 1:3
+                            approxmatedObj.mu2v{iter}(i,approxmatedObj.IndexPanel2Solver(approxmatedObj.cluster{i})) = Vnmat(iter,:);
+                        end
+                    end
+                end
+            
+                
+                for wakeNo = 1:numel(obj.wakeline)
+                    theta = linspace(pi,0,numel(obj.wakeline{wakeNo}.edge)*obj.LLT.n_interp+1);
+                    iter = 1;
+                    obj.LLT.sp{wakeNo} = [];
+                    obj.LLT.calcMu{wakeNo} = zeros(1,nbPanel);
+                    s = zeros(1,numel(obj.wakeline{wakeNo}.edge));
+                    for edgeNo = 1:numel(obj.wakeline{wakeNo}.edge)-1
+                        s(edgeNo+1) = s(edgeNo) + norm([obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo),2:3)-obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo+1),2:3)]);
+                    end
+                    for edgeNo = 1:numel(obj.wakeline{wakeNo}.edge)-1
+                        obj.LLT.sp{wakeNo} =  [obj.LLT.sp{wakeNo},(s(edgeNo)+s(edgeNo+1))./2];
+                    end
+                    sd = (s(end)-s(1))*(cos(theta)./2+0.5)+s(1);
+                    obj.LLT.sinterp{wakeNo} = (sd(2:end)+sd(1:end-1))./2;
+                    obj.LLT.yinterp{wakeNo} = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),2),obj.LLT.sinterp{wakeNo},'linear','extrap');
+                    obj.LLT.zinterp{wakeNo} = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),3),obj.LLT.sinterp{wakeNo},'linear','extrap');
+                    yd = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),2),sd,'linear','extrap');
+                    zd = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),3),sd,'linear','extrap');
+                    obj.LLT.phiinterp{wakeNo} = atan((zd(2:end)-zd(1:end-1))./(yd(2:end)-yd(1:end-1)));
+                    obj.LLT.spanel{wakeNo} = (sd(2:end)-sd(1:end-1))./2;
+                    
+                end
+                obj.LLT.Qij = obj.Calc_Q(horzcat(obj.LLT.yinterp{:}),horzcat(obj.LLT.zinterp{:}),horzcat(obj.LLT.phiinterp{:}),horzcat(obj.LLT.spanel{:}),obj.halfmesh);
+
+
+                approxmatedObj.approxMat = [];
+                approxmatedObj.approximated = 1;
+                for i = 1:size(modifiedVerts,1)
+                    for j = 1:3
+                        dv = (approxmatedObj.tri.Points(i,j)-obj.tri.Points(i,j));
+                        obj.approxMat.dVAc{i,j}(obj.approxMat.calcIndex{i},:) = 0; 
+                        obj.approxMat.dVBc{i,j}(obj.approxMat.calcIndex{i},:) = 0; 
+                        approxmatedObj.LHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.LHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVAr{i,j}.*dv;
+                        approxmatedObj.RHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.RHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVBr{i,j}.*dv;
+                        approxmatedObj.LHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.LHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVAc{i,j}.*dv;
+                        approxmatedObj.RHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.RHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVBc{i,j}.*dv;
+                    end
+                end
         end
 
         %%%%%%%%%%%%%%%%%%%%%%%%
