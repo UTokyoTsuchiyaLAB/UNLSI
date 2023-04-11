@@ -2,7 +2,7 @@ classdef UNLSI
 
     %%%%%残タスク
     %solveFlowForAdjointの実装
-    %calcDynCoeffの実装
+    %calcDyncoefの実装
     %%%%%
 
     properties
@@ -30,7 +30,6 @@ classdef UNLSI
         Cp %圧力係数
         Cfe %表面摩擦係数
         AERODATA %結果の格納
-        DynCoeff %動微係数
         LLT
     end
 
@@ -92,8 +91,15 @@ classdef UNLSI
             for wakeNo = 1:numel(obj.wakeline)
                 for edgeNo = 1:numel(obj.wakeline{wakeNo}.edge)-1
                     attachpanel = obj.tri.edgeAttachments(obj.wakeline{wakeNo}.edge(edgeNo),obj.wakeline{wakeNo}.edge(edgeNo+1));
-                    obj.wakeline{wakeNo}.upperID(edgeNo) = attachpanel{1}(1);
-                    obj.wakeline{wakeNo}.lowerID(edgeNo) = attachpanel{1}(2);
+                    phivert = obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo+1),2:3)-obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo),2:3);
+                    phiwake = atan2d(phivert(2),phivert(1));
+                    if abs(phiwake)<90
+                        obj.wakeline{wakeNo}.upperID(edgeNo) = attachpanel{1}(1);
+                        obj.wakeline{wakeNo}.lowerID(edgeNo) = attachpanel{1}(2);
+                    else
+                        obj.wakeline{wakeNo}.upperID(edgeNo) = attachpanel{1}(2);
+                        obj.wakeline{wakeNo}.lowerID(edgeNo) = attachpanel{1}(1);
+                    end
                 end
             end
             obj.checkMesh(sqrt(eps),"warning");
@@ -139,10 +145,12 @@ classdef UNLSI
                 end
                 F = scatteredInterpolant(obj.center,triColor,method,extrapmethod);
                 c = F(obj.tri.Points);
-                trisurf(obj.tri,c);
+                trisurf(obj.tri,c,'FaceColor','interp','EdgeAlpha',0.15);
+                colormap jet;
                 if obj.halfmesh == 1
                     hold on;
-                    trisurf(obj.tri.ConnectivityList,obj.tri.Points(:,1),-obj.tri.Points(:,2),obj.tri.Points(:,3),c);
+                    trisurf(obj.tri.ConnectivityList,obj.tri.Points(:,1),-obj.tri.Points(:,2),obj.tri.Points(:,3),c,'FaceColor','interp','EdgeAlpha',0.15);
+                    colormap jet;
                     hold off
                 end
                 caxis(colorlim);
@@ -196,8 +204,15 @@ classdef UNLSI
             for wakeNo = 1:numel(obj.wakeline)
                 for edgeNo = 1:numel(obj.wakeline{wakeNo}.edge)-1
                     attachpanel = obj.tri.edgeAttachments(obj.wakeline{wakeNo}.edge(edgeNo),obj.wakeline{wakeNo}.edge(edgeNo+1));
-                    obj.wakeline{wakeNo}.upperID(edgeNo) = attachpanel{1}(1);
-                    obj.wakeline{wakeNo}.lowerID(edgeNo) = attachpanel{1}(2);
+                    phivert = obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo+1),2:3)-obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo),2:3);
+                    phiwake = atan2d(phivert(2),phivert(1));
+                    if abs(phiwake)<90
+                        obj.wakeline{wakeNo}.upperID(edgeNo) = attachpanel{1}(1);
+                        obj.wakeline{wakeNo}.lowerID(edgeNo) = attachpanel{1}(2);
+                    else
+                        obj.wakeline{wakeNo}.upperID(edgeNo) = attachpanel{1}(2);
+                        obj.wakeline{wakeNo}.lowerID(edgeNo) = attachpanel{1}(1);
+                    end
                 end
             end
             obj.checkMesh(sqrt(eps),"warning");
@@ -385,7 +400,7 @@ classdef UNLSI
                 obj.LLT.zinterp{wakeNo} = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),3),obj.LLT.sinterp{wakeNo},'linear','extrap');
                 yd = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),2),sd,'linear','extrap');
                 zd = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),3),sd,'linear','extrap');
-                obj.LLT.phiinterp{wakeNo} = atan2(zd(2:end)-zd(1:end-1),yd(2:end)-yd(1:end-1));
+                obj.LLT.phiinterp{wakeNo} = atan((zd(2:end)-zd(1:end-1))./(yd(2:end)-yd(1:end-1)));
                 obj.LLT.spanel{wakeNo} = (sd(2:end)-sd(1:end-1))./2;
                 
             end
@@ -508,7 +523,7 @@ classdef UNLSI
         function obj = solveFlow(obj,flowNo,alpha,beta,omega)
             %%%%%%%%%%%%%LSIの求解%%%%%%%%%%%%%%%%%%%%%
             %結果はobj.AERODATAに格納される。
-            % 1:Beta 2:Mach 3:AoA 4:Re/1e6 5:CL 6:CDo 7:CDi 8:CDtot 9:CDt 10:CDtot_t 11:CS 12:L/D E CFx CFy CFz CMx CMy       CMz       CMl       CMm       CMn      FOpt 
+            % 1:Beta 2:Mach 3:AoA 4:Re/1e6 5:CL 6:CLt 7:CDo 8:CDi 9:CDtot 10:CDt 11:CDtot_t 12:CS 13:L/D 14:E(翼効率) 15:CFx 16:CFy 17:CFz 18:CMx 19:CMy 20:CMz 21:CMl 22:CMm 23:CMn 24:FOpt 
             %上記で求めていないものは0が代入される
             %flowNo:解きたい流れのID
             %alpha:迎角[deg]
@@ -539,7 +554,7 @@ classdef UNLSI
                     Vinf = zeros(nPanel,3);
                     for i = 1:nPanel
                        rvec = obj.center(i,:)'-obj.XYZREF(:);
-                       Vinf(i,:) = (T*[1;0;0])'-(cross(omega(iterflow,:)./180.*pi,rvec(:)))';
+                       Vinf(i,:) = (T*[1;0;0])'-(cross(omega(iterflow,:)./180.*pi,rvec(:)'));
                     end
                 end
                 Tvec(:,1) = obj.normal(:,2).* Vinf(:,3)-obj.normal(:,3).* Vinf(:,2);
@@ -574,12 +589,12 @@ classdef UNLSI
                     end
                     Vind = obj.LLT.Qij*uinterp';
                     %{
-                    figure(2);clf;hold on;
-                    plot(horzcat(obj.LLT.sinterp{:}),Vind');
-                    plot(horzcat(obj.LLT.sinterp{:}),uinterp);
+                    figure(3);clf;hold on;
+                    plot(horzcat(obj.LLT.yinterp{:}),Vind');
+                    plot(horzcat(obj.LLT.yinterp{:}),uinterp);
                     ylim([-0.5,3]);
                     %}
-                    CLt = (2.*horzcat(obj.LLT.spanel{:})*uinterp')/(0.5*obj.SREF)/(1-obj.flow{flowNo}.Mach^2);
+                    CLt = (2.*horzcat(obj.LLT.spanel{:}).*cos(horzcat(obj.LLT.phiinterp{:}))*uinterp')/(0.5*obj.SREF)/(1-obj.flow{flowNo}.Mach^2);
                     CDt = ((uinterp.*horzcat(obj.LLT.spanel{:}))*Vind)/(0.5*obj.SREF)/norm(1-obj.flow{flowNo}.Mach^2)^3;
                 else
                     %超音速
@@ -646,7 +661,7 @@ classdef UNLSI
                 end
                 AR = obj.BREF^2/obj.SREF;
                 
-                obj.AERODATA{flowNo}(iterflow,:) = [beta(iterflow),obj.flow{flowNo}.Mach,alpha(iterflow),0,CL,CLt,CDo,CDi,CDtot,CDt,CDtott,CY,CL/CDtot,CLt^2/pi/AR/CDt,CAp+CAf,CYp+CYf,CNp+CNf,CMX,CMY,CMZ,0,0,0,0];
+                obj.AERODATA{flowNo}(iterflow,:) = [beta(iterflow),obj.flow{flowNo}.Mach,alpha(iterflow),0,CL,CLt,CDo,CDi,CDtot,CDt,CDtott,CY,CLt/CDtott,CLt^2/pi/AR/CDt,CAp+CAf,CYp+CYf,CNp+CNf,CMX,CMY,CMZ,0,0,0,0];
                 
             end
             %disp([CL,CDo,CDi,CDtot,CMY]);
@@ -786,7 +801,7 @@ classdef UNLSI
                         uinterp = [uinterp,interp1(obj.LLT.sp{i},obj.LLT.calcMu{i}*usolve,obj.LLT.sinterp{i},'linear','extrap')];
                     end
                     Vind = obj.LLT.Qij*uinterp';
-                    CLt = (2.*horzcat(obj.LLT.spanel{:})*uinterp')/(0.5*obj.SREF)/(1-obj.flow{flowNo}.Mach^2);
+                    CLt = (2.*horzcat(obj.LLT.spanel{:}).*cos(horzcat(obj.LLT.phiinterp{:}))*uinterp')/(0.5*obj.SREF)/(1-obj.flow{flowNo}.Mach^2);
                     CDt = ((uinterp.*horzcat(obj.LLT.spanel{:}))*Vind)/(0.5*obj.SREF)/norm(1-obj.flow{flowNo}.Mach^2)^3;
                 else
                     %超音速
@@ -852,7 +867,7 @@ classdef UNLSI
                     CY = T(:,2)'*[CAp+CAf;CYp+CYf;CNp+CNf];
                 end
                 AR = obj.BREF^2/obj.SREF;
-                obj.AERODATA{flowNo}(iterflow,:) = [beta(iterflow),obj.flow{flowNo}.Mach,alpha(iterflow),0,CL,CLt,CDo,CDi,CDtot,CDt,CDtott,CY,CL/CDtot,CLt^2/pi/AR/CDt,CAp+CAf,CYp+CYf,CNp+CNf,CMX,CMY,CMZ,0,0,0,0];
+                obj.AERODATA{flowNo}(iterflow,:) = [beta(iterflow),obj.flow{flowNo}.Mach,alpha(iterflow),0,CL,CLt,CDo,CDi,CDtot,CDt,CDtott,CY,CLt/CDtott,CLt^2/pi/AR/CDt,CAp+CAf,CYp+CYf,CNp+CNf,CMX,CMY,CMZ,0,0,0,0];
                 AERODATA = obj.AERODATA;
                 Cp = obj.Cp;
                 Cfe = obj.Cfe;
@@ -866,10 +881,13 @@ classdef UNLSI
             %disp([CL,CDo,CDi,CDtot,CMY]);
         end
         
-        function obj = calcDynCoeff(obj,flowNo,alpha,beta,difference)
+        function dynCoef = calcDynCoef(obj,flowNo,alpha,beta,difference)
             %%%動微係数の計算%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-            %結果はDyncoeffに格納される
-            %[1:Clp, 2:Cmq, 3:Cnr]
+            %%%%%%%%%%%%%%%%TO DO alpha とbetaも
+            %結果はDyncoefに格納される
+            %[1:Clp, 2:Cmp, 3:Cnp;
+            % 1:Clq, 2:Cmq, 3:Cnq;
+            % 1:Clr, 2:Cmr, 3,Cnr]
             %flowNo:解きたい流れのID
             %alpha:迎角[deg]
             %beta:横滑り角[deg]
@@ -877,32 +895,53 @@ classdef UNLSI
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             if ~exist("difference","var"); difference = "forward"; end
             
-            obj = obj.solveFlow(obj,flowNo,alpha,beta);
-            obj.DynCoeff = zeros(1,3);
+            obj = obj.solveFlow(flowNo,alpha,beta);
             %有限差分による計算
-            ind = [14,15,16];%AERODATA = [14:CMX, 15:CMY, 16: CMZ]
+            ind = [15:20];%AERODATA = [18:CMX, 19:CMY, 20: CMZ]
+            nondim = [obj.BREF/(2*1),obj.CREF/(2*1),obj.BREF/(2*1)];
+            dynCoef = zeros(5,6);
             if strcmp(difference,"forward")
                 dw = sqrt(eps);
+                delta = obj.solveFlow(flowNo,alpha,beta+dw);
+                tmp = (delta.AERODATA{flowNo} - obj.AERODATA{flowNo})./(dw/180*pi);
+                dynCoef(1,:) = tmp(ind); %beta
+                delta = obj.solveFlow(flowNo,alpha+dw,beta);
+                tmp = (delta.AERODATA{flowNo} - obj.AERODATA{flowNo})./(dw/180*pi);
+                dynCoef(2,:) = tmp(ind); % alpha
                 for i = 1:3%p,q,rについて差分をとる
                     omega = zeros(1,3);
                     omega(i) = dw;
                     delta = obj.solveFlow(flowNo,alpha,beta,omega);
-                    tmp = (delta.AERODATA - obj.AERODATA)./dw;
-                    obj.DynCoeff(i) = tmp(ind(i));
+                    tmp = (delta.AERODATA{flowNo} - obj.AERODATA{flowNo})./((dw/180*pi)*nondim(i));
+                    dynCoef(2+i,:) = tmp(ind);
                 end
             elseif strcmp(difference,"central")
                 dw = eps^(1/3);
+                delta1 = obj.solveFlow(flowNo,alpha,beta+dw);
+                delta2 = obj.solveFlow(flowNo,alpha,beta-dw);
+                tmp = (delta1.AERODATA{flowNo} - delta2.AERODATA{flowNo})./(2*(dw/180*pi));
+                dynCoef(1,:) = tmp(ind);
+                delta1 = obj.solveFlow(flowNo,alpha+dw,beta);
+                delta2 = obj.solveFlow(flowNo,alpha-dw,beta);
+                tmp = (delta1.AERODATA{flowNo} - delta2.AERODATA{flowNo})./(2*(dw/180*pi));
+                dynCoef(2,:) = tmp(ind);
                 for i = 1:3
                     omega = zeros(1,3);
                     omega(i) = dw;
-                    delta1 = obj.solveFlow(obj,flowNo,alpha,beta,omega);
-                    delta2 = obj.solveFlow(obj,flowNo,alpha,beta,-omega);
-                    tmp = (delta1.AERODATA - delta2.AERODATA)./(2*dw);
-                    obj.DynCoeff(i) = tmp(ind(i));
+                    delta1 = obj.solveFlow(flowNo,alpha,beta,omega);
+                    delta2 = obj.solveFlow(flowNo,alpha,beta,-omega);
+                    tmp = (delta1.AERODATA{flowNo} - delta2.AERODATA{flowNo})./(2*(dw/180*pi)*nondim(i));
+                    dynCoef(2+i,:) = tmp(ind);
                 end
             else 
                 error("Supported difference methods are ""foraward"" and ""central"".")
             end
+            axisRot = [ 0, 1, 0,-1, 0,-1;
+                       -1, 0,-1, 0, 1, 0;
+                        0,-1, 0, 1, 0, 1;
+                        0, 0,-1, 0, 1, 0;
+                        0,-1, 0, 1, 0, 1];
+            dynCoef = (axisRot.*dynCoef)';
 
         end
     end
