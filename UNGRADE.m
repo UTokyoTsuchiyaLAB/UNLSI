@@ -251,7 +251,7 @@
                     obj.LLT.zinterp{wakeNo} = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),3),obj.LLT.sinterp{wakeNo},'linear','extrap');
                     yd = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),2),sd,'linear','extrap');
                     zd = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),3),sd,'linear','extrap');
-                    obj.LLT.phiinterp{wakeNo} = atan2(zd(2:end)-zd(1:end-1),yd(2:end)-yd(1:end-1));
+                    obj.LLT.phiinterp{wakeNo} = atan((zd(2:end)-zd(1:end-1))./(yd(2:end)-yd(1:end-1)));
                     obj.LLT.spanel{wakeNo} = (sd(2:end)-sd(1:end-1))./2;
                     
                 end
@@ -364,7 +364,7 @@
             end
         end
 
-        function obj = setOptimization(obj,H0,TR,TRmin,TRmax)
+        function obj = setOptimization(obj,H0,stabbbScaling)
             %%%最適化の設定%%%%%%%%%%%
             %H0：ヘシアンの初期値
             %TR：不等式制約の許容残差の初期値
@@ -374,15 +374,12 @@
             %%%%%%%%%%%%%%%%%%%%%
             obj.optimization.H0 = H0;
             obj.optimization.H = H0;
-            obj.optimization.TR = TR;
-            obj.optimization.TRmin = TRmin;
-            obj.optimization.TRmax = TRmax;
             obj.optimization.xScaled = [];
             obj.optimization.dL_dx = [];
-            obj.optimization.stabbbScaling = 1;
+            obj.optimization.stabbbScaling = stabbbScaling;
         end
 
-        function [dx,convergenceFlag,obj] = finddx(obj,objandConsFun,minNorm,GradientCalcMethod,HessianUpdateMethod,nMemory,cmin,cmax)
+                function [dx,convergenceFlag,obj] = finddx(obj,objandConsFun,minNorm,TrustRegion,betaLM,GradientCalcMethod,HessianUpdateMethod,nMemory,cmin,cmax)
             %%%%%%%%%%%%指定した評価関数と制約条件における設計変数勾配の計算%%%%%%%%
             %method：設計変数に関する偏微分の計算方法
             % 'direct'-->メッシュを再生成，'chain'-->基準メッシュの変位を補間,
@@ -543,100 +540,80 @@
                 ubf = 1-obj.designVariables;
                 options = optimoptions(@fmincon,'Algorithm','interior-point','Display','final-detailed','EnableFeasibilityMode',true,"SubproblemAlgorithm","cg",'MaxFunctionEvaluations',10000);
                 [~,~,exitflag,~,lambda] = linprog(objTotalGrad,alin,blin,[],[],lbf,ubf);
-                tempTR = obj.optimization.TR;
-                while(1)
-                    if exitflag < 0
-                        [dxscaled,fval,exitflagdx,~,lambda] = fmincon(@(x)obj.fminconObj(x,obj.optimization.H,objTotalGrad),zeros(numel(obj.designVariables),1),alin,blin,[],[],lbf,ubf,@(x)obj.fminconNlc(x,tempTR),options);
-                    else
-                        [dxscaled,fval,exitflagdx] = fmincon(@(x)obj.fminconObj(x,obj.optimization.H,objTotalGrad),zeros(numel(obj.designVariables),1),alin,blin,[],[],lbf,ubf,@(x)obj.fminconNlc(x,tempTR),options);
-                    end
-                        rho = 1000;
-                    if not(isempty(con0))
-                        lambdaR = -(dR_du)\(dI_du+lambda.ineqlin'*[-dcon_du;dcon_du])';
-                        Lorg = I0 + lambda.ineqlin'*[-con0;con0];
-                        penaltyorg = rho*sum(max(max(0,cmin-con0),max(con0-cmax)));
-                        dL_dx = dI_dx+lambdaR'*dR_dx+lambda.ineqlin'*[-dcon_dx;dcon_dx];
-                    else
-                        lambdaR = -(dR_du)\(dI_du)';
-                        Lorg = I0 ;
-                        penaltyorg = 0;
-                        dL_dx = dI_dx+lambdaR'*dR_dx;
-                    end
-                    obj.optimization.LagrangianVal(obj.iteration) = Lorg;
-                    obj.optimization.penaltyVal(obj.iteration) = Lorg;
-                    dx = dxscaled(:)'.*obj.designScale;
-                    
-                    %精度評価
-                    desdx = x.*obj.designScale+obj.lb+dx(:)';
-                    [modSurfdx,~,SREFdx,BREFdx,CREFdx,XYZREFdx,argin_xdx,desdx] = obj.surfGenFun(desdx);
-                    modMeshdx = obj.meshDeformation(modSurfdx);
-                    objdx = obj.setVerts(modMeshdx);
-                    if any(obj.flowNoList(:,3) == 1)
-                        objdx = objdx.makeEquation(obj.unlsiParam.wakeLength,obj.unlsiParam.n_wake,obj.unlsiParam.n_divide);
-                    end
-                    objdx = objdx.setREFS(SREFdx,BREFdx,CREFdx);
-                    objdx = objdx.setRotationCenter(XYZREFdx);
-                    for iter = 1:numel(obj.flow)
-                        alphabuff = obj.unlsiParam.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
-                        betabuff = obj.unlsiParam.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
-                        objdx = objdx.solveFlow(iter,alphabuff,betabuff);
-                    end
-                    %[udx,~] = objdx.solvePertPotential(1,obj.unlsiParam.alpha,obj.unlsiParam.beta);%ポテンシャルを求める
-                    %[AERODATA,Cp,Cfe,Rdx,~] = objdx.solveFlowForAdjoint(udx,1,obj.unlsiParam.alpha,obj.unlsiParam.beta);%ポテンシャルから空力係数を計算
-                    [Idx,condx] = objandConsFun(desdx,objdx.AERODATA,objdx.Cp,objdx.Cfe,SREFdx,BREFdx,CREFdx,XYZREFdx,argin_xdx);
-                    if not(isempty(con0))
-                        Ldx = Idx + lambda.ineqlin'*[-condx;condx];
-                        if penaltyorg < sqrt(eps)
-                            penaltydx = 0;
-                        else
-                           penaltydx = rho*sum(max(max(0,cmin-condx),max(condx-cmax))); 
-                        end
-                    else
-                        Ldx = Idx ;
-                        penaltydx = 0;
-                    end
-                    if not(isempty(con0))
-                        acc = (Ldx-Lorg)/(fval+(lambda.ineqlin'*[-dcon_dx;dcon_dx])*dxscaled(:));
-                    else
-                        acc = (Ldx-Lorg)/(fval);
-                    end
-                    obj.optimization.LpredictVal(obj.iteration) = Ldx;
-                    obj.optimization.trAccuracyVal(obj.iteration) = acc;
-                    obj.optimization.dxNormVal(obj.iteration) = norm(dxscaled);
-                    fprintf("Variables:\n")
-                    disp(desOrg);
-                    fprintf("------>\n")
-                    disp(desdx);
-                    fprintf("Objective and Constraints:\n")
-                    disp([I0,con0(:)']);
-                    fprintf("------>\n");
-                    disp([Idx,condx(:)']);
-                    fprintf("dx norm :%f\nLagrangian Value : %f -> %f\nPenalty Value : %f -> %f\nHessian Approximation Accuracy:%f\n",norm(dxscaled),Lorg,Ldx,penaltyorg,penaltydx,acc);
-                    if tempTR <= obj.optimization.TRmin || strcmpi(HessianUpdateMethod,'BB')
-                        fprintf("\n-----------Acceptable-----------\n\n");
-                        break;
-                    end
-                    if Ldx <= Lorg && penaltydx <= penaltyorg && Ldx+penaltydx <= Lorg+penaltyorg
-                        fprintf("\n-----------Accepted-----------\n\n");
-                        break;
-                    end
-                    fprintf("\n-----------Rejected-----------\n\n")
-                    if norm(dxscaled)<tempTR
-                        tempTR = norm(dxscaled) * 0.9;
-                    else
-                        tempTR = tempTR * 0.9;
-                    end
-                    if exitflagdx < 0
-                        tempTR = obj.optimization.TRmin;
-                    end
-                    dx = desdx-desOrg;
+                
+                rho = 1000;
+                if not(isempty(con0))
+                    lambdaR = -(dR_du)\(dI_du+lambda.ineqlin'*[-dcon_du;dcon_du])';
+                    Lorg = I0 + lambda.ineqlin'*[-con0;con0];
+                    penaltyorg = rho*sum(max(max(0,cmin-con0),max(con0-cmax)));
+                    dL_dx = dI_dx+lambdaR'*dR_dx+lambda.ineqlin'*[-dcon_dx;dcon_dx];
+                else
+                    lambdaR = -(dR_du)\(dI_du)';
+                    Lorg = I0 ;
+                    penaltyorg = 0;
+                    dL_dx = dI_dx+lambdaR'*dR_dx;
                 end
+                obj.optimization.LagrangianVal(obj.iteration) = Lorg;
+                obj.optimization.penaltyVal(obj.iteration) = penaltyorg;
+                [dxscaled,fval,exitflagdx] = fmincon(@(x)obj.fminconObj(x,(betaLM)*obj.optimization.H+(1-betaLM)*obj.optimization.BBMatrix,dL_dx),zeros(numel(obj.designVariables),1),alin,blin,[],[],lbf,ubf,@(x)obj.fminconNlc(x,TrustRegion),options);
+                dx = dxscaled(:)'.*obj.designScale;
+                
+                %精度評価
+                desdx = obj.designVariables.*obj.designScale+obj.lb+dx(:)';
+                [modSurfdx,~,SREFdx,BREFdx,CREFdx,XYZREFdx,argin_xdx,desdx] = obj.geomGenFun(desdx);
+                modMeshdx = obj.meshDeformation(modSurfdx);
+                objdx = obj.setVerts(modMeshdx);
+                if any(obj.flowNoList(:,3) == 1)
+                    objdx = objdx.makeEquation(obj.unlsiParam.wakeLength,obj.unlsiParam.n_wake,obj.unlsiParam.n_divide);
+                end
+                objdx = objdx.setREFS(SREFdx,BREFdx,CREFdx);
+                objdx = objdx.setRotationCenter(XYZREFdx);
+                for iter = 1:numel(obj.flow)
+                    alphabuff = obj.unlsiParam.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
+                    betabuff = obj.unlsiParam.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
+                    [udx,~] = objdx.solvePertPotential(iter,alphabuff,betabuff);%ポテンシャルを求める
+                    [AERODATA,Cp,Cfe,Rdx,objdx] = objdx.solveFlowForAdjoint(udx,iter,alphabuff,betabuff);%ポテンシャルから空力係数を計算
+                end
+               
+                [Idx,condx] = objandConsFun(desdx,AERODATA,Cp,Cfe,SREFdx,BREFdx,CREFdx,XYZREFdx,argin_xdx);
+                if not(isempty(con0))
+                    Ldx = Idx + lambda.ineqlin'*[-condx;condx];
+                    if penaltyorg < sqrt(eps)
+                        penaltydx = 0;
+                    else
+                       penaltydx = rho*sum(max(max(0,cmin-condx),max(condx-cmax))); 
+                    end
+                else
+                    Ldx = Idx ;
+                    penaltydx = 0;
+                end
+                acc = (Ldx-Lorg)/(0.5*(dxscaled(:)'*obj.optimization.H*dxscaled(:))+dL_dx*dxscaled(:));
+               
+                obj.optimization.LpredictVal(obj.iteration) = Ldx;
+                obj.optimization.trAccuracyVal(obj.iteration) = acc;
+                obj.optimization.dxNormVal(obj.iteration) = norm(dxscaled);
+                fprintf("Variables:\n")
+                disp(desOrg);
+                fprintf("------>\n")
+                disp(desdx);
+                fprintf("Objective and Constraints:\n")
+                disp([I0,con0(:)']);
+                fprintf("------>\n");
+                disp([Idx,condx(:)']);
+                fprintf("dx norm :%f\nLagrangian Value : %f -> %f\nPenalty Value : %f -> %f\nHessian Approximation Accuracy:%f\n",norm(dxscaled),Lorg,Ldx,penaltyorg,penaltydx,acc);
+                dx = desdx-desOrg;
+
+
                 if strcmpi(HessianUpdateMethod,"SR1")
                     obj.optimization.updateFunction = @obj.SR1;
                 elseif strcmpi(HessianUpdateMethod,"SSR1")
                     obj.optimization.updateFunction = @obj.SSR1;
                 elseif strcmpi(HessianUpdateMethod,"BFGS")
                     obj.optimization.updateFunction = @obj.BFGS;
+                elseif strcmpi(HessianUpdateMethod,"DFP")
+                    obj.optimization.updateFunction = @obj.DFP;
+                elseif strcmpi(HessianUpdateMethod,"Broyden")
+                    obj.optimization.updateFunction = @obj.Broyden;
                 elseif strcmpi(HessianUpdateMethod,"MBFGS")
                     obj.optimization.updateFunction = @obj.MBFGS;
                 elseif strcmpi(HessianUpdateMethod,"DBFGS")
@@ -648,19 +625,25 @@
                 elseif strcmpi(HessianUpdateMethod,"BB")
                     obj.optimization.updateFunction = @obj.Barzilai_Borwein;
                 end
-                if not(strcmpi(HessianUpdateMethod,'BB'))
-                    if acc < 0.15
-                        obj.optimization.TR = obj.optimization.TR * 0.9;
-                    elseif acc > 0.5
-                        obj.optimization.TR = obj.optimization.TR / 0.9;
-                    end
-                    if obj.optimization.TR > obj.optimization.TRmax
-                        obj.optimization.TR = obj.optimization.TRmax;
-                    elseif obj.optimization.TR < obj.optimization.TRmin
-                        obj.optimization.TR = obj.optimization.TRmin;
-                    end
+%{
+                if acc < 0.15
+                    obj.optimization.TR = obj.optimization.TR * 0.9;
+                    obj.optimization.BetaLM = obj.optimization.BetaLM - 0.1;
+                elseif acc > 0.5
+                    obj.optimization.TR = obj.optimization.TR / 0.9;
+                    obj.optimization.BetaLM = obj.optimization.BetaLM + 0.1;
                 end
-
+                if obj.optimization.TR > obj.optimization.TRmax
+                    obj.optimization.TR = obj.optimization.TRmax;
+                elseif obj.optimization.TR < obj.optimization.TRmin
+                    obj.optimization.TR = obj.optimization.TRmin;
+                end
+                if obj.optimization.BetaLM >=1
+                    obj.optimization.BetaLM = 1;
+                elseif obj.optimization.BetaLM <= 0
+                    obj.optimization.BetaLM = 0;
+                end
+%}
                 %Hessianの更新
                 obj.optimization.xScaled = [obj.optimization.xScaled;obj.designVariables];
                 obj.optimization.dL_dx = [obj.optimization.dL_dx;dL_dx];
@@ -688,6 +671,9 @@
                             obj.optimization.H = obj.optimization.updateFunction(s,y,obj.optimization.H);
                         end
                     end
+                    s = obj.optimization.xScaled(end,:)-obj.optimization.xScaled(end-1,:);
+                    y = obj.optimization.dL_dx(end,:)-obj.optimization.dL_dx(end-1,:);
+                    obj.optimization.BBMatrix = obj.Barzilai_Borwein(s,y,obj.optimization.H);
                 end
             else
                 %近似行列による直接最適化
@@ -714,7 +700,7 @@
                 dx = dxscaled(:)'.*obj.designScale;
                 %精度評価
                 desdx = desOrg+dx(:)';
-                [modSurfdx,~,SREFdx,BREFdx,CREFdx,XYZREFdx,argin_xdx,desdx] = obj.surfGenFun(desdx);
+                [modSurfdx,~,SREFdx,BREFdx,CREFdx,XYZREFdx,argin_xdx,desdx] = obj.geomGenFun(desdx);
                 modMeshdx = obj.meshDeformation(modSurfdx);
                 objdx = obj.setVerts(modMeshdx);
                 if any(obj.flowNoList(:,3) == 1)
@@ -734,7 +720,7 @@
                 disp([I0,con0(:)']);
                 fprintf("------>\n");
                 disp([Idx,condx(:)']);
-                fprintf("dx norm :%f\n",norm(dxscaled));
+                fprintf("dx norm :%f\n",norm((desdx-desOrg)./obj.designScale));
             end
             if norm((desdx-desOrg)./obj.designScale) < minNorm
                 convergenceFlag = 1;
@@ -745,10 +731,10 @@
            
         end
 
-        function [dx,convergenceFlag,obj] = updateVariables(obj,FcnObjandCon,minNorm,GradientCalcMethod,HessianUpdateMethod,nMemory,cmin,cmax)
+        function [dx,convergenceFlag,obj] = updateVariables(obj,FcnObjandCon,minNorm,TrustRegion,betaLM,GradientCalcMethod,HessianUpdateMethod,nMemory,cmin,cmax)
             obj.iteration = obj.iteration + 1;
             fprintf("Itaration No. %d : Started\n -- GradientCalcMethod : %s\n -- HessianUpdateMethod : %s\n",obj.iteration,GradientCalcMethod,HessianUpdateMethod);
-            [dx,convergenceFlag,obj] = obj.finddx(FcnObjandCon,minNorm,GradientCalcMethod,HessianUpdateMethod,nMemory,cmin,cmax);
+            [dx,convergenceFlag,obj] = obj.finddx(FcnObjandCon,minNorm,TrustRegion,betaLM,GradientCalcMethod,HessianUpdateMethod,nMemory,cmin,cmax);
             newDes = obj.designVariables.*obj.designScale+obj.lb+dx;
             obj = obj.modifyMeshfromVariables(newDes);
             for i = 1:numel(obj.flow)
