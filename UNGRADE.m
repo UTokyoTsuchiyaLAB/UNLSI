@@ -374,6 +374,7 @@
             %%%%%%%%%%%%%%%%%%%%%
             obj.optimization.H0 = H0;
             obj.optimization.H = H0;
+            obj.optimization.BBMatrix = H0;
             obj.optimization.xScaled = [];
             obj.optimization.dL_dx = [];
             obj.optimization.stabbbScaling = stabbbScaling;
@@ -560,7 +561,7 @@
                 
                 %精度評価
                 desdx = obj.designVariables.*obj.designScale+obj.lb+dx(:)';
-                [modSurfdx,~,SREFdx,BREFdx,CREFdx,XYZREFdx,argin_xdx,desdx] = obj.geomGenFun(desdx);
+                [modSurfdx,~,SREFdx,BREFdx,CREFdx,XYZREFdx,argin_xdx,desdx] = obj.surfGenFun(desdx);
                 modMeshdx = obj.meshDeformation(modSurfdx);
                 objdx = obj.setVerts(modMeshdx);
                 if any(obj.flowNoList(:,3) == 1)
@@ -700,7 +701,7 @@
                 dx = dxscaled(:)'.*obj.designScale;
                 %精度評価
                 desdx = desOrg+dx(:)';
-                [modSurfdx,~,SREFdx,BREFdx,CREFdx,XYZREFdx,argin_xdx,desdx] = obj.geomGenFun(desdx);
+                [modSurfdx,~,SREFdx,BREFdx,CREFdx,XYZREFdx,argin_xdx,desdx] = obj.surfGenFun(desdx);
                 modMeshdx = obj.meshDeformation(modSurfdx);
                 objdx = obj.setVerts(modMeshdx);
                 if any(obj.flowNoList(:,3) == 1)
