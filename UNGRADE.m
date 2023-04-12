@@ -556,7 +556,7 @@
                 end
                 obj.optimization.LagrangianVal(obj.iteration) = Lorg;
                 obj.optimization.penaltyVal(obj.iteration) = penaltyorg;
-                [dxscaled,fval,exitflagdx] = fmincon(@(x)obj.fminconObj(x,(betaLM)*obj.optimization.H+(1-betaLM)*obj.optimization.BBMatrix,dL_dx),zeros(numel(obj.designVariables),1),alin,blin,[],[],lbf,ubf,@(x)obj.fminconNlc(x,TrustRegion),options);
+                [dxscaled,fval,exitflagdx] = fmincon(@(x)obj.fminconObj(x,(betaLM)*obj.optimization.H+(1-betaLM)*diag(diag(obj.optimization.H)),dL_dx),zeros(numel(obj.designVariables),1),alin,blin,[],[],lbf,ubf,@(x)obj.fminconNlc(x,TrustRegion),options);
                 dx = dxscaled(:)'.*obj.designScale;
                 
                 %精度評価
