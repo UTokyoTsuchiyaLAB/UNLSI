@@ -99,7 +99,6 @@
             if any(obj.flowNoList(:,3) == 1)
                 obj = obj.makeCluster(obj.setting.nCluster,obj.setting.edgeAngleThreshold);
             end
-
         end
         
         function obj = updateMeshGeomfromVariables(obj,unscaledVariables)
@@ -124,11 +123,21 @@
             end
         end
 
-        function [modGeomVerts,modSREF,modBREF,modCREF,modXYZREF,modargin_x,unscaledVariables] = calcGeomfromVariables(obj,unscaledVariables)
-            [modGeomVerts,~,modSREF,modBREF,modCREF,modXYZREF,modargin_x,unscaledVariables] = obj.geomGenFun(unscaledVariables);
+        function obj = solveAnalysis(obj,flowNo,alpha,beta,omega)
+            
+            if isempty(obj.LHS)
+                if any(obj.flowNoList(:,3) == 1)
+                    obj = obj.makeEquation(obj.setting.wakeLength,obj.setting.n_wake,obj.setting.n_divide);
+                end 
+            end
+            if nargin<5
+                obj = obj.solveFlow(flowNo,alpha,beta);
+            else
+                obj = obj.solveFlow(flowNo,alpha,beta,omega);
+            end
+
         end
-        
-   
+
         function [modGeomVerts,modMeshVerts] = calcApproximatedMeshGeom(obj,unscaledVariables)
             %%%%%%%%%%%設計変数勾配によるMeshとGeomの一次近似の作成%%%%%
 
@@ -251,13 +260,16 @@
                     error("Field name is not match");
                 end
             end
+            if obj.iteration == 0
+                obj.Hessian = obj.setting.H0;
+            end
 
 
         end
 
         function [nextUnscaledVar,obj] = calcNextVariables(obj,objandConsFun,cmin,cmax,varargin)
             if nargin>4
-                obj = obj.setOptions(varargin);
+                obj = obj.setOptions(varargin{:});
             end
             obj.iteration = obj.iteration + 1;
             fprintf("Itaration No. %d : Started\n -- GradientCalcMethod : %s\n -- HessianUpdateMethod : %s\n",obj.iteration,obj.setting.gradientCalcMethod,obj.setting.HessianUpdateMethod);
@@ -270,8 +282,10 @@
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             %初期点の解析
             nbPanel = sum(obj.paneltype == 1);
-            if any(obj.flowNoList(:,3) == 1)
-                obj = obj.makeEquation(obj.setting.wakeLength,obj.setting.n_wake,obj.setting.n_divide);
+            if isempty(obj.LHS)
+                if any(obj.flowNoList(:,3) == 1)
+                    obj = obj.makeEquation(obj.setting.wakeLength,obj.setting.n_wake,obj.setting.n_divide);
+                end
             end
             obj.approximated = 0;
             desOrg = obj.scaledVar.*obj.designScale+obj.lb;
@@ -290,7 +304,6 @@
                 end
 
             end
-            obj.plotGeometry(1,obj.Cp{1}(:,1),[-2,1]);
             [I0,con0] = objandConsFun(desOrg,AERODATA0,Cp0,Cfe0,obj.SREF,obj.BREF,obj.CREF,obj.XYZREF,obj.argin_x);
             fprintf("Orginal Objective Value and Constraints:\n")
             disp([I0,con0(:)']);
