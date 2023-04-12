@@ -1,0 +1,285 @@
+***************************************************************************************************************************************************************************************** 
+
+# Name                   Value      Units             
+Sref_                 174.7462500 Lunit^2             
+Cref_                   4.7550000 Lunit               
+Bref_                  36.7500000 Lunit               
+Xcg_                    0.0000000 Lunit               
+Ycg_                    0.0000000 Lunit               
+Zcg_                    0.0000000 Lunit               
+Mach_                   0.0010000 no_unit             
+AoA_                    1.0000000 deg                 
+Beta_                   0.0000000 deg                 
+Rho_                    0.0023770 Munit/Lunit^3       
+Vinf_                 100.0000000 Lunit/Tunit         
+Roll__Rate              0.0000000 rad/Tunit           
+Pitch_Rate              0.0000000 rad/Tunit           
+Yaw___Rate              0.0000000 rad/Tunit           
+
+   Wing       S        Xavg      Yavg      Zavg     Chord     V/Vref      Cl        Cd        Cs        Cx        Cy       Cz        Cmx       Cmy       Cmz 
+        1   0.11355  19.37623  -0.00000   2.05991  10.15873 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.24935  19.76145  -0.00000   2.18104   9.47619 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.29386  20.14665  -0.00000   2.30217   8.79365 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.33837  20.53181  -0.00000   2.42328   8.11111 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.38288  20.91694  -0.00000   2.54438   7.42857 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.42595  21.27788  -0.00000   2.66562   6.79602 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.46617  21.61304  -0.00000   2.78672   6.21346 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.50497  21.94815  -0.00000   2.90781   5.63090 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.54377  22.28321  -0.00000   3.02886   5.04834 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.58257  22.61817  -0.00000   3.14989   4.46578 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.61425  22.83080  -0.00000   3.26392   4.12969 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.63234  22.91369  -0.00000   3.36854   4.04007 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.64395  22.99657  -0.00000   3.47315   3.95045 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.65556  23.07946  -0.00000   3.57777   3.86083 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.66717  23.16234  -0.00000   3.68238   3.77121 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.68891  23.36252  -0.00000   4.00639   3.60554 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.73098  23.68312  -0.00000   4.55529   3.36382 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.78326  24.00369  -0.00000   5.10416   3.12210 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.83554  24.32424  -0.00000   5.65298   2.88038 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.88782  24.64476  -0.00000   6.20175   2.63866 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.93034  24.85261  -0.00000   6.54396   2.47365 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.95338  24.94322   0.00000   6.67163   2.38535 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.96670  25.03383   0.00000   6.79929   2.29705 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.98002  25.12444   0.00000   6.92695   2.20875 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.99334  25.21505  -0.00000   7.05462   2.12045 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        2   0.01828  20.57174   0.09020   1.52060   0.88790 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        2   0.05594  20.94612   0.24231   1.53694   1.66370 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        2   0.09471  21.32886   0.39782   1.55365   2.43950 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        2   0.13348  21.71391   0.55428   1.57046   3.21530 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        2   0.17225  22.09993   0.71112   1.58732   3.99110 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        2   0.24291  22.28742   1.34616   1.59550   4.20270 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        2   0.38241  22.28742   2.47902   1.59550   3.85010 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        2   0.55886  22.28742   3.61173   1.59550   3.49750 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        2   0.73532  22.28742   4.74424   1.59550   3.14490 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        2   0.91177  22.28742   5.87648   1.59550   2.79230 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        3   0.01828  20.57174  -0.09020   1.52060   0.88790 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        3   0.05594  20.94612  -0.24231   1.53694   1.66370 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        3   0.09471  21.32886  -0.39782   1.55365   2.43950 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        3   0.13348  21.71391  -0.55428   1.57046   3.21530 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        3   0.17225  22.09993  -0.71112   1.58732   3.99110 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        3   0.24291  22.28742  -1.34616   1.59550   4.20270 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        3   0.38241  22.28742  -2.47902   1.59550   3.85010 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        3   0.55886  22.28742  -3.61173   1.59550   3.49750 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        3   0.73532  22.28742  -4.74424   1.59550   3.14490 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        3   0.91177  22.28742  -5.87648   1.59550   2.79230 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        4   0.06694   8.45688   1.81918   2.94545   5.35877 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        4   0.24214   8.30569   5.49093   3.08763   5.05644 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        4   0.45867   8.15437   9.16257   3.22979   4.75429 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        4   0.67520   8.00291  12.83406   3.37190   4.45237 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        4   0.89173   7.85128  16.50537   3.51396   4.15071 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        5   0.06694   8.45688  -1.81918   2.94545   5.35877 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        5   0.24214   8.30569  -5.49093   3.08763   5.05644 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        5   0.45867   8.15437  -9.16257   3.22979   4.75429 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        5   0.67520   8.00291 -12.83406   3.37190   4.45237 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        5   0.89173   7.85128 -16.50537   3.51396   4.15071 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+
+
+
+Comp      Component-Name                             Mach       AoA      Beta       CL        CDi       CS       CFx       CFy       CFz       Cmx       Cmy       Cmz 
+0                                                    0.00100   1.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000 
+1         Vert                                       0.00100   1.00000   0.00000 -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+2         Horz                                       0.00100   1.00000   0.00000 -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+3         Horz                                       0.00100   1.00000   0.00000 -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+4         NormalWing                                 0.00100   1.00000   0.00000 -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+5         NormalWing                                 0.00100   1.00000   0.00000 -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+6         Fuselage                                   0.00100   1.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000 -nan(ind) -nan(ind)       nan 
+7         Fuselage                                   0.00100   1.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000 -nan(ind) -nan(ind)       nan 
+8         Fuselage                                   0.00100   1.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000 -nan(ind) -nan(ind)       nan 
+9         Fuselage                                   0.00100   1.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000 -nan(ind) -nan(ind)       nan 
+10        Hub                                        0.00100   1.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000 -nan(ind) -nan(ind)       nan 
+11        Hub                                        0.00100   1.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000 -nan(ind) -nan(ind)       nan 
+12        Hub                                        0.00100   1.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000 -nan(ind) -nan(ind)       nan 
+13        Hub                                        0.00100   1.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000 -nan(ind) -nan(ind)       nan 
+
+
+
+***************************************************************************************************************************************************************************************** 
+
+# Name                   Value      Units             
+Sref_                 174.7462500 Lunit^2             
+Cref_                   4.7550000 Lunit               
+Bref_                  36.7500000 Lunit               
+Xcg_                    0.0000000 Lunit               
+Ycg_                    0.0000000 Lunit               
+Zcg_                    0.0000000 Lunit               
+Mach_                   0.0010000 no_unit             
+AoA_                    5.5000000 deg                 
+Beta_                   0.0000000 deg                 
+Rho_                    0.0023770 Munit/Lunit^3       
+Vinf_                 100.0000000 Lunit/Tunit         
+Roll__Rate              0.0000000 rad/Tunit           
+Pitch_Rate              0.0000000 rad/Tunit           
+Yaw___Rate              0.0000000 rad/Tunit           
+
+   Wing       S        Xavg      Yavg      Zavg     Chord     V/Vref      Cl        Cd        Cs        Cx        Cy       Cz        Cmx       Cmy       Cmz 
+        1   0.11355  19.37623  -0.00000   2.05991  10.15873 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.24935  19.76145  -0.00000   2.18104   9.47619 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.29386  20.14665  -0.00000   2.30217   8.79365 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.33837  20.53181  -0.00000   2.42328   8.11111 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.38288  20.91694  -0.00000   2.54438   7.42857 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.42595  21.27788  -0.00000   2.66562   6.79602 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.46617  21.61304  -0.00000   2.78672   6.21346 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.50497  21.94815  -0.00000   2.90781   5.63090 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.54377  22.28321  -0.00000   3.02886   5.04834 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.58257  22.61817  -0.00000   3.14989   4.46578 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.61425  22.83080  -0.00000   3.26392   4.12969 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.63234  22.91369  -0.00000   3.36854   4.04007 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.64395  22.99657  -0.00000   3.47315   3.95045 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.65556  23.07946  -0.00000   3.57777   3.86083 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.66717  23.16234  -0.00000   3.68238   3.77121 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.68891  23.36252  -0.00000   4.00639   3.60554 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.73098  23.68312  -0.00000   4.55529   3.36382 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.78326  24.00369  -0.00000   5.10416   3.12210 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.83554  24.32424  -0.00000   5.65298   2.88038 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.88782  24.64476  -0.00000   6.20175   2.63866 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.93034  24.85261  -0.00000   6.54396   2.47365 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.95338  24.94322   0.00000   6.67163   2.38535 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.96670  25.03383   0.00000   6.79929   2.29705 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.98002  25.12444   0.00000   6.92695   2.20875 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.99334  25.21505  -0.00000   7.05462   2.12045 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        2   0.01828  20.57174   0.09020   1.52060   0.88790 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        2   0.05594  20.94612   0.24231   1.53694   1.66370 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        2   0.09471  21.32886   0.39782   1.55365   2.43950 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        2   0.13348  21.71391   0.55428   1.57046   3.21530 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        2   0.17225  22.09993   0.71112   1.58732   3.99110 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        2   0.24291  22.28742   1.34616   1.59550   4.20270 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        2   0.38241  22.28742   2.47902   1.59550   3.85010 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        2   0.55886  22.28742   3.61173   1.59550   3.49750 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        2   0.73532  22.28742   4.74424   1.59550   3.14490 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        2   0.91177  22.28742   5.87648   1.59550   2.79230 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        3   0.01828  20.57174  -0.09020   1.52060   0.88790 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        3   0.05594  20.94612  -0.24231   1.53694   1.66370 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        3   0.09471  21.32886  -0.39782   1.55365   2.43950 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        3   0.13348  21.71391  -0.55428   1.57046   3.21530 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        3   0.17225  22.09993  -0.71112   1.58732   3.99110 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        3   0.24291  22.28742  -1.34616   1.59550   4.20270 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        3   0.38241  22.28742  -2.47902   1.59550   3.85010 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        3   0.55886  22.28742  -3.61173   1.59550   3.49750 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        3   0.73532  22.28742  -4.74424   1.59550   3.14490 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        3   0.91177  22.28742  -5.87648   1.59550   2.79230 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        4   0.06694   8.45688   1.81918   2.94545   5.35877 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        4   0.24214   8.30569   5.49093   3.08763   5.05644 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        4   0.45867   8.15437   9.16257   3.22979   4.75429 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        4   0.67520   8.00291  12.83406   3.37190   4.45237 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        4   0.89173   7.85128  16.50537   3.51396   4.15071 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        5   0.06694   8.45688  -1.81918   2.94545   5.35877 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        5   0.24214   8.30569  -5.49093   3.08763   5.05644 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        5   0.45867   8.15437  -9.16257   3.22979   4.75429 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        5   0.67520   8.00291 -12.83406   3.37190   4.45237 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        5   0.89173   7.85128 -16.50537   3.51396   4.15071 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+
+
+
+Comp      Component-Name                             Mach       AoA      Beta       CL        CDi       CS       CFx       CFy       CFz       Cmx       Cmy       Cmz 
+0                                                    0.00100   5.50000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000 
+1         Vert                                       0.00100   5.50000   0.00000 -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+2         Horz                                       0.00100   5.50000   0.00000 -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+3         Horz                                       0.00100   5.50000   0.00000 -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+4         NormalWing                                 0.00100   5.50000   0.00000 -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+5         NormalWing                                 0.00100   5.50000   0.00000 -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+6         Fuselage                                   0.00100   5.50000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000 -nan(ind) -nan(ind)       nan 
+7         Fuselage                                   0.00100   5.50000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000 -nan(ind) -nan(ind)       nan 
+8         Fuselage                                   0.00100   5.50000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000 -nan(ind) -nan(ind)       nan 
+9         Fuselage                                   0.00100   5.50000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000 -nan(ind) -nan(ind)       nan 
+10        Hub                                        0.00100   5.50000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000 -nan(ind) -nan(ind)       nan 
+11        Hub                                        0.00100   5.50000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000 -nan(ind) -nan(ind)       nan 
+12        Hub                                        0.00100   5.50000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000 -nan(ind) -nan(ind)       nan 
+13        Hub                                        0.00100   5.50000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000 -nan(ind) -nan(ind)       nan 
+
+
+
+***************************************************************************************************************************************************************************************** 
+
+# Name                   Value      Units             
+Sref_                 174.7462500 Lunit^2             
+Cref_                   4.7550000 Lunit               
+Bref_                  36.7500000 Lunit               
+Xcg_                    0.0000000 Lunit               
+Ycg_                    0.0000000 Lunit               
+Zcg_                    0.0000000 Lunit               
+Mach_                   0.0010000 no_unit             
+AoA_                   10.0000000 deg                 
+Beta_                   0.0000000 deg                 
+Rho_                    0.0023770 Munit/Lunit^3       
+Vinf_                 100.0000000 Lunit/Tunit         
+Roll__Rate              0.0000000 rad/Tunit           
+Pitch_Rate              0.0000000 rad/Tunit           
+Yaw___Rate              0.0000000 rad/Tunit           
+
+   Wing       S        Xavg      Yavg      Zavg     Chord     V/Vref      Cl        Cd        Cs        Cx        Cy       Cz        Cmx       Cmy       Cmz 
+        1   0.11355  19.37623  -0.00000   2.05991  10.15873 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.24935  19.76145  -0.00000   2.18104   9.47619 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.29386  20.14665  -0.00000   2.30217   8.79365 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.33837  20.53181  -0.00000   2.42328   8.11111 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.38288  20.91694  -0.00000   2.54438   7.42857 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.42595  21.27788  -0.00000   2.66562   6.79602 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.46617  21.61304  -0.00000   2.78672   6.21346 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.50497  21.94815  -0.00000   2.90781   5.63090 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.54377  22.28321  -0.00000   3.02886   5.04834 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.58257  22.61817  -0.00000   3.14989   4.46578 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.61425  22.83080  -0.00000   3.26392   4.12969 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.63234  22.91369  -0.00000   3.36854   4.04007 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.64395  22.99657  -0.00000   3.47315   3.95045 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.65556  23.07946  -0.00000   3.57777   3.86083 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.66717  23.16234  -0.00000   3.68238   3.77121 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.68891  23.36252  -0.00000   4.00639   3.60554 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.73098  23.68312  -0.00000   4.55529   3.36382 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.78326  24.00369  -0.00000   5.10416   3.12210 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.83554  24.32424  -0.00000   5.65298   2.88038 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.88782  24.64476  -0.00000   6.20175   2.63866 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.93034  24.85261  -0.00000   6.54396   2.47365 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.95338  24.94322   0.00000   6.67163   2.38535 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.96670  25.03383   0.00000   6.79929   2.29705 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.98002  25.12444   0.00000   6.92695   2.20875 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        1   0.99334  25.21505  -0.00000   7.05462   2.12045 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        2   0.01828  20.57174   0.09020   1.52060   0.88790 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        2   0.05594  20.94612   0.24231   1.53694   1.66370 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        2   0.09471  21.32886   0.39782   1.55365   2.43950 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        2   0.13348  21.71391   0.55428   1.57046   3.21530 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        2   0.17225  22.09993   0.71112   1.58732   3.99110 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        2   0.24291  22.28742   1.34616   1.59550   4.20270 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        2   0.38241  22.28742   2.47902   1.59550   3.85010 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        2   0.55886  22.28742   3.61173   1.59550   3.49750 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        2   0.73532  22.28742   4.74424   1.59550   3.14490 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        2   0.91177  22.28742   5.87648   1.59550   2.79230 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        3   0.01828  20.57174  -0.09020   1.52060   0.88790 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        3   0.05594  20.94612  -0.24231   1.53694   1.66370 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        3   0.09471  21.32886  -0.39782   1.55365   2.43950 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        3   0.13348  21.71391  -0.55428   1.57046   3.21530 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        3   0.17225  22.09993  -0.71112   1.58732   3.99110 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        3   0.24291  22.28742  -1.34616   1.59550   4.20270 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        3   0.38241  22.28742  -2.47902   1.59550   3.85010 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        3   0.55886  22.28742  -3.61173   1.59550   3.49750 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        3   0.73532  22.28742  -4.74424   1.59550   3.14490 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        3   0.91177  22.28742  -5.87648   1.59550   2.79230 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        4   0.06694   8.45688   1.81918   2.94545   5.35877 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        4   0.24214   8.30569   5.49093   3.08763   5.05644 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        4   0.45867   8.15437   9.16257   3.22979   4.75429 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        4   0.67520   8.00291  12.83406   3.37190   4.45237 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        4   0.89173   7.85128  16.50537   3.51396   4.15071 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        5   0.06694   8.45688  -1.81918   2.94545   5.35877 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        5   0.24214   8.30569  -5.49093   3.08763   5.05644 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        5   0.45867   8.15437  -9.16257   3.22979   4.75429 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        5   0.67520   8.00291 -12.83406   3.37190   4.45237 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+        5   0.89173   7.85128 -16.50537   3.51396   4.15071 -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+
+
+
+Comp      Component-Name                             Mach       AoA      Beta       CL        CDi       CS       CFx       CFy       CFz       Cmx       Cmy       Cmz 
+0                                                    0.00100  10.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000 
+1         Vert                                       0.00100  10.00000   0.00000 -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+2         Horz                                       0.00100  10.00000   0.00000 -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+3         Horz                                       0.00100  10.00000   0.00000 -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+4         NormalWing                                 0.00100  10.00000   0.00000 -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+5         NormalWing                                 0.00100  10.00000   0.00000 -nan(ind) -nan(ind)       nan -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan 
+6         Fuselage                                   0.00100  10.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000 -nan(ind) -nan(ind)       nan 
+7         Fuselage                                   0.00100  10.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000 -nan(ind) -nan(ind)       nan 
+8         Fuselage                                   0.00100  10.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000 -nan(ind) -nan(ind)       nan 
+9         Fuselage                                   0.00100  10.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000 -nan(ind) -nan(ind)       nan 
+10        Hub                                        0.00100  10.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000 -nan(ind) -nan(ind)       nan 
+11        Hub                                        0.00100  10.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000 -nan(ind) -nan(ind)       nan 
+12        Hub                                        0.00100  10.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000 -nan(ind) -nan(ind)       nan 
+13        Hub                                        0.00100  10.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000   0.00000 -nan(ind) -nan(ind)       nan 
+
+
+

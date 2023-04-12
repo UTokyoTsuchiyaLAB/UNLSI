@@ -1,0 +1,147 @@
+***************************************************************************************************************************************************************************************** 
+
+# Name                   Value      Units             
+Sref_                 174.7462500 Lunit^2             
+Cref_                   4.7550000 Lunit               
+Bref_                  36.7500000 Lunit               
+Xcg_                    0.0000000 Lunit               
+Ycg_                    0.0000000 Lunit               
+Zcg_                    0.0000000 Lunit               
+Mach_                   0.0010000 no_unit             
+AoA_                    1.0000000 deg                 
+Beta_                   0.0000000 deg                 
+Rho_                    0.0023770 Munit/Lunit^3       
+Vinf_                 100.0000000 Lunit/Tunit         
+Roll__Rate              0.0000000 rad/Tunit           
+Pitch_Rate              0.0000000 rad/Tunit           
+Yaw___Rate              0.0000000 rad/Tunit           
+
+
+
+Solver Case: 1 
+
+  Iter      Mach       AoA      Beta       CL         CDo       CDi      CDtot     CDt     CDtot_t      CS        L/D        E        CFx       CFy       CFz       CMx       CMy       CMz      T/QS 
+        1   0.00100   1.00000   0.00000 -nan(ind)   0.00498 -nan(ind) -nan(ind) -nan(ind) -nan(ind)       nan   0.00000 -nan(ind) -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan   0.00000
+        2   0.00100   1.00000   0.00000 -nan(ind)   0.00498       nan       nan -nan(ind) -nan(ind) -nan(ind)   0.00000 -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)   0.00000
+        3   0.00100   1.00000   0.00000 -nan(ind)   0.00498 -nan(ind) -nan(ind) -nan(ind) -nan(ind)       nan   0.00000 -nan(ind) -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan   0.00000
+        4   0.00100   1.00000   0.00000 -nan(ind)   0.00498       nan       nan -nan(ind) -nan(ind) -nan(ind)   0.00000 -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)   0.00000
+        5   0.00100   1.00000   0.00000 -nan(ind)   0.00498 -nan(ind) -nan(ind) -nan(ind) -nan(ind)       nan   0.00000 -nan(ind) -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan   0.00000
+
+
+
+Skin Friction Drag Break Out:
+
+
+Surface                                      CDo 
+
+Vert                                        0.00000 
+Horz                                        0.00000 
+Horz                                        0.00000 
+NormalWing                                  0.00000 
+NormalWing                                  0.00000 
+Fuselage                                    0.00096 
+Fuselage                                    0.00096 
+Fuselage                                    0.00096 
+Fuselage                                    0.00096 
+Hub                                         0.00029 
+Hub                                         0.00029 
+Hub                                         0.00029 
+Hub                                         0.00029 
+***************************************************************************************************************************************************************************************** 
+
+# Name                   Value      Units             
+Sref_                 174.7462500 Lunit^2             
+Cref_                   4.7550000 Lunit               
+Bref_                  36.7500000 Lunit               
+Xcg_                    0.0000000 Lunit               
+Ycg_                    0.0000000 Lunit               
+Zcg_                    0.0000000 Lunit               
+Mach_                   0.0010000 no_unit             
+AoA_                    5.5000000 deg                 
+Beta_                   0.0000000 deg                 
+Rho_                    0.0023770 Munit/Lunit^3       
+Vinf_                 100.0000000 Lunit/Tunit         
+Roll__Rate              0.0000000 rad/Tunit           
+Pitch_Rate              0.0000000 rad/Tunit           
+Yaw___Rate              0.0000000 rad/Tunit           
+
+
+
+Solver Case: 2 
+
+  Iter      Mach       AoA      Beta       CL         CDo       CDi      CDtot     CDt     CDtot_t      CS        L/D        E        CFx       CFy       CFz       CMx       CMy       CMz      T/QS 
+        1   0.00100   5.50000   0.00000 -nan(ind)   0.00498 -nan(ind) -nan(ind) -nan(ind) -nan(ind)       nan   0.00000 -nan(ind) -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan   0.00000
+        2   0.00100   5.50000   0.00000 -nan(ind)   0.00498       nan       nan -nan(ind) -nan(ind) -nan(ind)   0.00000 -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)   0.00000
+        3   0.00100   5.50000   0.00000 -nan(ind)   0.00498 -nan(ind) -nan(ind) -nan(ind) -nan(ind)       nan   0.00000 -nan(ind) -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan   0.00000
+        4   0.00100   5.50000   0.00000 -nan(ind)   0.00498       nan       nan -nan(ind) -nan(ind) -nan(ind)   0.00000 -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)   0.00000
+        5   0.00100   5.50000   0.00000 -nan(ind)   0.00498 -nan(ind) -nan(ind) -nan(ind) -nan(ind)       nan   0.00000 -nan(ind) -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan   0.00000
+
+
+
+Skin Friction Drag Break Out:
+
+
+Surface                                      CDo 
+
+Vert                                        0.00000 
+Horz                                        0.00000 
+Horz                                        0.00000 
+NormalWing                                  0.00000 
+NormalWing                                  0.00000 
+Fuselage                                    0.00096 
+Fuselage                                    0.00096 
+Fuselage                                    0.00096 
+Fuselage                                    0.00096 
+Hub                                         0.00029 
+Hub                                         0.00029 
+Hub                                         0.00029 
+Hub                                         0.00029 
+***************************************************************************************************************************************************************************************** 
+
+# Name                   Value      Units             
+Sref_                 174.7462500 Lunit^2             
+Cref_                   4.7550000 Lunit               
+Bref_                  36.7500000 Lunit               
+Xcg_                    0.0000000 Lunit               
+Ycg_                    0.0000000 Lunit               
+Zcg_                    0.0000000 Lunit               
+Mach_                   0.0010000 no_unit             
+AoA_                   10.0000000 deg                 
+Beta_                   0.0000000 deg                 
+Rho_                    0.0023770 Munit/Lunit^3       
+Vinf_                 100.0000000 Lunit/Tunit         
+Roll__Rate              0.0000000 rad/Tunit           
+Pitch_Rate              0.0000000 rad/Tunit           
+Yaw___Rate              0.0000000 rad/Tunit           
+
+
+
+Solver Case: 3 
+
+  Iter      Mach       AoA      Beta       CL         CDo       CDi      CDtot     CDt     CDtot_t      CS        L/D        E        CFx       CFy       CFz       CMx       CMy       CMz      T/QS 
+        1   0.00100  10.00000   0.00000 -nan(ind)   0.00498 -nan(ind) -nan(ind) -nan(ind) -nan(ind)       nan   0.00000 -nan(ind) -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan   0.00000
+        2   0.00100  10.00000   0.00000 -nan(ind)   0.00498       nan       nan -nan(ind) -nan(ind) -nan(ind)   0.00000 -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)   0.00000
+        3   0.00100  10.00000   0.00000 -nan(ind)   0.00498 -nan(ind) -nan(ind) -nan(ind) -nan(ind)       nan   0.00000 -nan(ind) -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan   0.00000
+        4   0.00100  10.00000   0.00000 -nan(ind)   0.00498       nan       nan -nan(ind) -nan(ind) -nan(ind)   0.00000 -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind)   0.00000
+        5   0.00100  10.00000   0.00000 -nan(ind)   0.00498 -nan(ind) -nan(ind) -nan(ind) -nan(ind)       nan   0.00000 -nan(ind) -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan   0.00000
+
+
+
+Skin Friction Drag Break Out:
+
+
+Surface                                      CDo 
+
+Vert                                        0.00000 
+Horz                                        0.00000 
+Horz                                        0.00000 
+NormalWing                                  0.00000 
+NormalWing                                  0.00000 
+Fuselage                                    0.00096 
+Fuselage                                    0.00096 
+Fuselage                                    0.00096 
+Fuselage                                    0.00096 
+Hub                                         0.00029 
+Hub                                         0.00029 
+Hub                                         0.00029 
+Hub                                         0.00029 

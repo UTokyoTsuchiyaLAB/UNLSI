@@ -1,0 +1,32 @@
+%
+%%%%%%%%ここから
+clear;
+winddata.alpha = [-4:2:16];
+winddata.CL = [-0.15,0.03,0.2,0.38,0.57,0.74,0.9,1.08,1.24,1.37,1.49];
+winddata.CD = [0.03,0.02,0.03,0.04,0.05,0.07,0.09,0.11,0.13,0.15,0.19];
+
+[con, p, uv1, uv2, uv3, wedata, id] = readvspgeom( "Cessna-210.vspgeom", 0);
+wing = UNLSI(p',con',id',wedata,1);
+wing.checkMesh(sqrt(eps));
+wing = wing.makeCluster(50,50);
+wing = wing.makeEquation(20,5,10);
+%%%%%%%%ここまでは一度計算すればスキップできる
+%}
+
+wing = wing.flowCondition(1,0.0001);
+wing = wing.setREFS(175,36.75,4.91);
+wing = wing.setRotationCenter([0,0,0]);
+wing = wing.setCf(1,2.3*10^6,4.91,0.052*(10^-5),0);
+wing = wing.solveFlow(1,winddata.alpha,zeros(size(winddata.alpha)));
+disp(wing.AERODATA{1});
+wing.plotGeometry(1,wing.Cp{1}(:,2),[-2,1]);
+
+
+figure(2);clf,grid on;hold on;
+plot(winddata.alpha,winddata.CL,'-o');
+plot(winddata.alpha,wing.AERODATA{1}(:,5),'-o');
+plot(winddata.alpha,wing.AERODATA{1}(:,6),'-o');
+figure(3);clf,grid on;hold on;
+plot(winddata.alpha,winddata.CD,'-o');
+plot(winddata.alpha,wing.AERODATA{1}(:,9),'-o');
+plot(winddata.alpha,wing.AERODATA{1}(:,11),'-o');

@@ -103,6 +103,10 @@
         end
         
         function obj = updateMeshGeomfromVariables(obj,unscaledVariables)
+            %%%%%%%設計変数からメッシュや解析条件を更新する%%%%%%%%%%%%%%
+
+
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             [orgMeshVerts, orgMeshCon,surfID,wakeLineID, unscaledVariables] = obj.meshGenFun(unscaledVariables(:)');
             obj = obj.setMesh(orgMeshVerts,orgMeshCon,surfID,wakeLineID);
             [orgGeomVerts,orgGeomCon,optSREF,optBREF,optCREF,optXYZREF,obj.argin_x,desOrg] = obj.geomGenFun(unscaledVariables);
@@ -413,7 +417,7 @@
                 lbf = -obj.scaledVar;
                 ubf = 1-obj.scaledVar;
                 options = optimoptions(@fmincon,'Algorithm','interior-point','Display','final-detailed','EnableFeasibilityMode',true,"SubproblemAlgorithm","cg",'MaxFunctionEvaluations',10000);
-                [~,~,exitflag,~,lambda] = linprog(objTotalGrad,alin,blin,[],[],lbf,ubf);
+                [~,~,~,~,lambda] = linprog(objTotalGrad,alin,blin,[],[],lbf,ubf);
                 
                 rho = 1000;
                 if not(isempty(con0))
@@ -429,7 +433,7 @@
                 end
                 obj.history.LagrangianVal(obj.iteration) = Lorg;
                 obj.history.penaltyVal(obj.iteration) = penaltyorg;
-                [dxscaled,fval,exitflagdx] = fmincon(@(x)obj.fminconObj(x,(obj.setting.betaLM)*obj.Hessian+(1-obj.setting.betaLM)*diag(diag(obj.Hessian)),dL_dx),zeros(numel(obj.scaledVar),1),alin,blin,[],[],lbf,ubf,@(x)obj.fminconNlc(x,obj.setting.TrustRegion),options);
+                [dxscaled] = fmincon(@(x)obj.fminconObj(x,(obj.setting.betaLM)*obj.Hessian+(1-obj.setting.betaLM)*diag(diag(obj.Hessian)),dL_dx),zeros(numel(obj.scaledVar),1),alin,blin,[],[],lbf,ubf,@(x)obj.fminconNlc(x,obj.setting.TrustRegion),options);
                 dx = dxscaled(:)'.*obj.designScale;
                 
                 %精度評価
@@ -446,7 +450,7 @@
                     alphabuff = obj.setting.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                     betabuff = obj.setting.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                     [udx,~] = objdx.solvePertPotential(iter,alphabuff,betabuff);%ポテンシャルを求める
-                    [AERODATA,Cp,Cfe,Rdx,objdx] = objdx.solveFlowForAdjoint(udx,iter,alphabuff,betabuff);%ポテンシャルから空力係数を計算
+                    [AERODATA,Cp,Cfe,~,objdx] = objdx.solveFlowForAdjoint(udx,iter,alphabuff,betabuff);%ポテンシャルから空力係数を計算
                 end
                
                 [Idx,condx] = objandConsFun(desdx,AERODATA,Cp,Cfe,SREFdx,BREFdx,CREFdx,XYZREFdx,argin_xdx);

@@ -1,0 +1,13 @@
+...FEA Mesh...
+Mass_Unit: slug
+Num_Els: 1197
+Num_Tris: 1197
+Num_Quads: 0
+Num_Beams: 0
+
+FeaPart_Name         Mass_Shells   Mass_Beams
+Skin                 106.5826    0.0000     
+RibArray0            5.1355      0.0000     
+
+FeaStruct_Name       Total_Mass
+NormalWing_Struct0   111.7182
