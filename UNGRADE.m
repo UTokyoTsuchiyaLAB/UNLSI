@@ -1,30 +1,29 @@
  classdef UNGRADE < UNLSI
 
     properties
-        orgMesh
-        orgGeom
-        unscaledVar
-        scaledVar
-        geomGenFun
-        meshGenFun
-        lb
-        ub
-        setting
-        designScale
-        gradSurf
-        approxMat
-        approximated        
-        gradSREF
-        gradBREF
-        gradCREF
-        gradXYZREF
-        gradArginx
-        argin_x
-        iteration
-        Hessian
-        history
-        flowNoList
-        stabbbScaling
+        orgMesh %解析を行うメッシュ
+        orgGeom %メッシュ変形に用いる基準形状
+        unscaledVar %スケーリングされていない設計変数
+        scaledVar %ub-lbでスケーリングした設計変数
+        geomGenFun %基準形状を作成する関数
+        meshGenFun %解析メッシュを作成する関数
+        lb %設計変数の下限
+        ub %設計変数の上限
+        setting %最適化・解析の設定値
+        designScale %ub-lbのスケーリングパラメータ
+        gradSurf %メッシュ節点の変化を設計変数で一次近似したもの
+        approxMat %パネル法行列の近似行列を作成するためのセル
+        approximated %パネル法行列が近似されたものかどうか    
+        gradSREF %基準面積の設計変数に対する一次近似
+        gradBREF %横基準長の設計変数に対する一次近似
+        gradCREF %縦基準長の設計変数に対する一次近似
+        gradXYZREF %回転中心の設計変数に対する一次近似
+        gradArginx %任意変数（重量など）の設計変数に対する一次近似
+        argin_x %任意変数（重量やバッテリー搭載量などのユーザーで自由に設定する変数）
+        iteration %設計更新を行った階数
+        Hessian %準ニュートン法で近似されたヘッシアン
+        history %設計更新の履歴
+        flowNoList %マッハ数とflowNoの関連付け行列
     end
 
     methods(Access = public)
@@ -63,11 +62,17 @@
             if numel(obj.setting.Mach) ~= numel(obj.setting.alpha) || numel(obj.setting.Mach) ~= numel(obj.setting.beta) || numel(obj.setting.beta) ~= numel(obj.setting.alpha)
                 error("No. of case is not match");
             end
+
             obj.iteration = 0;
             
             %%%%%%%%%%%オプションのデフォルト設定
-            obj.setting.nMemory = 20;
-            obj.setting.H0 = eye(numel(obj.lb));
+            % gradientCalcMethod
+            % 'direct'-->直接パネル法行列を計算し差分を作成
+            % 'chain'-->各節点位置の変化に対する近似パネル法行列と、設計変数変化に対する節点位置の変化を用いてチェインルールで勾配計算する。
+            % 'nonlin'-->approxmatによる近似パネル法行列を使った直接最適化
+            % 
+            obj.setting.nMemory = 20; %記憶制限準ニュートン法のさかのぼり回数（厳密な記憶制限法は実装していない）
+            obj.setting.H0 = eye(numel(obj.lb)); %初期ヘッシアン
             obj.setting.n_wake = 5;
             obj.setting.wakeLength = 20;
             obj.setting.n_divide = 10;
@@ -77,11 +82,11 @@
             obj.setting.Lch = 1;
             obj.setting.k = 0.052*(10^-5);
             obj.setting.LTratio = 0;
-            obj.setting.coefficient = 1;
-            obj.setting.gradientCalcMethod = "direct";
-            obj.setting.HessianUpdateMethod = "SR1";
-            obj.setting.betaLM = 0.5;
-            obj.setting.TrustRegion = 0.1;
+            obj.setting.coefficient = 1; 
+            obj.setting.gradientCalcMethod = "direct"; %設計変数偏微分の取得方法："direct", "chain", "nonlin"
+            obj.setting.HessianUpdateMethod = "SR1"; %ヘッシアン更新は "BFGS","DFP","Broyden","SR1"から選択
+            obj.setting.betaLM = 0.5; %ヘッシアンの対角項と非対角項の重み。1ならフルヘッシアン、0なら対角項のみ
+            obj.setting.TrustRegion = 0.1; %設計更新を行う際のスケーリングされた設計変数更新量の最大値
             %%%%%%%%%%%%%
 
             obj.Hessian = obj.setting.H0;
@@ -103,8 +108,7 @@
         
         function obj = updateMeshGeomfromVariables(obj,unscaledVariables)
             %%%%%%%設計変数からメッシュや解析条件を更新する%%%%%%%%%%%%%%
-
-
+            %unscaledVariables : スケーリングされていない設計変数
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             [orgMeshVerts, orgMeshCon,surfID,wakeLineID, unscaledVariables] = obj.meshGenFun(unscaledVariables(:)');
             obj = obj.setMesh(orgMeshVerts,orgMeshCon,surfID,wakeLineID);
@@ -124,7 +128,12 @@
         end
 
         function obj = solveAnalysis(obj,flowNo,alpha,beta,omega)
-            
+            %%%%%%%%%%%現在の機体形状に対する解析の実行%%%%%
+            %flowNo : UNLSIのflowNo
+            %alpha : 解析する迎角
+            %beta : 解析する横滑り角
+            %omega : 回転角速度（任意）
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%            
             if isempty(obj.LHS)
                 if any(obj.flowNoList(:,3) == 1)
                     obj = obj.makeEquation(obj.setting.wakeLength,obj.setting.n_wake,obj.setting.n_divide);
@@ -140,8 +149,7 @@
 
         function [modGeomVerts,modMeshVerts] = calcApproximatedMeshGeom(obj,unscaledVariables)
             %%%%%%%%%%%設計変数勾配によるMeshとGeomの一次近似の作成%%%%%
-
-
+            %unscaledVariables : スケーリングされていない設計変数
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
            scaledVariables = (unscaledVariables(:)'- obj.lb) ./ obj.designScale; 
            modGeomVerts = obj.orgGeom.Points + reshape(obj.gradSurf*(scaledVariables(:)-obj.scaledVar(:)),size(obj.orgGeom.Points));
@@ -155,6 +163,9 @@
             %%%%%%%%%%%Meshの表示%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             %最後の引数によって
             %メッシュの変化量を色に表示するか動かを設定できる
+            %modMesh:表示するメッシュ
+            %fig : 描画するfigure
+            %~ : 適当な引数を入れるとメッシュ変化量を表示する
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             viewtri = triangulation(obj.orgMesh.ConnectivityList,modMesh);
             figure(fig);
@@ -171,6 +182,9 @@
             %%%%%%%%%%%Geomの表示%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             %最後の引数によって
             %メッシュの変化量を色に表示するか動かを設定できる
+            %modMesh:表示するメッシュ
+            %fig : 描画するfigure
+            %~ : 適当な引数を入れるとメッシュ変化量を表示する
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             viewtri = triangulation(obj.orgGeom.ConnectivityList,modGeom);
             figure(fig);
@@ -218,7 +232,10 @@
             end
         end
 
-        function obj = setCfParameter(obj,Re,Lch,k,LTratio,CfeCoefficient)       
+        function obj = setCfParameter(obj,Re,Lch,k,LTratio,CfeCoefficient)
+           %%%%%%%%%UNLSIのCfパラメータを一括設定する%%%%%%%%%%%%
+            %変数についてはUNLSIのsetCfを参照
+           %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             obj.setting.Re = Re;
             obj.setting.Lch = Lch;
             obj.setting.k = k;
@@ -230,6 +247,11 @@
         end
         
         function obj = setOptions(obj,varargin)
+           %%%%%%%%%設定を変更する%%%%%%%%%%%%
+           %varargin : 変数名と値のペアで入力
+           %obj.settingの構造体の内部を変更する
+           %構造体の内部変数の名前と一致していないとエラーが出るようになっている
+           %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             if mod(numel(varargin),1) == 1
                 error("input style not match");
             end
@@ -268,18 +290,17 @@
         end
 
         function [nextUnscaledVar,obj] = calcNextVariables(obj,objandConsFun,cmin,cmax,varargin)
+            %%%%%%%%%%%%指定した評価関数と制約条件における設計変数勾配の計算%%%%%%%%
+            %objandConFun : [res con] 評価関数値と制約条件値を計算する関数
+            %cmin,cmax : 制約の上下限値
+            %varargin : 追加するとsetOptionsをそそｌヴぇの変数で実行してくれる
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
             if nargin>4
                 obj = obj.setOptions(varargin{:});
             end
             obj.iteration = obj.iteration + 1;
             fprintf("Itaration No. %d : Started\n -- GradientCalcMethod : %s\n -- HessianUpdateMethod : %s\n",obj.iteration,obj.setting.gradientCalcMethod,obj.setting.HessianUpdateMethod);
-            %%%%%%%%%%%%指定した評価関数と制約条件における設計変数勾配の計算%%%%%%%%
-            %method：設計変数に関する偏微分の計算方法
-            % 'direct'-->メッシュを再生成，'chain'-->基準メッシュの変位を補間,
-            % 'nonlin'-->approxmatによる近似パネル法行列を使った直接最適化
-            % 
-
-            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             %初期点の解析
             nbPanel = sum(obj.paneltype == 1);
             if isempty(obj.LHS)
@@ -571,6 +592,9 @@
 
 
         function plotOptimizationState(obj,fig)
+            %%%%%%%%%%%%最適化の履歴をプロットする%%%%%%%%
+            %fig : 描画するFigure
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             figure(fig);clf;
             plotiter = 1:obj.iteration;
             subplot(5,1,1);grid on;
