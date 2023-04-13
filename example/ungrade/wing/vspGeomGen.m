@@ -12,7 +12,7 @@ function [vspSurf, vspCon,SREF,BREF,CREF,XYZREF,argin_x, x] = vspGeomGen(x,vspTi
             comp_areas = XYZProj2Mat(3);
             SREF = comp_areas(1);
             BREF = 20;
-            CREF = 1;
+            CREF = 4;
             XYZREF = [0,0,0];
             argin_x = 0;
 end
