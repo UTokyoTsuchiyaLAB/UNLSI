@@ -600,7 +600,9 @@
             subplot(5,1,1);grid on;
             plot(plotiter,obj.history.objVal,"-o");
             subplot(5,1,2);grid on;
-            plot(plotiter,obj.history.conVal,"-o");
+            if not(isempty(obj.history.conVal))
+                plot(plotiter,obj.history.conVal,"-o");
+            end
             subplot(5,1,3);grid on;
             plot(plotiter,obj.history.LagrangianVal,"-o");
             subplot(5,1,4);grid on;

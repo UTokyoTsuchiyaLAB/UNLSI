@@ -610,8 +610,6 @@ classdef UNLSI
                     %用意された応答曲面をもちいてパネルの角度からCpを求める
                     obj.Cp{flowNo}(obj.paneltype==1,iterflow) = obj.flow{flowNo}.pp(delta);%Cp
                     obj.Cp{flowNo}(obj.paneltype==2,iterflow) = (-obj.flow{flowNo}.Mach.^(-2)+0.57.*obj.flow{flowNo}.Mach.^(-4));
-                    CLt = 0;
-                    CDt = 0;
                 end
                 %Cp⇒力への変換
                 dCA_p = (-obj.Cp{flowNo}(:,iterflow).*obj.normal(:,1)).*obj.area./obj.SREF;
@@ -624,6 +622,7 @@ classdef UNLSI
                 dCMX = dCM(:,1)./obj.BREF;
                 dCMY = dCM(:,2)./obj.CREF;
                 dCMZ = dCM(:,3)./obj.BREF;
+
                 if obj.halfmesh == 1
                     %半裁
                     CNp = sum(dCN_p)*2;
@@ -635,8 +634,6 @@ classdef UNLSI
                     CMX = 0;
                     CMY = sum(dCMY)*2;
                     CMZ = 0;
-                    CLt = 2*CLt;
-                    CDt = 2*CDt;
                 else
                     CNp = sum(dCN_p);
                     CAp = sum(dCA_p);
@@ -647,10 +644,18 @@ classdef UNLSI
                     CMX = sum(dCMX);
                     CMY = sum(dCMY);
                     CMZ = sum(dCMZ);
-                    %CDt = CDt;
                 end
                 CL = T(:,3)'*[CAp+CAf;CYp+CYf;CNp+CNf];
                 CDi = T(:,1)'*[CAp;CYp;CNp];
+                if obj.flow{flowNo}.Mach < 1
+                    if obj.halfmesh == 1
+                        CLt = 2*CLt;
+                        CDt = 2*CDt;
+                    end
+                else
+                    CLt = CL;
+                    CDt = CDi;
+                end
                 CDo = T(:,1)'*[CAf;CYf;CNf];
                 CDtot = CDi+CDo;
                 CDtott = CDt+CDo;
@@ -817,8 +822,6 @@ classdef UNLSI
                     usolve = u(nbPanel*(iterflow-1)+1:nbPanel*iterflow,1);
                     obj.Cp{flowNo}(obj.paneltype==1,iterflow) = usolve;%Cp
                     obj.Cp{flowNo}(obj.paneltype==2,iterflow) = (-obj.flow{flowNo}.Mach.^(-2)+0.57.*obj.flow{flowNo}.Mach.^(-4));
-                    CLt = 0;
-                    CDt = 0;
                 end
                 %Cp⇒力への変換
                 dCA_p = (-obj.Cp{flowNo}(:,iterflow).*obj.normal(:,1)).*obj.area./obj.SREF;
@@ -842,8 +845,6 @@ classdef UNLSI
                     CMX = 0;
                     CMY = sum(dCMY)*2;
                     CMZ = 0;
-                    CLt = 2*CLt;
-                    CDt = 2*CDt;
                 else
                     CNp = sum(dCN_p);
                     CAp = sum(dCA_p);
@@ -858,6 +859,15 @@ classdef UNLSI
     
                 CL = T(:,3)'*[CAp+CAf;CYp+CYf;CNp+CNf];
                 CDi = T(:,1)'*[CAp;CYp;CNp];
+                if obj.flow{flowNo}.Mach < 1
+                    if obj.halfmesh == 1
+                        CLt = 2*CLt;
+                        CDt = 2*CDt;
+                    end
+                else
+                    CLt = CL;
+                    CDt = CDi;
+                end
                 CDo = T(:,1)'*[CAf;CYf;CNf];
                 CDtot = CDi+CDo;
                 CDtott = CDt+CDo;
