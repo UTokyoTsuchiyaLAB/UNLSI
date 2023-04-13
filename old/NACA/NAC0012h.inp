@@ -1,9 +1,0 @@
-&hyp  title="made by hyper.m",
-  wgsFileName="NAC0012h.wgs",
-  cmethods=17,17,
-  emethods=3,3,
-  mach=10.00000, sref=6.00000, cbar=1.00000,
-  alpha=15.00000,  beta=0.00000,
-  xref=0.00000, span=6.00000,
-  yref=0.00000, zref=0.00000
-  cpStag=0.00000/

@@ -1,1 +1,0 @@
-start /b panairexe.bat
