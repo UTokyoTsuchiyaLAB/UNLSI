@@ -1,4 +1,0 @@
-  Beta      Mach       AoA      Re/1e6     CL         CDo       CDi      CDtot      CDt    CDtot_t      CS        L/D        E        CFx       CFy       CFz       CMx       CMy       CMz       CMl       CMm       CMn      FOpt 
-  0.00000   0.00000   1.00000  10.00000 -nan(ind)   0.00498 -nan(ind) -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan       nan -nan(ind) -nan(ind)   0.00000
-  0.00000   0.00000   5.50000  10.00000 -nan(ind)   0.00498 -nan(ind) -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan       nan -nan(ind) -nan(ind)   0.00000
-  0.00000   0.00000  10.00000  10.00000 -nan(ind)   0.00498 -nan(ind) -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan -nan(ind) -nan(ind) -nan(ind)       nan       nan -nan(ind) -nan(ind)   0.00000
