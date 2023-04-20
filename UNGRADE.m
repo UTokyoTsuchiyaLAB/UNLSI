@@ -11,7 +11,7 @@
         ub %設計変数の上限
         setting %最適化・解析の設定値
         designScale %ub-lbのスケーリングパラメータ
-        gradSurf %メッシュ節点の変化を設計変数で一次近似したもの
+        gradMesh %メッシュ節点の変化を設計変数で一次近似したもの
         approxMat %パネル法行列の近似行列を作成するためのセル
         approximated %パネル法行列が近似されたものかどうか    
         gradSREF %基準面積の設計変数に対する一次近似
@@ -78,13 +78,14 @@
             obj.setting.n_divide = 10;
             obj.setting.nCluster = 50;
             obj.setting.edgeAngleThreshold = 50;
+            obj.setting.meshGradientPerturbation = 0.01;%メッシュ勾配をとるときのスケールされてない設計変数の摂動量
             obj.setting.Re = 500000;
             obj.setting.Lch = 1;
             obj.setting.k = 0.052*(10^-5);
             obj.setting.LTratio = 0;
             obj.setting.coefficient = 1; 
             obj.setting.gradientCalcMethod = "direct"; %設計変数偏微分の取得方法："direct", "chain", "nonlin"
-            obj.setting.HessianUpdateMethod = "SR1"; %ヘッシアン更新は "BFGS","DFP","Broyden","SR1"から選択
+            obj.setting.HessianUpdateMethod = "BFGS"; %ヘッシアン更新は "BFGS","DFP","Broyden","SR1"から選択
             obj.setting.betaLM = 0.5; %ヘッシアンの対角項と非対角項の重み。1ならフルヘッシアン、0なら対角項のみ
             obj.setting.TrustRegion = 0.1; %設計更新を行う際のスケーリングされた設計変数更新量の最大値
             %%%%%%%%%%%%%
@@ -147,17 +148,26 @@
 
         end
 
-        function [modGeomVerts,modMeshVerts] = calcApproximatedMeshGeom(obj,unscaledVariables)
-            %%%%%%%%%%%設計変数勾配によるMeshとGeomの一次近似の作成%%%%%
-            %unscaledVariables : スケーリングされていない設計変数
-            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-           scaledVariables = (unscaledVariables(:)'- obj.lb) ./ obj.designScale; 
-           modGeomVerts = obj.orgGeom.Points + reshape(obj.gradSurf*(scaledVariables(:)-obj.scaledVar(:)),size(obj.orgGeom.Points));
-           if nargout == 2
-               modMeshVerts = obj.meshDeformation(obj,modGeomVerts);
-           end
+        function [I,con,obj] = evaluateObjFun(obj,objandConsFun)
+            %%%%%%%%%%%現在の機体形状に対する評価関数と制約条件の評価%%%%%
+            %objandConsFun : 評価関数と制約条件を出す関数。calcNextVarとインプットは同じ
+
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%   
+            if isempty(obj.LHS)
+                if any(obj.flowNoList(:,3) == 1)
+                    obj = obj.makeEquation(obj.setting.wakeLength,obj.setting.n_wake,obj.setting.n_divide);
+                end
+            end
+            obj.approximated = 0;
+            desOrg = obj.scaledVar.*obj.designScale+obj.lb;
+            for iter = 1:numel(obj.flow)
+                alphabuff = obj.setting.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
+                betabuff = obj.setting.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
+                [obj] = obj.solveFlow(iter,alphabuff,betabuff);
+            end
+            [I,con] = objandConsFun(desOrg,obj.AERODATA,obj.Cp,obj.Cfe,obj.SREF,obj.BREF,obj.CREF,obj.XYZREF,obj.argin_x);
         end
-        
+
     
         function viewMesh(obj,modMesh,fig,~)
             %%%%%%%%%%%Meshの表示%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -373,7 +383,7 @@
                 end
                 %x微分の計算
                 %メッシュの節点勾配を作成
-                obj = obj.makeMeshGradient(obj);
+                obj = obj.makeMeshGradient(obj,obj.setting.meshGradientPerturbation./obj.designScale);
                 if strcmpi(obj.setting.gradientCalcMethod,'chain')
                     if any(obj.flowNoList(:,3) == 1)
                         obj = obj.calcApproximatedEquation(obj);
@@ -383,7 +393,8 @@
                     x = obj.scaledVar;
                     x(i) = obj.scaledVar(i)+pert;
                     des = x.*obj.designScale+obj.lb;
-                    [~,modMesh] = obj.calcApproximatedMeshGeom(des);
+                    %[~,modMesh] = obj.calcApproximatedMeshGeom(des);
+                    modMesh = obj.orgMesh.Points + reshape(obj.gradMesh*(x(:)-obj.scaledVar(:)),size(obj.orgMesh.Points));
                     if strcmpi(obj.setting.gradientCalcMethod,'direct')
                         %変数が少ないときは直接作成
                         obj2 = obj.setVerts(modMesh);
@@ -470,6 +481,7 @@
                 [dxscaled] = fmincon(@(x)obj.fminconObj(x,(obj.setting.betaLM)*obj.Hessian+(1-obj.setting.betaLM)*diag(diag(obj.Hessian)),dL_dx),zeros(numel(obj.scaledVar),1),alin,blin,[],[],lbf,ubf,@(x)obj.fminconNlc(x,obj.setting.TrustRegion),options);
                 dx = dxscaled(:)'.*obj.designScale;
                 
+                %{
                 %精度評価
                 desdx = obj.scaledVar.*obj.designScale+obj.lb+dx(:)';
                 [modSurfdx,~,SREFdx,BREFdx,CREFdx,XYZREFdx,argin_xdx,desdx] = obj.geomGenFun(desdx);
@@ -514,8 +526,15 @@
                 disp([Idx,condx(:)']);
                 fprintf("dx norm :%f\nLagrangian Value : %f -> %f\nPenalty Value : %f -> %f\nHessian Approximation Accuracy:%f\n",norm(dxscaled),Lorg,Ldx,penaltyorg,penaltydx,acc);
                 dx = desdx-desOrg;
-
-
+                %}
+                obj.history.dxNormVal(obj.iteration) = norm(dxscaled);
+                fprintf("Variables:\n")
+                disp(desOrg);
+                fprintf("------>\n")
+                disp(desOrg+dx);
+                fprintf("dx norm :%f\nLagrangian Value : %f \nPenalty Value : %f \n\n",norm(dxscaled),Lorg,penaltyorg);
+                %dx = desdx-desOrg;
+                
                 if strcmpi(obj.setting.HessianUpdateMethod,"SR1")
                    updateFunction = @obj.SR1;
                 elseif strcmpi(obj.setting.HessianUpdateMethod,"BFGS")
@@ -601,12 +620,12 @@
             plot(plotiter,obj.history.objVal,"-o");
             subplot(5,1,2);grid on;
             if not(isempty(obj.history.conVal))
-                plot(plotiter,obj.history.conVal,"-o");
+                plot(plotiter',obj.history.conVal,"-o");
             end
             subplot(5,1,3);grid on;
             plot(plotiter,obj.history.LagrangianVal,"-o");
-            subplot(5,1,4);grid on;
-            plot(plotiter,obj.history.trAccuracyVal,"-o");
+            %subplot(5,1,4);grid on;
+            %plot(plotiter,obj.history.trAccuracyVal,"-o");
             subplot(5,1,5);grid on;
             plot(plotiter,obj.history.dxNormVal,"-o");
             drawnow();
@@ -704,13 +723,13 @@
             con = obj.orgGeom.ConnectivityList;
         end
         
-        function obj = makeMeshGradient(obj)
+        function obj = makeMeshGradient(obj,pert)
             %%%%%%%%%%%設計変数勾配による標本表面の近似関数の作成%%%%%
 
 
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-            pert = 0.01./obj.designScale;
             ndim = numel(obj.scaledVar);
+            obj.gradMesh = zeros(size(obj.orgMesh.Points(:),1),ndim);
             desOrg = obj.scaledVar.*obj.designScale+obj.lb;
             [surforg,~,~,~,~,~,~,desOrg] = obj.geomGenFun(desOrg);
             for i = 1:ndim
@@ -726,13 +745,20 @@
                 pertr = (desBuff(i)-desOrg(i))/obj.designScale(i);
                 dmodSurf = modSurf-surforg;
                 sampleSurfr = dmodSurf(:);
-                obj.gradSurf(:,i) = (sampleSurff-sampleSurfr)./(pertf-pertr);
+                gradSurf = (sampleSurff-sampleSurfr)./(pertf-pertr);
                 obj.gradSREF(i) = (SREFf-SREFr)./(pertf-pertr);
                 obj.gradBREF(i) = (BREFf-BREFr)./(pertf-pertr);
                 obj.gradCREF(i) = (CREFf-CREFr)./(pertf-pertr);
                 obj.gradXYZREF(:,i) = (XYZREFf(:)-XYZREFr(:))./(pertf-pertr);
                 obj.gradArginx(:,i) = (argin_xf(:)-argin_xr(:))./(pertf-pertr);
-
+                reshapeGrad = reshape(gradSurf,size(modSurf));
+                md.x = scatteredInterpolant(obj.orgGeom.Points,reshapeGrad(:,1),'linear','linear');
+                md.y = scatteredInterpolant(obj.orgGeom.Points,reshapeGrad(:,2),'linear','linear');
+                md.z = scatteredInterpolant(obj.orgGeom.Points,reshapeGrad(:,3),'linear','linear');
+                dVerts(:,1) = md.x(obj.orgMesh.Points);
+                dVerts(:,2) = md.y(obj.orgMesh.Points);
+                dVerts(:,3) = md.z(obj.orgMesh.Points);
+                obj.gradMesh(:,i) = dVerts(:);
             end
         end
 
