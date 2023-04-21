@@ -24,6 +24,7 @@
         Hessian %準ニュートン法で近似されたヘッシアン
         history %設計更新の履歴
         flowNoList %マッハ数とflowNoの関連付け行列
+        LagrangianInfo
     end
 
     methods(Access = public)
@@ -39,7 +40,6 @@
             
             [orgMeshVerts, orgMeshCon,surfID,wakeLineID, desOrg] = meshGenFun(unscaledVariables(:)');
             obj = obj@UNLSI(orgMeshVerts,orgMeshCon,surfID,wakeLineID,halfmesh)
-            
             obj.lb = lb(:)';
             obj.ub = ub(:)';
             obj.designScale = (ub-lb);
@@ -55,7 +55,7 @@
             obj.unscaledVar = desOrg(:)';
             obj.scaledVar = (desOrg(:)'-obj.lb)./obj.designScale;
             obj.orgGeom =  triangulation(orgGeomCon,orgGeomVerts);
-
+            
             obj.setting.Mach = Mach;
             obj.setting.alpha = alpha;
             obj.setting.beta = beta;
@@ -64,7 +64,13 @@
             end
 
             obj.iteration = 0;
-            
+            fprintf("iteration No. %d ---> Variables:\n",obj.iteration)
+            disp(desOrg);
+            obj.LagrangianInfo.Lorg = [];
+            obj.LagrangianInfo.dL_dx = [];
+            obj.LagrangianInfo.alin = [];
+            obj.LagrangianInfo.blin = [];  
+
             %%%%%%%%%%%オプションのデフォルト設定
             % gradientCalcMethod
             % 'direct'-->直接パネル法行列を計算し差分を作成
@@ -112,6 +118,8 @@
             %unscaledVariables : スケーリングされていない設計変数
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             [orgMeshVerts, orgMeshCon,surfID,wakeLineID, unscaledVariables] = obj.meshGenFun(unscaledVariables(:)');
+            fprintf("iteration No. %d ---> Variables:\n",obj.iteration)
+            disp(unscaledVariables);
             obj = obj.setMesh(orgMeshVerts,orgMeshCon,surfID,wakeLineID);
             [orgGeomVerts,orgGeomCon,optSREF,optBREF,optCREF,optXYZREF,obj.argin_x,desOrg] = obj.geomGenFun(unscaledVariables);
             obj.orgMesh = triangulation(orgMeshCon,orgMeshVerts);
@@ -120,6 +128,10 @@
             obj.unscaledVar = desOrg(:)';
             obj.scaledVar = (desOrg(:)'-obj.lb)./obj.designScale;
             obj.orgGeom =  triangulation(orgGeomCon,orgGeomVerts);
+            obj.LagrangianInfo.Lorg = [];
+            obj.LagrangianInfo.dL_dx = [];
+            obj.LagrangianInfo.alin = [];
+            obj.LagrangianInfo.blin = [];  
             if any(obj.flowNoList(:,3) == 1)
                 obj = obj.makeCluster(obj.setting.nCluster,obj.setting.edgeAngleThreshold);
             end
@@ -299,18 +311,18 @@
 
         end
 
-        function [nextUnscaledVar,obj] = calcNextVariables(obj,objandConsFun,cmin,cmax,varargin)
+        function [obj] = calcLagrangianGradient(obj,objandConsFun,cmin,cmax,varargin)
             %%%%%%%%%%%%指定した評価関数と制約条件における設計変数勾配の計算%%%%%%%%
             %objandConFun : [res con] 評価関数値と制約条件値を計算する関数
             %cmin,cmax : 制約の上下限値
-            %varargin : 追加するとsetOptionsをそそｌヴぇの変数で実行してくれる
+            %varargin : 追加するとsetOptionsをその変数で実行してくれる
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
             if nargin>4
                 obj = obj.setOptions(varargin{:});
             end
             obj.iteration = obj.iteration + 1;
-            fprintf("Itaration No. %d : Started\n -- GradientCalcMethod : %s\n -- HessianUpdateMethod : %s\n",obj.iteration,obj.setting.gradientCalcMethod,obj.setting.HessianUpdateMethod);
+            fprintf("iteration No. %d : Gradient Caluculation Started\n -- GradientCalcMethod : %s\n",obj.iteration,obj.setting.gradientCalcMethod);
             %初期点の解析
             nbPanel = sum(obj.paneltype == 1);
             if isempty(obj.LHS)
@@ -340,275 +352,225 @@
             disp([I0,con0(:)']);
             obj.history.objVal(obj.iteration) = I0;
             obj.history.conVal(:,obj.iteration) = con0(:);
-            fprintf("AERODATA of Itaration No.%d ->\n",obj.iteration);
+            fprintf("AERODATA of iteration No.%d ->\n",obj.iteration);
             disp(vertcat(AERODATA0{:}));
-            if not(strcmpi(obj.setting.gradientCalcMethod,"nonlin"))
-                %%%
-                %明示・非明示随伴方程式法の実装
-                %u微分の計算
-                pert = sqrt(eps);
-                for i = 1:numel(u0)
-                    u = u0;
-                    u(i) = u(i)+pert;
-                    for iter = 1:numel(obj.flow)
-                        lktable = find(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
-                        usolve = zeros(nbPanel*numel(lktable),1);
-                        for k = 1:numel(lktable)
-                            usolve(nbPanel*(k-1)+1:nbPanel*k,1) = u((lktable(k)-1)*nbPanel+1:lktable(k)*nbPanel,1);
-                        end
-                        alphabuff = obj.setting.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
-                        betabuff = obj.setting.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
-                        [AERODATA,Cp,Cfe,~,obj] = obj.solveFlowForAdjoint(usolve,iter,alphabuff,betabuff);
-                    end
-                    [I,con] = objandConsFun(desOrg,AERODATA,Cp,Cfe,obj.SREF,obj.BREF,obj.CREF,obj.XYZREF,obj.argin_x);
-                    dI_du(i) = (I-I0)/pert;%評価関数のポテンシャルに関する偏微分
-                    if not(isempty(con))
-                        dcon_du(:,i) = (con-con0)/pert;
-                    end
-                end
-                for i = 1:size(obj.flowNoList,1)
-                    if i == 1
-                        if obj.flowNoList(i,3) == 1
-                            dR_du = obj.LHS; %亜音速
-                        else
-                            dR_du = eye(nbPanel);
-                        end
-                    else
-                        if obj.flowNoList(i,3) == 1
-                            dR_du = blkdiag(dR_du,obj.LHS);
-                        else
-                            dR_du = blkdiag(dR_du,eye(nbPanel));
-                        end
-                    end
-                end
-                %x微分の計算
-                %メッシュの節点勾配を作成
-                obj = obj.makeMeshGradient(obj,obj.setting.meshGradientPerturbation./obj.designScale);
-                if strcmpi(obj.setting.gradientCalcMethod,'chain')
-                    if any(obj.flowNoList(:,3) == 1)
-                        obj = obj.calcApproximatedEquation(obj);
-                    end
-                end
-                for i= 1:numel(obj.scaledVar)
-                    x = obj.scaledVar;
-                    x(i) = obj.scaledVar(i)+pert;
-                    des = x.*obj.designScale+obj.lb;
-                    %[~,modMesh] = obj.calcApproximatedMeshGeom(des);
-                    modMesh = obj.orgMesh.Points + reshape(obj.gradMesh*(x(:)-obj.scaledVar(:)),size(obj.orgMesh.Points));
-                    if strcmpi(obj.setting.gradientCalcMethod,'direct')
-                        %変数が少ないときは直接作成
-                        obj2 = obj.setVerts(modMesh);
-                        if any(obj.flowNoList(:,3) == 1)
-                            obj2 = obj2.makeEquation(obj.setting.wakeLength,obj.setting.n_wake,obj.setting.n_divide);
-                        end
-                        obj2.approximated = 0;
-                    elseif strcmpi(obj.setting.gradientCalcMethod,'chain')
-                        if any(obj.flowNoList(:,3) == 1)
-                            obj2 = obj.makeApproximatedInstance(modMesh);
-                        else
-                            obj2 = obj.setVerts(modMesh);
-                        end
-                    else
-                        error("Supported method is 'direct' or 'chain'.");
-                    end
-                        
-                    %基準面積等の設計変数変化
-                    SREF2 = obj.SREF+obj.gradSREF*(x(:)-obj.scaledVar(:));
-                    BREF2 = obj.BREF+obj.gradBREF*(x(:)-obj.scaledVar(:));
-                    CREF2 = obj.CREF+obj.gradCREF*(x(:)-obj.scaledVar(:));
-                    XYZREF2 = obj.XYZREF+(obj.gradXYZREF*(x(:)-obj.scaledVar(:)))';
-                    argin_x2 = obj.argin_x+obj.gradArginx*(x(:)-obj.scaledVar(:));
-                    obj2 = obj2.setREFS(SREF2,BREF2,CREF2);
-                    obj2 = obj2.setRotationCenter(XYZREF2);
-                    R = zeros(nbPanel*size(obj.flowNoList,1),1);
-                    for iter = 1:numel(obj.flow)
-                        lktable = find(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
-                        u0solve = zeros(nbPanel*numel(lktable),1);
-                        for k = 1:numel(lktable)
-                            u0solve(nbPanel*(k-1)+1:nbPanel*k,1) = u0((lktable(k)-1)*nbPanel+1:lktable(k)*nbPanel,1);
-                        end
-                        alphabuff = obj.setting.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
-                        betabuff = obj.setting.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
-                        [AERODATA,Cp,Cfe,Rsolve,obj2] = obj2.solveFlowForAdjoint(u0solve,iter,alphabuff,betabuff);
-                        for k = 1:numel(lktable)
-                            R((lktable(k)-1)*nbPanel+1:lktable(k)*nbPanel,1) = Rsolve(nbPanel*(k-1)+1:nbPanel*k,1);
-                        end
-                    end
-                    
-                    [I,con] = objandConsFun(des,AERODATA,Cp,Cfe,SREF2,BREF2,CREF2,XYZREF2,argin_x2);
-                    dI_dx(i) = (I-I0)/pert;%評価関数の設計変数に関する偏微分
-                    if not(isempty(con))
-                        dcon_dx(:,i) = (con-con0)/pert;
-                    end
-                    dR_dx(:,i) = (R-R0)./pert;
-                end
-                %全微分でdxからduを求める行列
-                duMatVec = -(dR_du)\([R0,dR_dx]);
-                duMat = duMatVec(:,2:end);
-                duVec = duMatVec(:,1);
-                
-                objTotalGrad = dI_dx+dI_du*duMat;
-                if not(isempty(con))
-                    conTotalGrad = dcon_dx+dcon_du*duMat;
-                end
-                %線形計画問題に変換
-                if not(isempty(con))
-                    alin = [-conTotalGrad;conTotalGrad];
-                    blin = [con0(:)-cmin(:);cmax(:)-con0(:)];
-                else
-                    alin = [];
-                    blin = [];
-                end
-                lbf = -obj.scaledVar;
-                ubf = 1-obj.scaledVar;
-                options = optimoptions(@fmincon,'Algorithm','interior-point','Display','final-detailed','EnableFeasibilityMode',true,"SubproblemAlgorithm","cg",'MaxFunctionEvaluations',10000);
-                [~,~,~,~,lambda] = linprog(objTotalGrad,alin,blin,[],[],lbf,ubf);
-                
-                rho = 1000;
-                if not(isempty(con0))
-                    lambdaR = -(dR_du)\(dI_du+lambda.ineqlin'*[-dcon_du;dcon_du])';
-                    Lorg = I0 + lambda.ineqlin'*[-con0;con0];
-                    penaltyorg = rho*sum(max(max(0,cmin-con0),max(con0-cmax)));
-                    dL_dx = dI_dx+lambdaR'*dR_dx+lambda.ineqlin'*[-dcon_dx;dcon_dx];
-                else
-                    lambdaR = -(dR_du)\(dI_du)';
-                    Lorg = I0 ;
-                    penaltyorg = 0;
-                    dL_dx = dI_dx+lambdaR'*dR_dx;
-                end
-                obj.history.LagrangianVal(obj.iteration) = Lorg;
-                obj.history.penaltyVal(obj.iteration) = penaltyorg;
-                [dxscaled] = fmincon(@(x)obj.fminconObj(x,(obj.setting.betaLM)*obj.Hessian+(1-obj.setting.betaLM)*diag(diag(obj.Hessian)),dL_dx),zeros(numel(obj.scaledVar),1),alin,blin,[],[],lbf,ubf,@(x)obj.fminconNlc(x,obj.setting.TrustRegion),options);
-                dx = dxscaled(:)'.*obj.designScale;
-                
-                %{
-                %精度評価
-                desdx = obj.scaledVar.*obj.designScale+obj.lb+dx(:)';
-                [modSurfdx,~,SREFdx,BREFdx,CREFdx,XYZREFdx,argin_xdx,desdx] = obj.geomGenFun(desdx);
-                modMeshdx = obj.meshDeformation(obj,modSurfdx);
-                objdx = obj.setVerts(modMeshdx);
-                if any(obj.flowNoList(:,3) == 1)
-                    objdx = objdx.makeEquation(obj.setting.wakeLength,obj.setting.n_wake,obj.setting.n_divide);
-                end
-                objdx = objdx.setREFS(SREFdx,BREFdx,CREFdx);
-                objdx = objdx.setRotationCenter(XYZREFdx);
+            %%%
+            %明示・非明示随伴方程式法の実装
+            %u微分の計算
+            pert = sqrt(eps);
+            for i = 1:numel(u0)
+                u = u0;
+                u(i) = u(i)+pert;
                 for iter = 1:numel(obj.flow)
+                    lktable = find(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
+                    usolve = zeros(nbPanel*numel(lktable),1);
+                    for k = 1:numel(lktable)
+                        usolve(nbPanel*(k-1)+1:nbPanel*k,1) = u((lktable(k)-1)*nbPanel+1:lktable(k)*nbPanel,1);
+                    end
                     alphabuff = obj.setting.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                     betabuff = obj.setting.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
-                    [udx,~] = objdx.solvePertPotential(iter,alphabuff,betabuff);%ポテンシャルを求める
-                    [AERODATA,Cp,Cfe,~,objdx] = objdx.solveFlowForAdjoint(udx,iter,alphabuff,betabuff);%ポテンシャルから空力係数を計算
+                    [AERODATA,Cp,Cfe,~,obj] = obj.solveFlowForAdjoint(usolve,iter,alphabuff,betabuff);
                 end
-               
-                [Idx,condx] = objandConsFun(desdx,AERODATA,Cp,Cfe,SREFdx,BREFdx,CREFdx,XYZREFdx,argin_xdx);
-                if not(isempty(con0))
-                    Ldx = Idx + lambda.ineqlin'*[-condx;condx];
-                    if penaltyorg < sqrt(eps)
-                        penaltydx = 0;
-                    else
-                       penaltydx = rho*sum(max(max(0,cmin-condx),max(condx-cmax))); 
-                    end
-                else
-                    Ldx = Idx ;
-                    penaltydx = 0;
+                [I,con] = objandConsFun(desOrg,AERODATA,Cp,Cfe,obj.SREF,obj.BREF,obj.CREF,obj.XYZREF,obj.argin_x);
+                dI_du(i) = (I-I0)/pert;%評価関数のポテンシャルに関する偏微分
+                if not(isempty(con))
+                    dcon_du(:,i) = (con-con0)/pert;
                 end
-                acc = (Ldx-Lorg)/(0.5*(dxscaled(:)'*obj.Hessian*dxscaled(:))+dL_dx*dxscaled(:));
-               
-                obj.history.LpredictVal(obj.iteration) = Ldx;
-                obj.history.trAccuracyVal(obj.iteration) = acc;
-                obj.history.dxNormVal(obj.iteration) = norm(dxscaled);
-                fprintf("Variables:\n")
-                disp(desOrg);
-                fprintf("------>\n")
-                disp(desdx);
-                fprintf("Objective and Constraints:\n")
-                disp([I0,con0(:)']);
-                fprintf("------>\n");
-                disp([Idx,condx(:)']);
-                fprintf("dx norm :%f\nLagrangian Value : %f -> %f\nPenalty Value : %f -> %f\nHessian Approximation Accuracy:%f\n",norm(dxscaled),Lorg,Ldx,penaltyorg,penaltydx,acc);
-                dx = desdx-desOrg;
-                %}
-                obj.history.dxNormVal(obj.iteration) = norm(dxscaled);
-                fprintf("Variables:\n")
-                disp(desOrg);
-                fprintf("------>\n")
-                disp(desOrg+dx);
-                fprintf("dx norm :%f\nLagrangian Value : %f \nPenalty Value : %f \n\n",norm(dxscaled),Lorg,penaltyorg);
-                %dx = desdx-desOrg;
-                
-                if strcmpi(obj.setting.HessianUpdateMethod,"SR1")
-                   updateFunction = @obj.SR1;
-                elseif strcmpi(obj.setting.HessianUpdateMethod,"BFGS")
-                    updateFunction = @obj.BFGS;
-                elseif strcmpi(obj.setting.HessianUpdateMethod,"DFP")
-                    updateFunction = @obj.DFP;
-                elseif strcmpi(obj.setting.HessianUpdateMethod,"Broyden")
-                    updateFunction = @obj.Broyden;
-                end
-                %Hessianの更新
-                obj.history.scaledVar(obj.iteration,:) = obj.scaledVar;
-                obj.history.dL_dx(obj.iteration,:) = dL_dx;
-                if size(obj.history.scaledVar,1) > 1
-                    n_iter = size(obj.history.scaledVar,1)-1;
-                    if n_iter > obj.setting.nMemory
-                        n_iter = obj.setting.nMemory;
-                    end
-                    obj.Hessian = obj.setting.H0;
-                    for i = n_iter:-1:1
-                        s = obj.history.scaledVar(end-(i-1),:)-obj.history.scaledVar(end-i,:);
-                        y = obj.history.dL_dx(end-(i-1),:)-obj.history.dL_dx(end-i,:);
-                        if norm(s)>sqrt(eps) && norm(y)>sqrt(eps)
-                            obj.Hessian = updateFunction(s,y,obj.Hessian);
-                        end
-                    end
-                    s = obj.history.scaledVar(end,:)-obj.history.scaledVar(end-1,:);
-                    y = obj.history.dL_dx(end,:)-obj.history.dL_dx(end-1,:);
-                end
-            else
-                %近似行列による直接最適化
-                obj = obj.makeMeshGradient();
-                %%%%TODO : 超音速のみの時の実装を考える
-                if any(obj.flowNoList(:,3) == 1)
-                    obj = obj.calcApproximatedEquation();
-                end
-                lbf = -obj.scaledVar;
-                ubf = 1-obj.scaledVar;
-                
-                if isempty(con0)
-                    options = optimoptions(@fmincon,'Algorithm','sqp','Display','iter-detailed');
-                    [dxscaled,fval,exitflag,output,lambda] = fmincon(@(x)obj.nonlnObj(x,obj,objandConsFun,cmin,cmax),zeros(numel(obj.scaledVar),1),[],[],[],[],lbf,ubf,@(x)obj.nonlnNormCon(x,obj.optimization.TRmax),options);
-                else
-                    options = optimoptions(@fmincon,'Algorithm','sqp','Display','iter-detailed');
-                    [dxscaled,fval,exitflag,output,lambda] = fmincon(@(x)obj.nonlnObj(x,obj,objandConsFun,cmin,cmax),zeros(numel(obj.scaledVar),1),[],[],[],[],lbf,ubf,@(x)obj.nonlnCon(x,obj,objandConsFun,cmin,cmax,obj.optimization.TRmax),options);                
-                end
-                dx = dxscaled(:)'.*obj.designScale;
-                %精度評価
-                desdx = desOrg+dx(:)';
-                [modSurfdx,~,SREFdx,BREFdx,CREFdx,XYZREFdx,argin_xdx,desdx] = obj.geomGenFun(desdx);
-                modMeshdx = obj.meshDeformation(obj,modSurfdx);
-                objdx = obj.setVerts(modMeshdx);
-                if any(obj.flowNoList(:,3) == 1)
-                    objdx = objdx.makeEquation(obj.setting.wakeLength,obj.setting.n_wake,obj.setting.n_divide);
-                end
-                objdx = objdx.setREFS(SREFdx,BREFdx,CREFdx);
-                objdx = objdx.setRotationCenter(XYZREFdx);
-                objdx = objdx.solveFlow(1,obj.setting.alpha,obj.setting.beta);
-                %[udx,~] = obj.solvePertPotential(1,obj.setting.alpha,obj.setting.beta);%ポテンシャルを求める
-                %[AERODATA,Cp,Cfe,Rdx,~] = objdx.solveFlowForAdjoint(udx,1,obj.setting.alpha,obj.setting.beta);%ポテンシャルから空力係数を計算
-                [Idx,condx] = objandConsFun(desdx,objdx.AERODATA,objdx.Cp,objdx.Cfe,SREFdx,BREFdx,CREFdx,XYZREFdx,argin_xdx);
-                fprintf("Variables:\n")
-                disp(desOrg);
-                fprintf("------>\n")
-                disp(desdx);
-                fprintf("Objective and Constraints:\n")
-                disp([I0,con0(:)']);
-                fprintf("------>\n");
-                disp([Idx,condx(:)']);
-                fprintf("dx norm :%f\n",norm((desdx-desOrg)./obj.designScale));
             end
-            nextUnscaledVar = obj.scaledVar.*obj.designScale+obj.lb+dx;
-            fprintf("Itaration No. %d : Completed\n",obj.iteration);
+            for i = 1:size(obj.flowNoList,1)
+                if i == 1
+                    if obj.flowNoList(i,3) == 1
+                        dR_du = obj.LHS; %亜音速
+                    else
+                        dR_du = eye(nbPanel);
+                    end
+                else
+                    if obj.flowNoList(i,3) == 1
+                        dR_du = blkdiag(dR_du,obj.LHS);
+                    else
+                        dR_du = blkdiag(dR_du,eye(nbPanel));
+                    end
+                end
+            end
+            %x微分の計算
+            %メッシュの節点勾配を作成
+            obj = obj.makeMeshGradient(obj,obj.setting.meshGradientPerturbation./obj.designScale);
+            if strcmpi(obj.setting.gradientCalcMethod,'chain')
+                if any(obj.flowNoList(:,3) == 1)
+                    obj = obj.calcApproximatedEquation(obj);
+                end
+            end
+            for i= 1:numel(obj.scaledVar)
+                x = obj.scaledVar;
+                x(i) = obj.scaledVar(i)+pert;
+                des = x.*obj.designScale+obj.lb;
+                %[~,modMesh] = obj.calcApproximatedMeshGeom(des);
+                modMesh = obj.orgMesh.Points + reshape(obj.gradMesh*(x(:)-obj.scaledVar(:)),size(obj.orgMesh.Points));
+                if strcmpi(obj.setting.gradientCalcMethod,'direct')
+                    %変数が少ないときは直接作成
+                    obj2 = obj.setVerts(modMesh);
+                    if any(obj.flowNoList(:,3) == 1)
+                        obj2 = obj2.makeEquation(obj.setting.wakeLength,obj.setting.n_wake,obj.setting.n_divide);
+                    end
+                    obj2.approximated = 0;
+                elseif strcmpi(obj.setting.gradientCalcMethod,'chain')
+                    if any(obj.flowNoList(:,3) == 1)
+                        obj2 = obj.makeApproximatedInstance(modMesh);
+                    else
+                        obj2 = obj.setVerts(modMesh);
+                    end
+                else
+                    error("Supported method is 'direct' or 'chain'.");
+                end
+                    
+                %基準面積等の設計変数変化
+                SREF2 = obj.SREF+obj.gradSREF*(x(:)-obj.scaledVar(:));
+                BREF2 = obj.BREF+obj.gradBREF*(x(:)-obj.scaledVar(:));
+                CREF2 = obj.CREF+obj.gradCREF*(x(:)-obj.scaledVar(:));
+                XYZREF2 = obj.XYZREF+(obj.gradXYZREF*(x(:)-obj.scaledVar(:)))';
+                argin_x2 = obj.argin_x+obj.gradArginx*(x(:)-obj.scaledVar(:));
+                obj2 = obj2.setREFS(SREF2,BREF2,CREF2);
+                obj2 = obj2.setRotationCenter(XYZREF2);
+                R = zeros(nbPanel*size(obj.flowNoList,1),1);
+                for iter = 1:numel(obj.flow)
+                    lktable = find(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
+                    u0solve = zeros(nbPanel*numel(lktable),1);
+                    for k = 1:numel(lktable)
+                        u0solve(nbPanel*(k-1)+1:nbPanel*k,1) = u0((lktable(k)-1)*nbPanel+1:lktable(k)*nbPanel,1);
+                    end
+                    alphabuff = obj.setting.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
+                    betabuff = obj.setting.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
+                    [AERODATA,Cp,Cfe,Rsolve,obj2] = obj2.solveFlowForAdjoint(u0solve,iter,alphabuff,betabuff);
+                    for k = 1:numel(lktable)
+                        R((lktable(k)-1)*nbPanel+1:lktable(k)*nbPanel,1) = Rsolve(nbPanel*(k-1)+1:nbPanel*k,1);
+                    end
+                end
+                
+                [I,con] = objandConsFun(des,AERODATA,Cp,Cfe,SREF2,BREF2,CREF2,XYZREF2,argin_x2);
+                dI_dx(i) = (I-I0)/pert;%評価関数の設計変数に関する偏微分
+                if not(isempty(con))
+                    dcon_dx(:,i) = (con-con0)/pert;
+                end
+                dR_dx(:,i) = (R-R0)./pert;
+            end
+            %全微分でdxからduを求める行列
+            duMatVec = -(dR_du)\([R0,dR_dx]);
+            duMat = duMatVec(:,2:end);
+            duVec = duMatVec(:,1);
+            objTotalGrad = dI_dx+dI_du*duMat;
+            if not(isempty(con))
+                conTotalGrad = dcon_dx+dcon_du*duMat;
+            end
+            %線形計画問題に変換
+            if not(isempty(con))
+                obj.LagrangianInfo.alin = [-conTotalGrad;conTotalGrad];
+                obj.LagrangianInfo.blin = [con0(:)-cmin(:);cmax(:)-con0(:)];
+            else
+                obj.LagrangianInfo.alin = [];
+                obj.LagrangianInfo.blin = [];
+            end
+            lbf = -obj.scaledVar;
+            ubf = 1-obj.scaledVar;
+            [~,~,~,~,lambda] = linprog(objTotalGrad,obj.LagrangianInfo.alin,obj.LagrangianInfo.blin,[],[],lbf,ubf);
+            
+            rho = 1000;
+            if not(isempty(con0))
+                lambdaR = -(dR_du)\(dI_du+lambda.ineqlin'*[-dcon_du;dcon_du])';
+                obj.LagrangianInfo.Lorg = I0 + lambda.ineqlin'*[-con0;con0];
+                penaltyorg = rho*sum(max(max(0,cmin-con0),max(con0-cmax)));
+                obj.LagrangianInfo.dL_dx = dI_dx+lambdaR'*dR_dx+lambda.ineqlin'*[-dcon_dx;dcon_dx];
+            else
+                lambdaR = -(dR_du)\(dI_du)';
+                obj.LagrangianInfo.Lorg = I0 ;
+                penaltyorg = 0;
+                obj.LagrangianInfo.dL_dx = dI_dx+lambdaR'*dR_dx;
+            end
+            obj.history.LagrangianVal(obj.iteration) = obj.LagrangianInfo.Lorg;
+            obj.history.penaltyVal(obj.iteration) = penaltyorg;
+            obj.history.scaledVar(obj.iteration,:) = obj.scaledVar;
+            obj.history.dL_dx(obj.iteration,:) = obj.LagrangianInfo.dL_dx;
+            fprintf("Lagrangian Value : %f \nPenalty Value : %f\nGradient of Lagrangian : \n",obj.LagrangianInfo.Lorg,penaltyorg);
+            disp(obj.LagrangianInfo.dL_dx);
+            fprintf("iteration No. %d : Gradient Caluculation Completed\n",obj.iteration);
         end
 
+        function nextUnscaledVar = descentLagrangian(obj,varargin)
+            %%%%%%%%%%%%%Lagrangianの降下方向に向かう設計変数を計算する%%%%%%%%%
+            %
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            if nargin>1
+                obj = obj.setOptions(varargin{:});
+            end
+            fprintf("--TrustRegion : %f, --Beta(Levenberg-Marquardt) : %f\n",obj.setting.TrustRegion,obj.setting.betaLM)
+            desOrg = obj.scaledVar.*obj.designScale+obj.lb;
+            lbf = -obj.scaledVar;
+            ubf = 1-obj.scaledVar;
+            options = optimoptions(@fmincon,'Algorithm','interior-point','Display','final-detailed','EnableFeasibilityMode',true,"SubproblemAlgorithm","cg",'MaxFunctionEvaluations',10000);
+            dxscaled = fmincon(@(x)obj.fminconObj(x,obj.Hessian+obj.setting.betaLM*diag(diag(obj.Hessian)),obj.LagrangianInfo.dL_dx),zeros(numel(obj.scaledVar),1),obj.LagrangianInfo.alin,obj.LagrangianInfo.blin,[],[],lbf,ubf,@(x)obj.fminconNlc(x,obj.setting.TrustRegion),options);
+            dx = dxscaled(:)'.*obj.designScale;
+            nextUnscaledVar = desOrg + dx(:)';
+        end
+
+        function obj = updateHessian(obj,varargin)  
+            %%%%%%%%%%%%%%%%ヘッシアン更新%%%%%%%%%%%
+            %
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            if nargin>1
+                obj = obj.setOptions(varargin{:});
+            end
+            fprintf("-- HessianUpdateMethod : %s\n",obj.setting.HessianUpdateMethod);
+            if strcmpi(obj.setting.HessianUpdateMethod,"SR1")
+               updateFunction = @obj.SR1;
+            elseif strcmpi(obj.setting.HessianUpdateMethod,"BFGS")
+                updateFunction = @obj.BFGS;
+            elseif strcmpi(obj.setting.HessianUpdateMethod,"DFP")
+                updateFunction = @obj.DFP;
+            elseif strcmpi(obj.setting.HessianUpdateMethod,"Broyden")
+                updateFunction = @obj.Broyden;
+            end
+            %Hessianの更新
+            if size(obj.history.scaledVar,1) > 1
+                n_iter = size(obj.history.scaledVar,1)-1;
+                if n_iter > obj.setting.nMemory
+                    n_iter = obj.setting.nMemory;
+                end
+                obj.Hessian = obj.setting.H0;
+                for i = n_iter:-1:1
+                    s = obj.history.scaledVar(end-(i-1),:)-obj.history.scaledVar(end-i,:);
+                    y = obj.history.dL_dx(end-(i-1),:)-obj.history.dL_dx(end-i,:);
+                    if norm(s)>sqrt(eps) && norm(y)>sqrt(eps)
+                        obj.Hessian = updateFunction(s,y,obj.Hessian);
+                    end
+                end
+            end
+            if issymmetric(obj.Hessian)
+                fprintf("Hessian is symmetric ");
+                d = eig(obj.Hessian);
+                if all(d > 0)
+                    fprintf("and positive-define\n");
+                elseif all(d >= 0)
+                    fprintf("and semi-positive-define\n");
+                else
+                    fprintf("and not positive-define\n");
+                end
+                fprintf("eigen value -->\n");
+                disp(d(:)');
+            else
+                fprintf("Hessian is Unsymmetric\n");
+            end
+        end
+
+        function [nextUnscaledVar,obj] = calcNextVariables(obj,objandConsFun,cmin,cmax,varargin)
+            %%%%%%%%%%%%後方互換性用、とりあえず次の変数を計算する%%%%%%%%
+            %
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
+                if nargin>4
+                    obj = obj.setOptions(varargin{:});
+                end
+                obj = obj.calcLagrangianGradient(objandConsFun,cmin,cmax);%次の設計変数を計算する
+                obj = obj.updateHessian();%次の設計変数を計算する
+                nextUnscaledVar = obj.descentLagrangian();%次の設計変数を計算する
+        end
 
         function plotOptimizationState(obj,fig)
             %%%%%%%%%%%%最適化の履歴をプロットする%%%%%%%%
@@ -627,60 +589,12 @@
             %subplot(5,1,4);grid on;
             %plot(plotiter,obj.history.trAccuracyVal,"-o");
             subplot(5,1,5);grid on;
-            plot(plotiter,obj.history.dxNormVal,"-o");
+            %plot(plotiter,obj.history.dxNormVal,"-o");
             drawnow();
         end
     end
 
     methods(Static)
-        function res = nonlnObj(dx,obj,objandConsFun,cmin,cmax)
-                x = dx(:)'+obj.scaledVar;
-                des = x.*obj.designScale+obj.lb;
-                [~,modMesh] = obj.variables2Mesh(des,'linear');
-                if any(obj.flowNoList(:,3) == 1)
-                    obj2 = obj.makeApproximatedInstance(modMesh);
-                else
-                    obj2 = obj.setVerts(modMesh);
-                end
-                SREF2 = obj.optSREF+obj.gradSREF*dx(:);
-                BREF2 = obj.optBREF+obj.gradBREF*dx(:);
-                CREF2 = obj.optCREF+obj.gradCREF*dx(:);
-                XYZREF2 = obj.optXYZREF+(obj.gradXYZREF*dx(:))';
-                argin_x2 = obj.argin_x+obj.gradArginx*dx(:);
-                obj2 = obj2.setREFS(SREF2,BREF2,CREF2);
-                obj2 = obj2.setRotationCenter(XYZREF2);
-                obj2 = obj2.solveFlow(1,obj.setting.alpha,obj.setting.beta);
-                [I,con] = objandConsFun(des,obj2.AERODATA,obj2.Cp,obj2.Cfe,SREF2,BREF2,CREF2,XYZREF2,argin_x2);
-                res = I;
-        end
-
-        function [c,ceq] = nonlnCon(dx,obj,objandConsFun,cmin,cmax,TR)
-                x = dx(:)'+obj.scaledVar;
-                des = x.*obj.designScale+obj.lb;
-                [~,modMesh] = obj.variables2Mesh(des,'linear');
-                if any(obj.flowNoList(:,3) == 1)
-                    obj2 = obj.makeApproximatedInstance(modMesh);
-                else
-                    obj2 = obj.setVerts(modMesh);
-                end
-                SREF2 = obj.optSREF+obj.gradSREF*dx(:);
-                BREF2 = obj.optBREF+obj.gradBREF*dx(:);
-                CREF2 = obj.optCREF+obj.gradCREF*dx(:);
-                XYZREF2 = obj.optXYZREF+(obj.gradXYZREF*dx(:))';
-                argin_x2 = obj.argin_x+obj.gradArginx*dx(:);
-                obj2 = obj2.setREFS(SREF2,BREF2,CREF2);
-                obj2 = obj2.setRotationCenter(XYZREF2);
-                obj2 = obj2.solveFlow(1,obj.setting.alpha,obj.setting.beta);
-                [I,con] = objandConsFun(des,obj2.AERODATA,obj2.Cp,obj2.Cfe,SREF2,BREF2,CREF2,XYZREF2,argin_x2);
-                ceq = [];
-                c = [-con+cmin;con-cmax];
-                c(end+1) = sum(dx.^2)-(TR)^2;   
-        end
-        
-        function [c,ceq] = nonlnNormCon(dx,TR)
-            c = sum(dx.^2)-(TR)^2;   
-            ceq = [];
-        end
 
         function res = fminconObj(dx,H,g)
             %%%SQPの更新ベクトルの目的関数%%%%%
@@ -694,11 +608,6 @@
         function [c,ceq] = fminconNlc(dx,TR)
             ceq = [];
             c = sum(dx.^2)-(TR)^2;
-        end
-
-        function [c,ceq] = fminconNlc2(dx,TR,H,dx1scaled)
-            c = sum(dx.^2)-(TR)^2;
-            ceq = dx1scaled'*H*dx;
         end
 
         function [modVerts,con] = meshDeformation(obj,modSurfVerts,modSurfCon)
@@ -888,28 +797,6 @@
         %s 設計変数の変化量
         %y ヤコビアンの変化
         %%%%%%%%%%%%%%%%%%%%%%%%
-        function Bkp1 = SR1_BFGS(obj,s,y,Bk)
-            b = (s(:)'*Bk*s(:))/(s(:)'*y(:));
-            eta2 = 10^-7;
-            if b < 1-eta2 && not(isinf(b))
-                fprintf('Hessian update mode is SR1/BFGS. This time is SR1\n')
-                Bkp1 = obj.SR1(s,y,Bk);
-            else
-                fprintf('Hessian update mode is SR1/BFGS. This time is BFGS\n')
-                Bkp1 = obj.BFGS(s,y,Bk);
-            end
-        end
-        function Bkp1 = SSR1_MBFGS(obj,s,y,Bk)
-            b = (s(:)'*Bk*s(:))/(s(:)'*y(:));
-            eta2 = 10^-7;
-            if b < 1-eta2 && not(isinf(b))
-                fprintf('Hessian update mode is SSR1/MBFGS. This time is SSR1\n')
-                Bkp1 = obj.SSR1(s,y,Bk);
-            else
-                fprintf('Hessian update mode is SSR1/MBFGS. This time is MBFGS\n')
-                Bkp1 = obj.MBFGS(s,y,Bk);
-            end
-        end
         function Bkp1 = DFP(s,y,Bk)
             s = s(:);
             y=y(:);
@@ -950,56 +837,6 @@
                 end
             end
         end
-        function Bkp1 = MBFGS(s,y,Bk)
-            s = s(:);
-            y=y(:);
-            if s'*(Bk*s-y)==0
-                Bkp1 = Bk;
-            else
-                if s'*y>=0.2*(s'*Bk*s)
-                    phi = 1;
-                else
-                    phi = 0.8*(s'*Bk*s)/(s'*(Bk*s-y));
-                end
-                yhat = phi.*y+(1-phi).*(Bk*s);
-                Bkp1 = Bk-(Bk*s*(Bk*s)')/(s.'*Bk*s)+(yhat*yhat.')/(s.'*yhat);
-                coeB=(s'*y)/(s'*Bkp1*s);
-                if coeB>0 && coeB<1
-                    Bkp1=coeB.*Bkp1;
-                end
-            end
-        end
-
-        function Bkp1 = DBFGS(s,y,Bk)
-            s = s(:);
-            y=y(:);
-            if y'*s > 0
-                pk = y'*s/(s'*Bk*s);
-                bk = 1./pk;
-                hk = y'*s/(y'*(Bk\y));
-                ak = bk*hk-1;
-                if hk<1
-                    theta = 1/(1-bk);
-                else
-                    theta = 0;
-                end
-                sigma2 = max(1-1/ak,0.5);
-                sigma3 = Inf;
-                if pk<1-sigma2
-                    phi = sigma2/(1-pk);
-                elseif pk>1+sigma3
-                    phi = sigma3/(pk-1);
-                else
-                    phi = 1;
-                end
-                yhat = phi.*y+(1-phi).*(Bk*s);
-                w = sqrt(s'*Bk*s).*(yhat./(y'*s)-Bk*s/(s'*Bk*s));
-                Bkp1 = Bk-(Bk*s*(Bk*s)')/(s.'*Bk*s)+(yhat*yhat.')/(s.'*yhat)+theta*(w*w');
-            else
-                Bkp1 = Bk;
-            end
-    
-        end
 
         function Bkp1 = SR1(s,y,Bk)
             s = s(:);
@@ -1009,35 +846,6 @@
             else
                 Bkp1 = Bk+(y-Bk*s)*(y-Bk*s)'/((y-Bk*s)'*s);
             end
-        end
-
-        function Bkp1 = SSR1(s,y,Bk)
-            s = s(:);
-            y=y(:);
-            if abs(s'*(y-Bk*s)) < 10^-8*norm(s)*norm(y-Bk*s) || ((y-Bk*s)'*s)==0 || y'*s-s'*Bk*s<=0
-                lambda_k = y'*y/(y'*s)-sqrt((y'*y)^2/(y'*s)^2-(y'*y)/(s'*s));
-                if isnan(lambda_k)||not(isreal(lambda_k))
-                    Bkp1 = Bk;
-                else
-                    Bk = 1./lambda_k.*eye(size(Bk,1));
-                    Bkp1 = Bk+(y-Bk*s)*(y-Bk*s)'/((y-Bk*s)'*s);
-                end
-            else
-                Bkp1 = Bk+(y-Bk*s)*(y-Bk*s)'/((y-Bk*s)'*s);
-            end
-        end
-        
-        function Bkp1 = Barzilai_Borwein(s,y,Bk)
-            s = s(:);
-            y=y(:);
-            delta = 100.0;
-            alpha = (s'*y)/(s'*s);
-            if alpha <= 0
-                alpha = norm(s)/norm(y);
-            end
-            alphak = min(alpha, delta / norm(y));
-            Bk = eye(numel(s));
-            Bkp1 = alphak * Bk;
         end
 
     end
