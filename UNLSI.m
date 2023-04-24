@@ -23,6 +23,7 @@ classdef UNLSI
         center %各パネルの中心
         area %各パネルの面積
         flow %各flowconditionが格納されたセル配列
+        propeller %各プロペラの影響係数行列が格納されたセル配列
         cluster %パネルクラスターの情報
         LHS %パネル法連立方程式の左辺行列
         RHS %パネル法連立方程式の右辺行列
@@ -407,7 +408,10 @@ classdef UNLSI
             obj.LLT.Qij = obj.Calc_Q(horzcat(obj.LLT.yinterp{:}),horzcat(obj.LLT.zinterp{:}),horzcat(obj.LLT.phiinterp{:}),horzcat(obj.LLT.spanel{:}),obj.halfmesh);
         end
 
-
+        function obj = makePropellerEquation(obj,ID)
+            
+            
+        end
 
         function obj = flowCondition(obj,flowNo,Mach,newtoniantype)
             %%%%%%%%%%%%%%%%主流の設定%%%%%%%%%%%%%%%%%%%%%%
