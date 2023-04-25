@@ -411,12 +411,14 @@ classdef UNLSI
         end
 
         function obj = makePropellerEquation(obj,ID)
-            %IDのパネルタイプをプロペラ==5に変更
+            %IDのパネルタイプをプロペラ==4に変更
             obj = obj.setPanelType(ID,'prop');
             %プロペラディスク⇒bodyパネルへの影響係数
+            %とりあえずpaneltypeで計算しているが、IDで管理したい
             %muとsigma両方
-            obj = obj.propellerInflueceMatrix(obj);
-
+            [VortexA,VortexB] = obj.propellerInfluenceMatrix(obj);
+            obj.propeller{1}.LHS = VortexA;
+            obj.propeller{1}.RHS = VortexB;
             %プロペラwake⇒wakeパネルへの影響係数
             
         end
@@ -530,6 +532,7 @@ classdef UNLSI
             end
             Cf_L = 1.328./sqrt(Re);
             Cf_T = 0.455/((log10(Re).^(2.58))*((1+0.144*obj.flow{flowNo}.Mach*obj.flow{flowNo}.Mach)^0.65));
+            obj.Cfe{flowNo} = zeros(numel(obj.paneltype),1);
             obj.Cfe{flowNo}(obj.paneltype==1,1) =(LTratio*Cf_L + (1-LTratio)*Cf_T)*coefficient;
         end
 
@@ -547,9 +550,9 @@ classdef UNLSI
                 error("analysis points are not match");
             end
             obj.AERODATA{flowNo} = [];
-            obj.Cp{flowNo} = [];
             nPanel = numel(obj.paneltype);
             nbPanel = sum(obj.paneltype == 1);
+            obj.Cp{flowNo} = zeros(nPanel,numel(alpha));
             for iterflow = 1:numel(alpha)
                 T(1,1) = cosd(alpha(iterflow))*cosd(beta(iterflow));
                 T(1,2) = cosd(alpha(iterflow))*sind(beta(iterflow));
@@ -586,14 +589,15 @@ classdef UNLSI
                             iter = iter+1;
                         end
                     end
-                    RHV = obj.RHS*sigmas;
+                    %%%%プロペラ計算お試し
+
+                    RHV = obj.RHS*sigmas+obj.propeller{1}.LHS*(0.1*ones(size(obj.propeller{1}.LHS,2),1))-obj.propeller{1}.RHS*(5.*ones(size(obj.propeller{1}.LHS,2),1));
                     u =  -obj.LHS\RHV;
                     potential = u + sum(Vinf(obj.paneltype == 1,:).*obj.center(obj.paneltype == 1,:),2);
                     dv = zeros(nPanel,3);
                     for i = 1:3
                         dv(:,i) = obj.mu2v{i}*(potential);
                     end
-                
                     obj.Cp{flowNo}(obj.paneltype==1,iterflow) = (1-sum(dv(obj.paneltype==1,:).^2,2))./(1-obj.flow{flowNo}.Mach^2);
                     obj.Cp{flowNo}(obj.paneltype==2,iterflow) = (-0.139-0.419.*(obj.flow{flowNo}.Mach-0.161).^2);
                     uinterp = [];
@@ -1664,54 +1668,131 @@ classdef UNLSI
             ncol = sum(obj.paneltype == 4);
 
     
-                POI.X(:,1) = obj.center(obj.paneltype==1,1);
-                POI.Y(:,1) = obj.center(obj.paneltype==1,2);
-                POI.Z(:,1) = obj.center(obj.paneltype==1,3);
-                
-                c.X(1,:) = obj.center(obj.paneltype==4,1)';
-                c.Y(1,:) = obj.center(obj.paneltype==4,2)';
-                c.Z(1,:) = obj.center(obj.paneltype==4,3)';
-                n.X(1,:) = obj.normal(obj.paneltype==4,1)';
-                n.Y(1,:) = obj.normal(obj.paneltype==4,2)';
-                n.Z(1,:) = obj.normal(obj.paneltype==4,3)';
-                N1.X(1,:) = verts(obj.tri.ConnectivityList(obj.paneltype==4,1),1)';
-                N1.Y(1,:) = verts(obj.tri.ConnectivityList(obj.paneltype==4,1),2)';
-                N1.Z(1,:) = verts(obj.tri.ConnectivityList(obj.paneltype==4,1),3)';
-                N2.X(1,:) = verts(obj.tri.ConnectivityList(obj.paneltype==4,2),1)';
-                N2.Y(1,:) = verts(obj.tri.ConnectivityList(obj.paneltype==4,2),2)';
-                N2.Z(1,:) = verts(obj.tri.ConnectivityList(obj.paneltype==4,2),3)';
-                N3.X(1,:) = verts(obj.tri.ConnectivityList(obj.paneltype==4,3),1)';
-                N3.Y(1,:) = verts(obj.tri.ConnectivityList(obj.paneltype==4,3),2)';
-                N3.Z(1,:) = verts(obj.tri.ConnectivityList(obj.paneltype==4,3),3)';
-                POI.X = repmat(POI.X,[1,ncol]);
-                POI.Y = repmat(POI.Y,[1,ncol]);
-                POI.Z = repmat(POI.Z,[1,ncol]);
-    
-                c.X = repmat(c.X,[nbPanel,1]);
-                c.Y = repmat(c.Y,[nbPanel,1]);
-                c.Z = repmat(c.Z,[nbPanel,1]);
-                n.X = repmat(n.X,[nbPanel,1]);
-                n.Y = repmat(n.Y,[nbPanel,1]);
-                n.Z = repmat(n.Z,[nbPanel,1]);
-                N1.X = repmat(N1.X,[nbPanel,1]);
-                N1.Y = repmat(N1.Y,[nbPanel,1]);
-                N1.Z = repmat(N1.Z,[nbPanel,1]);
-                N2.X = repmat(N2.X,[nbPanel,1]);
-                N2.Y = repmat(N2.Y,[nbPanel,1]);
-                N2.Z = repmat(N2.Z,[nbPanel,1]);
-                N3.X = repmat(N3.X,[nbPanel,1]);
-                N3.Y = repmat(N3.Y,[nbPanel,1]);
-                N3.Z = repmat(N3.Z,[nbPanel,1]);
-    
-                n12.X = (N1.X+N2.X)./2;
-                n12.Y = (N1.Y+N2.Y)./2;
-                n12.Z = (N1.Z+N2.Z)./2;
-    
+            POI.X(:,1) = obj.center(obj.paneltype==1,1);
+            POI.Y(:,1) = obj.center(obj.paneltype==1,2);
+            POI.Z(:,1) = obj.center(obj.paneltype==1,3);
+            
+            c.X(1,:) = obj.center(obj.paneltype==4,1)';
+            c.Y(1,:) = obj.center(obj.paneltype==4,2)';
+            c.Z(1,:) = obj.center(obj.paneltype==4,3)';
+            n.X(1,:) = obj.normal(obj.paneltype==4,1)';
+            n.Y(1,:) = obj.normal(obj.paneltype==4,2)';
+            n.Z(1,:) = obj.normal(obj.paneltype==4,3)';
+            N1.X(1,:) = verts(obj.tri.ConnectivityList(obj.paneltype==4,1),1)';
+            N1.Y(1,:) = verts(obj.tri.ConnectivityList(obj.paneltype==4,1),2)';
+            N1.Z(1,:) = verts(obj.tri.ConnectivityList(obj.paneltype==4,1),3)';
+            N2.X(1,:) = verts(obj.tri.ConnectivityList(obj.paneltype==4,2),1)';
+            N2.Y(1,:) = verts(obj.tri.ConnectivityList(obj.paneltype==4,2),2)';
+            N2.Z(1,:) = verts(obj.tri.ConnectivityList(obj.paneltype==4,2),3)';
+            N3.X(1,:) = verts(obj.tri.ConnectivityList(obj.paneltype==4,3),1)';
+            N3.Y(1,:) = verts(obj.tri.ConnectivityList(obj.paneltype==4,3),2)';
+            N3.Z(1,:) = verts(obj.tri.ConnectivityList(obj.paneltype==4,3),3)';
+            POI.X = repmat(POI.X,[1,ncol]);
+            POI.Y = repmat(POI.Y,[1,ncol]);
+            POI.Z = repmat(POI.Z,[1,ncol]);
+
+            c.X = repmat(c.X,[nbPanel,1]);
+            c.Y = repmat(c.Y,[nbPanel,1]);
+            c.Z = repmat(c.Z,[nbPanel,1]);
+            n.X = repmat(n.X,[nbPanel,1]);
+            n.Y = repmat(n.Y,[nbPanel,1]);
+            n.Z = repmat(n.Z,[nbPanel,1]);
+            N1.X = repmat(N1.X,[nbPanel,1]);
+            N1.Y = repmat(N1.Y,[nbPanel,1]);
+            N1.Z = repmat(N1.Z,[nbPanel,1]);
+            N2.X = repmat(N2.X,[nbPanel,1]);
+            N2.Y = repmat(N2.Y,[nbPanel,1]);
+            N2.Z = repmat(N2.Z,[nbPanel,1]);
+            N3.X = repmat(N3.X,[nbPanel,1]);
+            N3.Y = repmat(N3.Y,[nbPanel,1]);
+            N3.Z = repmat(N3.Z,[nbPanel,1]);
+
+            n12.X = (N1.X+N2.X)./2;
+            n12.Y = (N1.Y+N2.Y)./2;
+            n12.Z = (N1.Z+N2.Z)./2;
+
+            pjk.X = POI.X-c.X;
+            pjk.Y = POI.Y-c.Y;
+            pjk.Z = POI.Z-c.Z;
+            PN = obj.matrix_dot(pjk,n);
+
+            %1回目
+            a.X = POI.X-N1.X;
+            a.Y = POI.Y-N1.Y;
+            a.Z = POI.Z-N1.Z;
+            b.X = POI.X-N2.X;
+            b.Y = POI.Y-N2.Y;
+            b.Z = POI.Z-N2.Z;
+            anorm = obj.matrix_norm(a);
+            bnorm = obj.matrix_norm(b);
+            m = obj.getUnitVector(c,n12);
+            l = obj.matrix_cross(m,n);
+            s.X = N2.X-N1.X;
+            s.Y = N2.Y-N1.Y;
+            s.Z = N2.Z-N1.Z;
+            smdot = obj.matrix_dot(s,m);
+            snorm = obj.matrix_norm(s);
+            Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
+            PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
+            PB = PA-Al.*smdot;
+            phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+            srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
+            VortexA = phiV;
+            VortexB = srcV;
+            %2回目
+            a.X = POI.X-N2.X;
+            a.Y = POI.Y-N2.Y;
+            a.Z = POI.Z-N2.Z;
+            b.X = POI.X-N3.X;
+            b.Y = POI.Y-N3.Y;
+            b.Z = POI.Z-N3.Z;
+            anorm = obj.matrix_norm(a);
+            bnorm = obj.matrix_norm(b);
+            m = obj.getUnitVector(c,n12);
+            l = obj.matrix_cross(m,n);
+            s.X = N3.X-N2.X;
+            s.Y = N3.Y-N2.Y;
+            s.Z = N3.Z-N2.Z;
+            smdot = obj.matrix_dot(s,m);
+            snorm = obj.matrix_norm(s);
+            Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
+            PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
+            PB = PA-Al.*smdot;
+            phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+            srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
+            VortexA = VortexA+phiV;
+            VortexB = VortexB+srcV;
+            %3回目
+            a.X = POI.X-N3.X;
+            a.Y = POI.Y-N3.Y;
+            a.Z = POI.Z-N3.Z;
+            b.X = POI.X-N1.X;
+            b.Y = POI.Y-N1.Y;
+            b.Z = POI.Z-N1.Z;
+            anorm = obj.matrix_norm(a);
+            bnorm = obj.matrix_norm(b);
+            m = obj.getUnitVector(c,n12);
+            l = obj.matrix_cross(m,n);
+            s.X = N1.X-N3.X;
+            s.Y = N1.Y-N3.Y;
+            s.Z = N1.Z-N3.Z;
+            smdot = obj.matrix_dot(s,m);
+            snorm = obj.matrix_norm(s);
+            Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
+            PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
+            PB = PA-Al.*smdot;
+            phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+            srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
+            VortexA = VortexA+phiV;
+            VortexB = VortexB+srcV;
+
+            %半裁の考慮
+            if obj.halfmesh == 1
+                POI.Y = -POI.Y;
                 pjk.X = POI.X-c.X;
                 pjk.Y = POI.Y-c.Y;
                 pjk.Z = POI.Z-c.Z;
                 PN = obj.matrix_dot(pjk,n);
-    
                 %1回目
                 a.X = POI.X-N1.X;
                 a.Y = POI.Y-N1.Y;
@@ -1733,8 +1814,8 @@ classdef UNLSI
                 PB = PA-Al.*smdot;
                 phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
                 srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
-                VortexA = phiV;
-                VortexB = srcV;
+                VortexA = VortexA+phiV;
+                VortexB = VortexB+srcV;
                 %2回目
                 a.X = POI.X-N2.X;
                 a.Y = POI.Y-N2.Y;
@@ -1781,84 +1862,241 @@ classdef UNLSI
                 srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
                 VortexA = VortexA+phiV;
                 VortexB = VortexB+srcV;
-    
-                %半裁の考慮
+            end
+
+            %プロペラwakeの計算
+            %プロペラエッジ検出
+            pellerTR = triangulation(obj.tri.ConnectivityList(obj.paneltype == 4,:),obj.tri.Points);
+            pellerEdge = pellerTR.freeBoundary();
+            if obj.halfmesh == 1
+                %対称面にエッジがある場合は削除
+                deleteRow = [];
+                for i = 1:size(pellerEdge,1)
+                    if pellerTR.Points(pellerEdge(i,1),2) <= sqrt(eps) && pellerTR.Points(pellerEdge(i,2),2) <= sqrt(eps)
+                        deleteRow = [deleteRow,i];
+                    end
+                end
+                pellerEdge(deleteRow,:) = [];
+            end
+            propWakeAttach = cell2mat(pellerTR.edgeAttachments(pellerEdge(:,1),pellerEdge(:,2)));
+            
+                        
+            POI.X = obj.center(obj.paneltype==1,1);
+            POI.Y = obj.center(obj.paneltype==1,2);
+            POI.Z = obj.center(obj.paneltype==1,3);
+            xwake = 100;
+            for wakeNo = 1:size(pellerEdge,1)
+                wakepos(1,:) = pellerTR.Points(pellerEdge(wakeNo,1),:)+[0,0,0];
+                wakepos(2,:) = pellerTR.Points(pellerEdge(wakeNo,2),:)+[0,0,0];
+                wakepos(3,:) = pellerTR.Points(pellerEdge(wakeNo,2),:)+[xwake,0,0];
+                wakepos(4,:) = pellerTR.Points(pellerEdge(wakeNo,1),:)+[xwake,0,0];
+                [~, ~, nbuff] = obj.vertex(wakepos(1,:),wakepos(2,:),wakepos(3,:));
+                Nw1.X = repmat(wakepos(1,1),[nbPanel,1]);
+                Nw1.Y = repmat(wakepos(1,2),[nbPanel,1]);
+                Nw1.Z = repmat(wakepos(1,3),[nbPanel,1]);
+                Nw2.X = repmat(wakepos(2,1),[nbPanel,1]);
+                Nw2.Y = repmat(wakepos(2,2),[nbPanel,1]);
+                Nw2.Z = repmat(wakepos(2,3),[nbPanel,1]);
+                Nw3.X = repmat(wakepos(3,1),[nbPanel,1]);
+                Nw3.Y = repmat(wakepos(3,2),[nbPanel,1]);
+                Nw3.Z = repmat(wakepos(3,3),[nbPanel,1]);
+                Nw4.X = repmat(wakepos(4,1),[nbPanel,1]);
+                Nw4.Y = repmat(wakepos(4,2),[nbPanel,1]);
+                Nw4.Z = repmat(wakepos(4,3),[nbPanel,1]);
+                [b1, b2, nw] = obj.vertex([Nw1.X(1),Nw1.Y(1),Nw1.Z(1)],[Nw2.X(1),Nw2.Y(1),Nw2.Z(1)],[Nw3.X(1),Nw3.Y(1),Nw3.Z(1)]);
+                cw = mean([[Nw1.X(1),Nw1.Y(1),Nw1.Z(1)];[Nw2.X(1),Nw2.Y(1),Nw2.Z(1)];[Nw3.X(1),Nw3.Y(1),Nw3.Z(1)];[Nw4.X(1),Nw4.Y(1),Nw4.Z(1)]],1);
+                n.X = repmat(nw(1),[nbPanel,1]);
+                n.Y = repmat(nw(2),[nbPanel,1]);
+                n.Z = repmat(nw(3),[nbPanel,1]);
+                %Amat = repmat(b1*2,[nbPanel,1]);
+                c.X = repmat(cw(1),[nbPanel,1]);
+                c.Y = repmat(cw(2),[nbPanel,1]);
+                c.Z = repmat(cw(3),[nbPanel,1]);
+                n12.X = (Nw3.X+Nw4.X)./2;
+                n12.Y = (Nw3.Y+Nw4.Y)./2;
+                n12.Z = (Nw3.Z+Nw4.Z)./2;
+
+                pjk.X = POI.X-c.X;
+                pjk.Y = POI.Y-c.Y;
+                pjk.Z = POI.Z-c.Z;
+                PN = obj.matrix_dot(pjk,n);
+                
+                %1回目
+                a.X = POI.X-Nw1.X;
+                a.Y = POI.Y-Nw1.Y;
+                a.Z = POI.Z-Nw1.Z;
+                b.X = POI.X-Nw2.X;
+                b.Y = POI.Y-Nw2.Y;
+                b.Z = POI.Z-Nw2.Z;
+                s.X = Nw2.X-Nw1.X;
+                s.Y = Nw2.Y-Nw1.Y;
+                s.Z = Nw2.Z-Nw1.Z;
+                anorm = obj.matrix_norm(a);
+                bnorm = obj.matrix_norm(b);
+                m = obj.getUnitVector(c,n12);
+                l = obj.matrix_cross(m,n);
+                smdot = obj.matrix_dot(s,m);
+                Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
+                PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
+                PB = PA-Al.*smdot;
+                phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                wakeVA = phiV;
+                %2回目
+                a.X = POI.X-Nw2.X;
+                a.Y = POI.Y-Nw2.Y;
+                a.Z = POI.Z-Nw2.Z;
+                b.X = POI.X-Nw3.X;
+                b.Y = POI.Y-Nw3.Y;
+                b.Z = POI.Z-Nw3.Z;
+                s.X = Nw3.X-Nw2.X;
+                s.Y = Nw3.Y-Nw2.Y;
+                s.Z = Nw3.Z-Nw2.Z;
+                anorm = obj.matrix_norm(a);
+                bnorm = obj.matrix_norm(b);
+                m = obj.getUnitVector(c,n12);
+                l = obj.matrix_cross(m,n);
+                smdot = obj.matrix_dot(s,m);
+                Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
+                PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
+                PB = PA-Al.*smdot;
+                phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                wakeVA = wakeVA+phiV;
+                %3回目
+                a.X = POI.X-Nw3.X;
+                a.Y = POI.Y-Nw3.Y;
+                a.Z = POI.Z-Nw3.Z;
+                b.X = POI.X-Nw4.X;
+                b.Y = POI.Y-Nw4.Y;
+                b.Z = POI.Z-Nw4.Z;
+                s.X = Nw4.X-Nw3.X;
+                s.Y = Nw4.Y-Nw3.Y;
+                s.Z = Nw4.Z-Nw3.Z;
+                anorm = obj.matrix_norm(a);
+                bnorm = obj.matrix_norm(b);
+                m = obj.getUnitVector(c,n12);
+                l = obj.matrix_cross(m,n);
+                smdot = obj.matrix_dot(s,m);
+                Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
+                PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
+                PB = PA-Al.*smdot;
+                phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                wakeVA = wakeVA+phiV;
+                %4回目
+                a.X = POI.X-Nw4.X;
+                a.Y = POI.Y-Nw4.Y;
+                a.Z = POI.Z-Nw4.Z;
+                b.X = POI.X-Nw1.X;
+                b.Y = POI.Y-Nw1.Y;
+                b.Z = POI.Z-Nw1.Z;
+                s.X = Nw1.X-Nw4.X;
+                s.Y = Nw1.Y-Nw4.Y;
+                s.Z = Nw1.Z-Nw4.Z;
+                anorm = obj.matrix_norm(a);
+                bnorm = obj.matrix_norm(b);
+                m = obj.getUnitVector(c,n12);
+                l = obj.matrix_cross(m,n);
+                smdot = obj.matrix_dot(s,m);
+                Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
+                PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
+                PB = PA-Al.*smdot;
+                phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                wakeVA = wakeVA+phiV;
+
+                %半裁
                 if obj.halfmesh == 1
                     POI.Y = -POI.Y;
                     pjk.X = POI.X-c.X;
                     pjk.Y = POI.Y-c.Y;
                     pjk.Z = POI.Z-c.Z;
                     PN = obj.matrix_dot(pjk,n);
+                    
                     %1回目
-                    a.X = POI.X-N1.X;
-                    a.Y = POI.Y-N1.Y;
-                    a.Z = POI.Z-N1.Z;
-                    b.X = POI.X-N2.X;
-                    b.Y = POI.Y-N2.Y;
-                    b.Z = POI.Z-N2.Z;
+                    a.X = POI.X-Nw1.X;
+                    a.Y = POI.Y-Nw1.Y;
+                    a.Z = POI.Z-Nw1.Z;
+                    b.X = POI.X-Nw2.X;
+                    b.Y = POI.Y-Nw2.Y;
+                    b.Z = POI.Z-Nw2.Z;
+                    s.X = Nw2.X-Nw1.X;
+                    s.Y = Nw2.Y-Nw1.Y;
+                    s.Z = Nw2.Z-Nw1.Z;
                     anorm = obj.matrix_norm(a);
                     bnorm = obj.matrix_norm(b);
                     m = obj.getUnitVector(c,n12);
                     l = obj.matrix_cross(m,n);
-                    s.X = N2.X-N1.X;
-                    s.Y = N2.Y-N1.Y;
-                    s.Z = N2.Z-N1.Z;
                     smdot = obj.matrix_dot(s,m);
-                    snorm = obj.matrix_norm(s);
                     Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                     PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                     PB = PA-Al.*smdot;
                     phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
-                    srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
-                    VortexA = VortexA+phiV;
-                    VortexB = VortexB+srcV;
+                    
+                    wakeVA = wakeVA+phiV;
                     %2回目
-                    a.X = POI.X-N2.X;
-                    a.Y = POI.Y-N2.Y;
-                    a.Z = POI.Z-N2.Z;
-                    b.X = POI.X-N3.X;
-                    b.Y = POI.Y-N3.Y;
-                    b.Z = POI.Z-N3.Z;
+                    a.X = POI.X-Nw2.X;
+                    a.Y = POI.Y-Nw2.Y;
+                    a.Z = POI.Z-Nw2.Z;
+                    b.X = POI.X-Nw3.X;
+                    b.Y = POI.Y-Nw3.Y;
+                    b.Z = POI.Z-Nw3.Z;
+                    s.X = Nw3.X-Nw2.X;
+                    s.Y = Nw3.Y-Nw2.Y;
+                    s.Z = Nw3.Z-Nw2.Z;
                     anorm = obj.matrix_norm(a);
                     bnorm = obj.matrix_norm(b);
                     m = obj.getUnitVector(c,n12);
                     l = obj.matrix_cross(m,n);
-                    s.X = N3.X-N2.X;
-                    s.Y = N3.Y-N2.Y;
-                    s.Z = N3.Z-N2.Z;
                     smdot = obj.matrix_dot(s,m);
-                    snorm = obj.matrix_norm(s);
                     Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                     PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                     PB = PA-Al.*smdot;
                     phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
-                    srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
-                    VortexA = VortexA+phiV;
-                    VortexB = VortexB+srcV;
+                    wakeVA = wakeVA+phiV;
                     %3回目
-                    a.X = POI.X-N3.X;
-                    a.Y = POI.Y-N3.Y;
-                    a.Z = POI.Z-N3.Z;
-                    b.X = POI.X-N1.X;
-                    b.Y = POI.Y-N1.Y;
-                    b.Z = POI.Z-N1.Z;
+                    a.X = POI.X-Nw3.X;
+                    a.Y = POI.Y-Nw3.Y;
+                    a.Z = POI.Z-Nw3.Z;
+                    b.X = POI.X-Nw4.X;
+                    b.Y = POI.Y-Nw4.Y;
+                    b.Z = POI.Z-Nw4.Z;
+                    s.X = Nw4.X-Nw3.X;
+                    s.Y = Nw4.Y-Nw3.Y;
+                    s.Z = Nw4.Z-Nw3.Z;
                     anorm = obj.matrix_norm(a);
                     bnorm = obj.matrix_norm(b);
                     m = obj.getUnitVector(c,n12);
                     l = obj.matrix_cross(m,n);
-                    s.X = N1.X-N3.X;
-                    s.Y = N1.Y-N3.Y;
-                    s.Z = N1.Z-N3.Z;
                     smdot = obj.matrix_dot(s,m);
-                    snorm = obj.matrix_norm(s);
                     Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                     PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                     PB = PA-Al.*smdot;
                     phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
-                    srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
-                    VortexA = VortexA+phiV;
-                    VortexB = VortexB+srcV;
+                    wakeVA = wakeVA+phiV;
+                    %4回目
+                    a.X = POI.X-Nw4.X;
+                    a.Y = POI.Y-Nw4.Y;
+                    a.Z = POI.Z-Nw4.Z;
+                    b.X = POI.X-Nw1.X;
+                    b.Y = POI.Y-Nw1.Y;
+                    b.Z = POI.Z-Nw1.Z;
+                    s.X = Nw1.X-Nw4.X;
+                    s.Y = Nw1.Y-Nw4.Y;
+                    s.Z = Nw1.Z-Nw4.Z;
+                    anorm = obj.matrix_norm(a);
+                    bnorm = obj.matrix_norm(b);
+                    m = obj.getUnitVector(c,n12);
+                    l = obj.matrix_cross(m,n);
+                    smdot = obj.matrix_dot(s,m);
+                    Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
+                    PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
+                    PB = PA-Al.*smdot;
+                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                    wakeVA = wakeVA+phiV;
                 end
+
+                %attachする番号を特定し足す
+                VortexA(:,propWakeAttach(wakeNo)) = VortexA(:,propWakeAttach(wakeNo)) + wakeVA;
+
+            end
         end
         
         function Q_ij=Calc_Q(y,z,phi,dS,halfmesh)
