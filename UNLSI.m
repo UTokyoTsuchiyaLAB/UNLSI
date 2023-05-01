@@ -2,6 +2,7 @@ classdef UNLSI
 
     %%%%%残タスク
     %InfluenceMatrixのリファクタリング（任意passive,activeポイント入力⇒行列化）
+    %プロペラ計算のUIを考える
     %%%%%
 
     properties
@@ -22,7 +23,7 @@ classdef UNLSI
         center %各パネルの中心
         area %各パネルの面積
         flow %各flowconditionが格納されたセル配列
-        propeller %各プロペラ方程式情報が格納されたセル配列
+        prop %各プロペラ方程式情報が格納されたセル配列
         cluster %パネルクラスターの情報
         LHS %パネル法連立方程式の左辺行列
         RHS %パネル法連立方程式の右辺行列
@@ -410,17 +411,38 @@ classdef UNLSI
             obj.LLT.Qij = obj.Calc_Q(horzcat(obj.LLT.yinterp{:}),horzcat(obj.LLT.zinterp{:}),horzcat(obj.LLT.phiinterp{:}),horzcat(obj.LLT.spanel{:}),obj.halfmesh);
         end
 
-        function obj = makePropellerEquation(obj,ID)
+        function obj = makePropellerEquation(obj,propNo,ID,diameter,XZsliced,rho)
+            nPanel = numel(obj.paneltype);
             %IDのパネルタイプをプロペラ==4に変更
             obj = obj.setPanelType(ID,'prop');
             %プロペラディスク⇒bodyパネルへの影響係数
+            obj.prop{propNo}.diameter = diameter;
+            obj.prop{propNo}.area = pi*(obj.prop{propNo}.diameter/2)^2;
+            obj.prop{propNo}.rho = rho;
+            %ペラパネルの重心位置を計算
+            mom = [0,0,0];
+            propArea = 0;
+            for i = 1:nPanel
+                if obj.surfID(i) == ID
+                    darea = obj.vertex(obj.tri.Points(obj.tri(i,1),:),obj.tri.Points(obj.tri(i,2),:),obj.tri.Points(obj.tri(i,3),:));
+                    propArea = propArea + darea;
+                    mom = mom + darea.*obj.center(i,:);
+                    if XZsliced == 1
+                        mom = mom + darea.*[obj.center(i,1),-obj.center(i,2),obj.center(i,3)];
+                    end
+                end
+            end
+            if XZsliced == 1
+                propArea = 2*propArea;
+            end
+            obj.prop{propNo}.normal = mean(obj.normal(obj.surfID == ID,:),1);
+            obj.prop{propNo}.center = mom./propArea;
+            obj.prop{propNo}.sigmoidStrength = 100;
             %とりあえずpaneltypeで計算しているが、IDで管理したい
             %muとsigma両方
-            [VortexA,VortexB] = obj.propellerInfluenceMatrix(obj);
-            obj.propeller{1}.LHS = VortexA;
-            obj.propeller{1}.RHS = VortexB;
-            %プロペラwake⇒wakeパネルへの影響係数
-            
+            [VortexA,VortexB] = obj.propellerInfluenceMatrix(obj,ID);
+            obj.prop{propNo}.LHS = VortexA;
+            obj.prop{propNo}.RHS = VortexB;
         end
 
 
@@ -536,7 +558,14 @@ classdef UNLSI
             obj.Cfe{flowNo}(obj.paneltype==1,1) =(LTratio*Cf_L + (1-LTratio)*Cf_T)*coefficient;
         end
 
-        function obj = solveFlow(obj,flowNo,alpha,beta,omega)
+        function obj = setPropState(obj,propNo,eta,thrust)
+            obj.prop{propNo}.thrust = thrust;
+            obj.prop{propNo}.eta = eta;
+
+
+        end
+
+        function obj = solveFlow(obj,flowNo,alpha,beta,omega,propCalcFlag)
             %%%%%%%%%%%%%LSIの求解%%%%%%%%%%%%%%%%%%%%%
             %結果はobj.AERODATAに格納される。
             % 1:Beta 2:Mach 3:AoA 4:Re/1e6 5:CL 6:CLt 7:CDo 8:CDi 9:CDtot 10:CDt 11:CDtot_t 12:CS 13:L/D 14:E(翼効率) 15:CFx 16:CFy 17:CFz 18:CMx 19:CMy 20:CMz 21:CMl 22:CMm 23:CMn 24:FOpt 
@@ -546,6 +575,13 @@ classdef UNLSI
             %beta:横滑り角[deg]
             %omega:主流の回転角速度(deg/s)
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            if nargin < 5
+                omega = [];
+                propCalcFlag = 0;
+            elseif nargin < 6
+                propCalcFlag = 0;
+            end
+
             if any(size(alpha) ~= size(beta))
                 error("analysis points are not match");
             end
@@ -564,7 +600,7 @@ classdef UNLSI
                 T(3,2) = sind(alpha(iterflow))*sind(beta(iterflow));
                 T(3,3) = cosd(alpha(iterflow));
 
-                if nargin < 5
+                if isempty(omega)
                     Vinf = repmat((T*[1;0;0])',[nPanel,1]);
                 else
                     Vinf = zeros(nPanel,3);
@@ -589,20 +625,47 @@ classdef UNLSI
                             iter = iter+1;
                         end
                     end
-                    %%%%プロペラ計算お試し
-
-                    RHV = obj.RHS*sigmas+obj.propeller{1}.LHS*(0.1*ones(size(obj.propeller{1}.LHS,2),1))-obj.propeller{1}.RHS*(5.*ones(size(obj.propeller{1}.LHS,2),1));
+                    
+                    dVprop =  zeros(nPanel,1);
+                    dHprop =  zeros(nPanel,1);
+                    if propCalcFlag == 1
+                        %%%%プロペラ計算お試し
+                        RHV = obj.RHS*sigmas;
+                        for propNo = 1:numel(obj.prop)
+                            dVa = 2*(1/ obj.prop{propNo}.eta-1);
+                            Vnorm = dVa/2;
+                            dCpProp = obj.prop{propNo}.thrust/(0.5*obj.prop{propNo}.rho*obj.prop{propNo}.area);
+                            
+                            for i = 1:nPanel
+                                if obj.paneltype(i) == 1
+                                    %プロペラ軸との最短距離を求める
+                                    rPropCenter = obj.center(i,:)-obj.prop{propNo}.center;
+                                    dotCoef = dot(rPropCenter,-obj.prop{propNo}.normal);
+                                    shortestPoint = obj.prop{propNo}.center - dotCoef.*obj.prop{propNo}.normal;
+                                    rShortest = norm(obj.center(i,:)-shortestPoint);
+                                    dHprop(i,1) = dCpProp*obj.sigmoid((obj.prop{propNo}.diameter/2-rShortest),0,obj.prop{propNo}.sigmoidStrength)*obj.sigmoid(dotCoef,0,obj.prop{propNo}.sigmoidStrength);
+                                    dVprop(i,1) =   Vnorm*obj.sigmoid((obj.prop{propNo}.diameter/2-rShortest),0,obj.prop{propNo}.sigmoidStrength)*obj.sigmoid(dotCoef,0,obj.prop{propNo}.sigmoidStrength);
+                                end
+                            end
+                            muProp = (obj.prop{1}.diameter/2)*dCpProp/(1)/4/pi;
+                        end
+                        RHV = RHV + (obj.prop{propNo}.LHS*(muProp*ones(size(obj.prop{propNo}.LHS,2),1))+obj.prop{propNo}.RHS*(Vnorm.*ones(size(obj.prop{propNo}.LHS,2),1)));
+                    else
+                        RHV = obj.RHS*sigmas;
+                    end
+                    
                     u =  -obj.LHS\RHV;
                     potential = u + sum(Vinf(obj.paneltype == 1,:).*obj.center(obj.paneltype == 1,:),2);
                     dv = zeros(nPanel,3);
                     for i = 1:3
                         dv(:,i) = obj.mu2v{i}*(potential);
                     end
-                    obj.Cp{flowNo}(obj.paneltype==1,iterflow) = (1-sum(dv(obj.paneltype==1,:).^2,2))./(1-obj.flow{flowNo}.Mach^2);
+                    %obj.plotGeometry(1,sqrt(sum(dv(:,:).^2,2))+dVprop,[0,2])
+                    obj.Cp{flowNo}(obj.paneltype==1,iterflow) = ((1+dHprop(obj.paneltype==1,:))-(sqrt(sum(dv(obj.paneltype==1,:).^2,2))+dVprop(obj.paneltype==1,:)).^2)./(1-obj.flow{flowNo}.Mach^2);
                     obj.Cp{flowNo}(obj.paneltype==2,iterflow) = (-0.139-0.419.*(obj.flow{flowNo}.Mach-0.161).^2);
                     uinterp = [];
                     for i = 1:numel(obj.wakeline)
-                        uinterp = [uinterp,interp1(obj.LLT.sp{i},obj.LLT.calcMu{i}*u,obj.LLT.sinterp{i},'linear','extrap')];
+                        uinterp = [uinterp,interp1(obj.LLT.sp{i},obj.LLT.calcMu{i}*(u.*(sqrt(sum(dv(obj.paneltype==1,:).^2,2))+dVprop(obj.paneltype==1,:))),obj.LLT.sinterp{i},'linear','extrap')];
                     end
                     Vind = obj.LLT.Qij*uinterp';
                     %{
@@ -820,9 +883,10 @@ classdef UNLSI
                     obj.Cp{flowNo}(obj.paneltype==2,iterflow) = (-0.139-0.419.*(obj.flow{flowNo}.Mach-0.161).^2);
                     uinterp = [];
                     for i = 1:numel(obj.wakeline)
-                        uinterp = [uinterp,interp1(obj.LLT.sp{i},obj.LLT.calcMu{i}*usolve,obj.LLT.sinterp{i},'linear','extrap')];
+                        uinterp = [uinterp,interp1(obj.LLT.sp{i},obj.LLT.calcMu{i}*(usolve.*sqrt(sum(dv(obj.paneltype==1,:)).^2,2)),obj.LLT.sinterp{i},'linear','extrap')];
                     end
                     Vind = obj.LLT.Qij*uinterp';
+
                     CLt = (2.*horzcat(obj.LLT.spanel{:}).*cos(horzcat(obj.LLT.phiinterp{:}))*uinterp')/(0.5*obj.SREF)/(1-obj.flow{flowNo}.Mach^2);
                     CDt = ((uinterp.*horzcat(obj.LLT.spanel{:}))*Vind)/(0.5*obj.SREF)/norm(1-obj.flow{flowNo}.Mach^2)^3;
                 else
@@ -974,6 +1038,10 @@ classdef UNLSI
     end
 
     methods(Static)
+
+        function res = sigmoid(x,c,a)
+            res = 1./(1 + exp(-a.*(x-c)));
+        end
         
         function [VortexAr,VortexBr,VortexAc,VortexBc] = influenceMatrix(obj,rowIndex,colIndex)
             %%%%%%%%%%%%%%%%%%%影響係数の計算　パネル⇒パネル%%%%%%%%%%%%%%%
@@ -1659,13 +1727,13 @@ classdef UNLSI
 
         end
         
-        function [VortexA,VortexB] = propellerInfluenceMatrix(obj)
+        function [VortexA,VortexB] = propellerInfluenceMatrix(obj,ID)
             verts = obj.tri.Points;
             con  = obj.tri.ConnectivityList(obj.paneltype==1,:);
             %normal = obj.normal(obj.paneltype==1,:);
 
             nbPanel = size(con,1);
-            ncol = sum(obj.paneltype == 4);
+            ncol = sum(obj.surfID == ID);
 
     
             POI.X(:,1) = obj.center(obj.paneltype==1,1);
@@ -1866,7 +1934,7 @@ classdef UNLSI
 
             %プロペラwakeの計算
             %プロペラエッジ検出
-            pellerTR = triangulation(obj.tri.ConnectivityList(obj.paneltype == 4,:),obj.tri.Points);
+            pellerTR = triangulation(obj.tri.ConnectivityList(obj.surfID == ID,:),obj.tri.Points);
             pellerEdge = pellerTR.freeBoundary();
             if obj.halfmesh == 1
                 %対称面にエッジがある場合は削除
@@ -1884,25 +1952,26 @@ classdef UNLSI
             POI.X = obj.center(obj.paneltype==1,1);
             POI.Y = obj.center(obj.paneltype==1,2);
             POI.Z = obj.center(obj.paneltype==1,3);
+            pellerNormal = mean(obj.normal(obj.surfID == ID,:),1);
             xwake = 100;
             for wakeNo = 1:size(pellerEdge,1)
                 wakepos(1,:) = pellerTR.Points(pellerEdge(wakeNo,1),:)+[0,0,0];
                 wakepos(2,:) = pellerTR.Points(pellerEdge(wakeNo,2),:)+[0,0,0];
-                wakepos(3,:) = pellerTR.Points(pellerEdge(wakeNo,2),:)+[xwake,0,0];
-                wakepos(4,:) = pellerTR.Points(pellerEdge(wakeNo,1),:)+[xwake,0,0];
+                wakepos(3,:) = pellerTR.Points(pellerEdge(wakeNo,2),:)-xwake.*pellerNormal;
+                wakepos(4,:) = pellerTR.Points(pellerEdge(wakeNo,1),:)-xwake.*pellerNormal;
                 [~, ~, nbuff] = obj.vertex(wakepos(1,:),wakepos(2,:),wakepos(3,:));
-                Nw1.X = repmat(wakepos(1,1),[nbPanel,1]);
-                Nw1.Y = repmat(wakepos(1,2),[nbPanel,1]);
-                Nw1.Z = repmat(wakepos(1,3),[nbPanel,1]);
-                Nw2.X = repmat(wakepos(2,1),[nbPanel,1]);
-                Nw2.Y = repmat(wakepos(2,2),[nbPanel,1]);
-                Nw2.Z = repmat(wakepos(2,3),[nbPanel,1]);
-                Nw3.X = repmat(wakepos(3,1),[nbPanel,1]);
-                Nw3.Y = repmat(wakepos(3,2),[nbPanel,1]);
-                Nw3.Z = repmat(wakepos(3,3),[nbPanel,1]);
-                Nw4.X = repmat(wakepos(4,1),[nbPanel,1]);
-                Nw4.Y = repmat(wakepos(4,2),[nbPanel,1]);
-                Nw4.Z = repmat(wakepos(4,3),[nbPanel,1]);
+                Nw1.X = repmat(wakepos(2,1),[nbPanel,1]);
+                Nw1.Y = repmat(wakepos(2,2),[nbPanel,1]);
+                Nw1.Z = repmat(wakepos(2,3),[nbPanel,1]);
+                Nw2.X = repmat(wakepos(1,1),[nbPanel,1]);
+                Nw2.Y = repmat(wakepos(1,2),[nbPanel,1]);
+                Nw2.Z = repmat(wakepos(1,3),[nbPanel,1]);
+                Nw3.X = repmat(wakepos(4,1),[nbPanel,1]);
+                Nw3.Y = repmat(wakepos(4,2),[nbPanel,1]);
+                Nw3.Z = repmat(wakepos(4,3),[nbPanel,1]);
+                Nw4.X = repmat(wakepos(3,1),[nbPanel,1]);
+                Nw4.Y = repmat(wakepos(3,2),[nbPanel,1]);
+                Nw4.Z = repmat(wakepos(3,3),[nbPanel,1]);
                 [b1, b2, nw] = obj.vertex([Nw1.X(1),Nw1.Y(1),Nw1.Z(1)],[Nw2.X(1),Nw2.Y(1),Nw2.Z(1)],[Nw3.X(1),Nw3.Y(1),Nw3.Z(1)]);
                 cw = mean([[Nw1.X(1),Nw1.Y(1),Nw1.Z(1)];[Nw2.X(1),Nw2.Y(1),Nw2.Z(1)];[Nw3.X(1),Nw3.Y(1),Nw3.Z(1)];[Nw4.X(1),Nw4.Y(1),Nw4.Z(1)]],1);
                 n.X = repmat(nw(1),[nbPanel,1]);
