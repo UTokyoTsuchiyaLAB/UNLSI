@@ -1,5 +1,11 @@
  classdef UNGRADE < UNLSI
 
+
+     %%%%%%%%%%%%%%%
+     %残タスク
+     %propCalcFlagの適切な設定
+     %propパラメータ周りの引継ぎあたりのバグ確認
+     %%%%%%%%%%%%%%%
     properties
         orgMesh %解析を行うメッシュ
         orgGeom %メッシュ変形に用いる基準形状
@@ -56,13 +62,15 @@
             obj.scaledVar = (desOrg(:)'-obj.lb)./obj.designScale;
             obj.orgGeom =  triangulation(orgGeomCon,orgGeomVerts);
             
+            obj.setting.propCalcFlag = 0;
+            obj.setting.chekMeshMethod = "delete";
             obj.setting.Mach = Mach;
             obj.setting.alpha = alpha;
             obj.setting.beta = beta;
             if numel(obj.setting.Mach) ~= numel(obj.setting.alpha) || numel(obj.setting.Mach) ~= numel(obj.setting.beta) || numel(obj.setting.beta) ~= numel(obj.setting.alpha)
                 error("No. of case is not match");
             end
-
+            
             obj.iteration = 0;
             fprintf("iteration No. %d ---> Variables:\n",obj.iteration)
             disp(desOrg);
@@ -120,7 +128,7 @@
             [orgMeshVerts, orgMeshCon,surfID,wakeLineID, unscaledVariables] = obj.meshGenFun(unscaledVariables(:)');
             fprintf("iteration No. %d ---> Variables:\n",obj.iteration)
             disp(unscaledVariables);
-            obj = obj.setMesh(orgMeshVerts,orgMeshCon,surfID,wakeLineID);
+            obj = obj.setMesh(orgMeshVerts,orgMeshCon,surfID,wakeLineID,obj.setting.chekMeshMethod);
             [orgGeomVerts,orgGeomCon,optSREF,optBREF,optCREF,optXYZREF,obj.argin_x,desOrg] = obj.geomGenFun(unscaledVariables);
             obj.orgMesh = triangulation(orgMeshCon,orgMeshVerts);
             obj = obj.setREFS(optSREF,optBREF,optCREF);
@@ -149,13 +157,16 @@
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%            
             if isempty(obj.LHS)
                 if any(obj.flowNoList(:,3) == 1)
+                    if obj.setting.propCalcFlag == 1
+                        obj = obj.makePropEquation(100);
+                    end
                     obj = obj.makeEquation(obj.setting.wakeLength,obj.setting.n_wake,obj.setting.n_divide);
                 end 
             end
             if nargin<5
-                obj = obj.solveFlow(flowNo,alpha,beta);
+                obj = obj.solveFlow(flowNo,alpha,beta,[],obj.setting.propCalcFlag);
             else
-                obj = obj.solveFlow(flowNo,alpha,beta,omega);
+                obj = obj.solveFlow(flowNo,alpha,beta,omega,obj.setting.propCalcFlag);
             end
 
         end
@@ -167,6 +178,9 @@
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%   
             if isempty(obj.LHS)
                 if any(obj.flowNoList(:,3) == 1)
+                    if obj.setting.propCalcFlag == 1
+                        obj = obj.makePropEquation(100);
+                    end
                     obj = obj.makeEquation(obj.setting.wakeLength,obj.setting.n_wake,obj.setting.n_divide);
                 end
             end
@@ -175,7 +189,7 @@
             for iter = 1:numel(obj.flow)
                 alphabuff = obj.setting.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                 betabuff = obj.setting.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
-                [obj] = obj.solveFlow(iter,alphabuff,betabuff);
+                [obj] = obj.solveFlow(iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);
             end
             [I,con] = objandConsFun(desOrg,obj.AERODATA,obj.Cp,obj.Cfe,obj.SREF,obj.BREF,obj.CREF,obj.XYZREF,obj.argin_x);
         end
@@ -254,6 +268,19 @@
             end
         end
 
+        function obj = setPropParameter(obj,Vinf,rho,CT,CP,rpm)
+           %%%%%%%%%UNLSIのCfパラメータを一括設定する%%%%%%%%%%%%
+            %変数についてはUNLSIのsetPropStateを参照
+           %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+           obj.setting.propCalcFlag = 1;
+            obj.setting.Vinf = Vinf;
+            obj.setting.rho = rho;
+            obj.setting.CT = CT;
+            obj.setting.CP = CP;
+            obj.setting.rpm = rpm;
+            obj = obj.setPropState(obj.setting.Vinf,obj.setting.rho,obj.setting.CT,obj.setting.CP,obj.setting.rpm);
+        end
+
         function obj = setCfParameter(obj,Re,Lch,k,LTratio,CfeCoefficient)
            %%%%%%%%%UNLSIのCfパラメータを一括設定する%%%%%%%%%%%%
             %変数についてはUNLSIのsetCfを参照
@@ -327,6 +354,9 @@
             nbPanel = sum(obj.paneltype == 1);
             if isempty(obj.LHS)
                 if any(obj.flowNoList(:,3) == 1)
+                    if obj.setting.propCalcFlag == 1
+                        obj = obj.makePropEquation(100);
+                    end
                     obj = obj.makeEquation(obj.setting.wakeLength,obj.setting.n_wake,obj.setting.n_divide);
                 end
             end
@@ -337,8 +367,8 @@
             for iter = 1:numel(obj.flow)
                 alphabuff = obj.setting.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                 betabuff = obj.setting.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
-                [u0solve,~] = obj.solvePertPotential(iter,alphabuff,betabuff);%ポテンシャルを求める
-                [AERODATA0,Cp0,Cfe0,R0solve,obj] = obj.solveFlowForAdjoint(u0solve,iter,alphabuff,betabuff);%ポテンシャルから空力係数を計算
+                [u0solve,~] = obj.solvePertPotential(iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);%ポテンシャルを求める
+                [AERODATA0,Cp0,Cfe0,R0solve,obj] = obj.solveFlowForAdjoint(u0solve,iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);%ポテンシャルから空力係数を計算
                 %結果をマッピング
                 lktable = find(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                 for i = 1:numel(lktable)
@@ -369,7 +399,7 @@
                     end
                     alphabuff = obj.setting.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                     betabuff = obj.setting.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
-                    [AERODATA,Cp,Cfe,~,obj] = obj.solveFlowForAdjoint(usolve,iter,alphabuff,betabuff);
+                    [AERODATA,Cp,Cfe,~,obj] = obj.solveFlowForAdjoint(usolve,iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);
                 end
                 [I,con] = objandConsFun(desOrg,AERODATA,Cp,Cfe,obj.SREF,obj.BREF,obj.CREF,obj.XYZREF,obj.argin_x);
                 dI_du(i) = (I-I0)/pert;%評価関数のポテンシャルに関する偏微分
@@ -410,12 +440,18 @@
                     %変数が少ないときは直接作成
                     obj2 = obj.setVerts(modMesh);
                     if any(obj.flowNoList(:,3) == 1)
+                        if obj.setting.propCalcFlag == 1
+                            obj2 = obj2.makePropEquation(100);
+                        end
                         obj2 = obj2.makeEquation(obj.setting.wakeLength,obj.setting.n_wake,obj.setting.n_divide);
                     end
                     obj2.approximated = 0;
                 elseif strcmpi(obj.setting.gradientCalcMethod,'chain')
                     if any(obj.flowNoList(:,3) == 1)
                         obj2 = obj.makeApproximatedInstance(modMesh);
+                        if obj.setting.propCalcFlag == 1
+                            obj2 = obj2.makePropEquation(100);
+                        end
                     else
                         obj2 = obj.setVerts(modMesh);
                     end
@@ -440,7 +476,7 @@
                     end
                     alphabuff = obj.setting.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                     betabuff = obj.setting.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
-                    [AERODATA,Cp,Cfe,Rsolve,obj2] = obj2.solveFlowForAdjoint(u0solve,iter,alphabuff,betabuff);
+                    [AERODATA,Cp,Cfe,Rsolve,obj2] = obj2.solveFlowForAdjoint(u0solve,iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);
                     for k = 1:numel(lktable)
                         R((lktable(k)-1)*nbPanel+1:lktable(k)*nbPanel,1) = Rsolve(nbPanel*(k-1)+1:nbPanel*k,1);
                     end

@@ -144,24 +144,48 @@ classdef UNLSI
                     method = "linear";
                     extrapmethod = "linear";
                 end
-                F = scatteredInterpolant(obj.center,triColor,method,extrapmethod);
-                c = F(obj.tri.Points);
-                trisurf(obj.tri,c,'FaceColor','interp','EdgeAlpha',0.15);
-                colormap jet;
-                if obj.halfmesh == 1
+                if strcmpi(method,"exact")
+                    %指定がexactの場合はパネル一枚一枚描画する
                     hold on;
-                    trisurf(obj.tri.ConnectivityList,obj.tri.Points(:,1),-obj.tri.Points(:,2),obj.tri.Points(:,3),c,'FaceColor','interp','EdgeAlpha',0.15);
+                    for i = 1:numel(obj.surfID)
+                        if obj.paneltype(i) == 1
+                            trisurf([1,2,3],obj.tri.Points(obj.tri(i,:),1),obj.tri.Points(obj.tri(i,:),2),obj.tri.Points(obj.tri(i,:),3),triColor(i),'EdgeAlpha',0.15);
+                            if obj.halfmesh == 1
+                                trisurf([1,2,3],obj.tri.Points(obj.tri(i,:),1),-obj.tri.Points(obj.tri(i,:),2),obj.tri.Points(obj.tri(i,:),3),triColor(i),'EdgeAlpha',0.15);
+                            end
+                        else
+                            trisurf([1,2,3],obj.tri.Points(obj.tri(i,:),1),obj.tri.Points(obj.tri(i,:),2),obj.tri.Points(obj.tri(i,:),3),0,'EdgeAlpha',0.15);
+                            if obj.halfmesh == 1
+                                trisurf([1,2,3],obj.tri.Points(obj.tri(i,:),1),-obj.tri.Points(obj.tri(i,:),2),obj.tri.Points(obj.tri(i,:),3),0,'EdgeAlpha',0.15);
+                            end
+                        end
+                    end
                     colormap jet;
-                    hold off
+                    hold off;
+                    caxis(colorlim);
+                else
+                    F = scatteredInterpolant(obj.center,triColor,method,extrapmethod);
+                    c = F(obj.tri.Points);
+                    trisurf(obj.tri,c,'FaceColor','interp','EdgeAlpha',0.15);
+                    colormap jet;
+                    if obj.halfmesh == 1
+                        hold on;
+                        trisurf(obj.tri.ConnectivityList,obj.tri.Points(:,1),-obj.tri.Points(:,2),obj.tri.Points(:,3),c,'FaceColor','interp','EdgeAlpha',0.15);
+                        colormap jet;
+                        hold off
+                    end
+                    caxis(colorlim);
                 end
-                caxis(colorlim);
             end
             axis equal;xlabel("x");ylabel("y");zlabel("z");
             drawnow();pause(0.1);
 
         end
 
-        function obj = setMesh(obj,verts,connectivity,surfID,wakelineID)
+        function obj = setMesh(obj,verts,connectivity,surfID,wakelineID,checkMeshMethod)
+            if nargin == 5
+                checkMeshMethod = 'warning';
+            end
             obj.tri = triangulation(connectivity,verts);
             obj.surfID = surfID;
             for i = 1:numel(wakelineID)
@@ -216,7 +240,12 @@ classdef UNLSI
                     end
                 end
             end
-            obj.checkMesh(sqrt(eps),"warning");
+            if numel(obj.prop)>0
+                for propNo = 1:numel(obj.prop)
+                    obj = obj.setProp(propNo,obj.prop{propNo}.ID,obj.prop{propNo}.diameter,obj.prop{propNo}.XZsliced);
+                end
+            end
+            obj.checkMesh(sqrt(eps),checkMeshMethod);
         end
 
         function obj = setVerts(obj,verts)
@@ -247,12 +276,57 @@ classdef UNLSI
             if any(obj.area<tol)
                 if strcmpi(outType,'warning')
                     warning("some panel areas are too small");
+                elseif strcmpi(outType,'delete')
+                    warning("some panel areas are too small and deleted");
+                    deleteIndex = obj.area<tol;
+                    newCon = obj.tri.ConnectivityList;
+                    newCon(deleteIndex,:) = [];
+                    obj.surfID(deleteIndex,:) = [];
+                    for i = 1:numel(obj.wakeline)
+                        wakelineID{i} = obj.wakeline{i}.edge;
+                    end
+                    obj = obj.setMesh(obj.tri.Points,newCon,obj.surfID,wakelineID);
                 else
                     error("some panel areas are too small");
                 end
             end
         end
 
+        function obj = mergeVerts(obj,tol)
+            %%%%%%%%%%%%%%%%近接しているvertsをマージする%%%%%%%%%%%%%%%
+            %%%%%%%%%%%%CAUTISON BUGGY%%%%%%%%%%%%%%%%
+            %まだきちんとできていない
+            %tol:マージする最小距離
+            %
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            nVerts = size(obj.tri.Points,1);
+            mergePair = [];
+            newCon = obj.tri.ConnectivityList;
+            newVerts = obj.tri.Points;
+            for i = 1:nVerts-1
+                sindex = i+1:nVerts;
+                nDist = vecnorm(obj.tri.Points(sindex,:)-repmat(obj.tri.Points(i,:),[numel(sindex),1]),2,2);
+                if any(nDist<tol)
+                    mergePoint = find(nDist<0.01)+i;
+                    mergePair = [mergePair;repmat(i,numel(mergePoint),1),mergePoint];
+                end
+            end
+            for i = 1:size(mergePair,1)
+                %ID1 = obj.tri.vertexAttachments(mergePair(i,1));
+                ID2 = obj.tri.vertexAttachments(mergePair(i,2));
+                for j = 1:numel(ID2{1})
+                    if numel(setdiff(obj.tri(ID2{1}(j),:),mergePair(i,:))) > 1
+                        newCon(ID2{1}(j),obj.tri(ID2{1}(j),:)==mergePair(i,2)) = mergePair(i,1);
+                    end
+                end
+                newVerts(mergePair(i,1),:) = (obj.tri.Points(mergePair(i,1),:)+obj.tri.Points(mergePair(i,2),:))./2;
+            end
+            for i = 1:numel(obj.wakeline)
+                wakelineID{i} = obj.wakeline{i}.edge;
+            end
+            obj = obj.setMesh(newVerts,newCon,obj.surfID,wakelineID);
+        end
+        
         function obj = setPanelType(obj,ID,typename)
             %%%%%%%%%%%%%%%%paneltypeの指定関数%%%%%%%%%%%%%%%%
             %panelname : body 1 機体表面パネル
@@ -411,14 +485,15 @@ classdef UNLSI
             obj.LLT.Qij = obj.Calc_Q(horzcat(obj.LLT.yinterp{:}),horzcat(obj.LLT.zinterp{:}),horzcat(obj.LLT.phiinterp{:}),horzcat(obj.LLT.spanel{:}),obj.halfmesh);
         end
 
-        function obj = makePropellerEquation(obj,propNo,ID,diameter,XZsliced,rho)
-            nPanel = numel(obj.paneltype);
+        function obj = setProp(obj,propNo,ID,diameter,XZsliced)
             %IDのパネルタイプをプロペラ==4に変更
             obj = obj.setPanelType(ID,'prop');
+            obj.prop{propNo}.ID = ID;
+            nPanel = numel(obj.paneltype);
             %プロペラディスク⇒bodyパネルへの影響係数
             obj.prop{propNo}.diameter = diameter;
             obj.prop{propNo}.area = pi*(obj.prop{propNo}.diameter/2)^2;
-            obj.prop{propNo}.rho = rho;
+            obj.prop{propNo}.XZsliced  = XZsliced;
             %ペラパネルの重心位置を計算
             mom = [0,0,0];
             propArea = 0;
@@ -438,11 +513,16 @@ classdef UNLSI
             obj.prop{propNo}.normal = mean(obj.normal(obj.surfID == ID,:),1);
             obj.prop{propNo}.center = mom./propArea;
             obj.prop{propNo}.sigmoidStrength = 100;
+        end
+
+        function obj = makePropEquation(obj,propWake)
             %とりあえずpaneltypeで計算しているが、IDで管理したい
             %muとsigma両方
-            [VortexA,VortexB] = obj.propellerInfluenceMatrix(obj,ID);
-            obj.prop{propNo}.LHS = VortexA;
-            obj.prop{propNo}.RHS = VortexB;
+            for propNo = 1:numel(obj.prop)
+                [VortexA,VortexB] = obj.propellerInfluenceMatrix(obj,obj.prop{propNo}.ID,propWake);
+                obj.prop{propNo}.LHS = VortexA;
+                obj.prop{propNo}.RHS = VortexB;
+            end
         end
 
 
@@ -558,11 +638,33 @@ classdef UNLSI
             obj.Cfe{flowNo}(obj.paneltype==1,1) =(LTratio*Cf_L + (1-LTratio)*Cf_T)*coefficient;
         end
 
-        function obj = setPropState(obj,propNo,eta,thrust)
-            obj.prop{propNo}.thrust = thrust;
-            obj.prop{propNo}.eta = eta;
+        function [obj,thrust,power,Jref] = setPropState(obj,Vinf,rho,CT,CP,rpm)
+            if numel(Vinf)>1 || numel(rho)>1
+                error("numel(Vinf and rho) must be 1 ")
+            end
 
-
+            if numel(CT) == 1 && numel(CP)==1 && numel(rpm)==1
+               CTbuff = CT;
+               CPbuff = CP;
+               rpmbuff = rpm;
+               for propNo = 1:numel(obj.prop)
+                    CT(propNo) = CTbuff;
+                    CP(propNo) = CPbuff;
+                    rpm(propNo) = rpmbuff;
+               end
+            end
+            for propNo = 1:numel(obj.prop)
+                obj.prop{propNo}.CT = CT(propNo);
+                obj.prop{propNo}.CP = CP(propNo);
+                obj.prop{propNo}.rpm = rpm(propNo);
+                obj.prop{propNo}.Vinf = Vinf;
+                obj.prop{propNo}.rho = rho;
+                thrust = obj.prop{propNo}.CT * obj.prop{propNo}.rho * (obj.prop{propNo}.rpm/60)^2 * obj.prop{propNo}.diameter^4;
+                power =  obj.prop{propNo}.CP * obj.prop{propNo}.rho * (obj.prop{propNo}.rpm/60)^3 * obj.prop{propNo}.diameter^5;
+                obj.prop{propNo}.thrust = thrust;
+                obj.prop{propNo}.power = power;
+                Jref =  Vinf / ( 2*obj.prop{propNo}.rpm*obj.prop{propNo}.diameter/2/60);
+            end
         end
 
         function obj = solveFlow(obj,flowNo,alpha,beta,omega,propCalcFlag)
@@ -626,46 +728,26 @@ classdef UNLSI
                         end
                     end
                     
-                    dVprop =  zeros(nPanel,1);
-                    dHprop =  zeros(nPanel,1);
+                    dCpprop =  zeros(nPanel,1);
+                    dVxprop = zeros(nPanel,1);
                     if propCalcFlag == 1
-                        %%%%プロペラ計算お試し
                         RHV = obj.RHS*sigmas;
-                        for propNo = 1:numel(obj.prop)
-                            dVa = 2*(1/ obj.prop{propNo}.eta-1);
-                            Vnorm = dVa/2;
-                            dCpProp = obj.prop{propNo}.thrust/(0.5*obj.prop{propNo}.rho*obj.prop{propNo}.area);
-                            
-                            for i = 1:nPanel
-                                if obj.paneltype(i) == 1
-                                    %プロペラ軸との最短距離を求める
-                                    rPropCenter = obj.center(i,:)-obj.prop{propNo}.center;
-                                    dotCoef = dot(rPropCenter,-obj.prop{propNo}.normal);
-                                    shortestPoint = obj.prop{propNo}.center - dotCoef.*obj.prop{propNo}.normal;
-                                    rShortest = norm(obj.center(i,:)-shortestPoint);
-                                    dHprop(i,1) = dCpProp*obj.sigmoid((obj.prop{propNo}.diameter/2-rShortest),0,obj.prop{propNo}.sigmoidStrength)*obj.sigmoid(dotCoef,0,obj.prop{propNo}.sigmoidStrength);
-                                    dVprop(i,1) =   Vnorm*obj.sigmoid((obj.prop{propNo}.diameter/2-rShortest),0,obj.prop{propNo}.sigmoidStrength)*obj.sigmoid(dotCoef,0,obj.prop{propNo}.sigmoidStrength);
-                                end
-                            end
-                            muProp = (obj.prop{1}.diameter/2)*dCpProp/(1)/4/pi;
-                        end
-                        RHV = RHV + (obj.prop{propNo}.LHS*(muProp*ones(size(obj.prop{propNo}.LHS,2),1))+obj.prop{propNo}.RHS*(Vnorm.*ones(size(obj.prop{propNo}.LHS,2),1)));
+                       [RHVprop,dVxprop,dCpprop] = obj.calcPropRHV(obj,T);
+                       RHV = RHV + RHVprop;
                     else
                         RHV = obj.RHS*sigmas;
                     end
-                    
                     u =  -obj.LHS\RHV;
                     potential = u + sum(Vinf(obj.paneltype == 1,:).*obj.center(obj.paneltype == 1,:),2);
                     dv = zeros(nPanel,3);
                     for i = 1:3
                         dv(:,i) = obj.mu2v{i}*(potential);
                     end
-                    %obj.plotGeometry(1,sqrt(sum(dv(:,:).^2,2))+dVprop,[0,2])
-                    obj.Cp{flowNo}(obj.paneltype==1,iterflow) = ((1+dHprop(obj.paneltype==1,:))-(sqrt(sum(dv(obj.paneltype==1,:).^2,2))+dVprop(obj.paneltype==1,:)).^2)./(1-obj.flow{flowNo}.Mach^2);
+                    obj.Cp{flowNo}(obj.paneltype==1,iterflow) = ((1+dCpprop(obj.paneltype==1,:))-(sqrt(sum(dv(obj.paneltype==1,:).^2,2))+dVxprop(obj.paneltype==1,:)).^2)./(1-obj.flow{flowNo}.Mach^2);
                     obj.Cp{flowNo}(obj.paneltype==2,iterflow) = (-0.139-0.419.*(obj.flow{flowNo}.Mach-0.161).^2);
                     uinterp = [];
                     for i = 1:numel(obj.wakeline)
-                        uinterp = [uinterp,interp1(obj.LLT.sp{i},obj.LLT.calcMu{i}*(u.*(sqrt(sum(dv(obj.paneltype==1,:).^2,2))+dVprop(obj.paneltype==1,:))),obj.LLT.sinterp{i},'linear','extrap')];
+                        uinterp = [uinterp,interp1(obj.LLT.sp{i},obj.LLT.calcMu{i}*(u.*(1+dVxprop(obj.paneltype==1,:))),obj.LLT.sinterp{i},'linear','extrap')];
                     end
                     Vind = obj.LLT.Qij*uinterp';
                     %{
@@ -752,7 +834,7 @@ classdef UNLSI
             %disp([CL,CDo,CDi,CDtot,CMY]);
         end
 
-        function [u,R] = solvePertPotential(obj,flowNo,alpha,beta,omega)
+        function [u,R] = solvePertPotential(obj,flowNo,alpha,beta,omega,propCalcFlag)
             %%%%%%%%%%%%%LSIの求解%%%%%%%%%%%%%%%%%%%%%
             %Adjoint法実装のためポテンシャルの変動値のみ求める。
 
@@ -774,7 +856,7 @@ classdef UNLSI
                 T(3,1) = sind(alpha(iterflow))*cosd(beta(iterflow));
                 T(3,2) = sind(alpha(iterflow))*sind(beta(iterflow));
                 T(3,3) = cosd(alpha(iterflow));
-                if nargin < 5
+                if isempty(omega)
                     Vinf = repmat((T*[1;0;0])',[nPanel,1]);
                 else
                     Vinf = zeros(nPanel,3);
@@ -793,7 +875,13 @@ classdef UNLSI
                             iter = iter+1;
                         end
                     end
-                    RHV = obj.RHS*sigmas;
+                    if propCalcFlag == 1
+                       RHV = obj.RHS*sigmas;
+                       [RHVprop,dVxprop,dCpprop] = obj.calcPropRHV(obj,T);
+                       RHV = RHV + RHVprop;
+                    else
+                       RHV = obj.RHS*sigmas;
+                    end
                     usolve =  -obj.LHS\RHV;
                     Rsolve = obj.LHS*usolve+RHV;
                     u = [u;usolve];
@@ -818,7 +906,7 @@ classdef UNLSI
             end
         end
         
-        function [AERODATA,Cp,Cfe,R,obj] = solveFlowForAdjoint(obj,u,flowNo,alpha,beta,omega)
+        function [AERODATA,Cp,Cfe,R,obj] = solveFlowForAdjoint(obj,u,flowNo,alpha,beta,omega,propCalcFlag)
             %%%%%%%%%%%%%LSIの求解%%%%%%%%%%%%%%%%%%%%%
             %ポテンシャルから力を求める
             %結果は配列に出力される
@@ -834,9 +922,9 @@ classdef UNLSI
                 error("analysis points are not match");
             end
             obj.AERODATA{flowNo} = [];
-            obj.Cp{flowNo} = [];
             nPanel = numel(obj.paneltype);
             nbPanel = sum(obj.paneltype == 1);
+            obj.Cp{flowNo} = zeros(nPanel,numel(alpha));
             for iterflow = 1:numel(alpha)
                 T(1,1) = cosd(alpha(iterflow))*cosd(beta(iterflow));
                 T(1,2) = cosd(alpha(iterflow))*sind(beta(iterflow));
@@ -847,7 +935,7 @@ classdef UNLSI
                 T(3,1) = sind(alpha(iterflow))*cosd(beta(iterflow));
                 T(3,2) = sind(alpha(iterflow))*sind(beta(iterflow));
                 T(3,3) = cosd(alpha(iterflow));
-                if nargin < 6
+                if isempty(omega)
                     Vinf = repmat((T*[1;0;0])',[nPanel,1]);
                 else
                     Vinf = zeros(nPanel,3);
@@ -872,18 +960,23 @@ classdef UNLSI
                             iter = iter+1;
                         end
                     end
+                    dCpprop =  zeros(nPanel,1);
+                    dVxprop = zeros(nPanel,1);
+                    if propCalcFlag == 1
+                       [RHVprop,dVxprop,dCpprop] = obj.calcPropRHV(obj,T);
+                    end
                     usolve = u(nbPanel*(iterflow-1)+1:nbPanel*iterflow,1);
                     potential = usolve + sum(Vinf(obj.paneltype == 1,:).*obj.center(obj.paneltype == 1,:),2);
                     dv = zeros(nPanel,3);
                     for i = 1:3
                         dv(:,i) = obj.mu2v{i}*(potential);
                     end
-                
-                    obj.Cp{flowNo}(obj.paneltype==1,iterflow) = (1-sum(dv(obj.paneltype==1,:).^2,2))./(1-obj.flow{flowNo}.Mach^2);
+               
+                    obj.Cp{flowNo}(obj.paneltype==1,iterflow) = ((1+dCpprop(obj.paneltype==1,:))-(sqrt(sum(dv(obj.paneltype==1,:).^2,2))+dVxprop(obj.paneltype==1,:)).^2)./(1-obj.flow{flowNo}.Mach^2);
                     obj.Cp{flowNo}(obj.paneltype==2,iterflow) = (-0.139-0.419.*(obj.flow{flowNo}.Mach-0.161).^2);
                     uinterp = [];
                     for i = 1:numel(obj.wakeline)
-                        uinterp = [uinterp,interp1(obj.LLT.sp{i},obj.LLT.calcMu{i}*(usolve.*sqrt(sum(dv(obj.paneltype==1,:)).^2,2)),obj.LLT.sinterp{i},'linear','extrap')];
+                        uinterp = [uinterp,interp1(obj.LLT.sp{i},obj.LLT.calcMu{i}*(usolve.*(1+dVxprop(obj.paneltype==1,:))),obj.LLT.sinterp{i},'linear','extrap')];
                     end
                     Vind = obj.LLT.Qij*uinterp';
 
@@ -964,6 +1057,9 @@ classdef UNLSI
                 Cfe = obj.Cfe;
                 if obj.flow{flowNo}.Mach < 1
                     RHV = obj.RHS*sigmas;
+                    if propCalcFlag == 1
+                        RHV = RHV+RHVprop;
+                    end
                     R(nbPanel*(iterflow-1)+1:nbPanel*iterflow,1) = obj.LHS*usolve+RHV;
                 else
                     R(nbPanel*(iterflow-1)+1:nbPanel*iterflow,1) = usolve-obj.flow{flowNo}.pp(delta);
@@ -1039,10 +1135,66 @@ classdef UNLSI
 
     methods(Static)
 
+        function res = softplus(x,beta)
+            res = 1./beta * log(1+exp(beta.*x));
+        end
+
         function res = sigmoid(x,c,a)
             res = 1./(1 + exp(-a.*(x-c)));
         end
         
+        function [RHVprop,dVxprop,dCpprop] = calcPropRHV(obj,T)
+            nPanel = numel(obj.paneltype);
+            nbPanel = sum(obj.paneltype == 1);
+            dCpprop =  zeros(nPanel,1);
+            Vnprop =  zeros(nPanel,1);
+            dVxprop = zeros(nPanel,1);
+            muprop =  zeros(nPanel,1);
+            RHVprop = zeros(nbPanel,1);
+            %%%%プロペラ計算はまだまだ勉強不足
+            for propNo = 1:numel(obj.prop)
+                VinfMag = dot(-obj.prop{propNo}.normal,obj.prop{propNo}.Vinf*(T*[1;0;0])');%角速度は後で
+                Jratio = VinfMag / ( 2*obj.prop{propNo}.rpm*obj.prop{propNo}.diameter/2/60);
+                Vh = -0.5*VinfMag + sqrt((0.5*VinfMag)^2 + obj.prop{propNo}.thrust/(2*obj.prop{propNo}.rho*obj.prop{propNo}.area));
+                omegaProp = obj.prop{propNo}.rpm*2*pi/60;
+                CT_h = obj.prop{propNo}.thrust/ ( obj.prop{propNo}.rho * obj.prop{propNo}.area * (omegaProp*obj.prop{propNo}.diameter/2)^2 );
+                %CP_h = obj.prop{propNo}.power/ ( obj.prop{propNo}.rho * obj.prop{propNo}.area * (omegaProp*obj.prop{propNo}.diameter/2)^3 );
+                Vo = Vh/sqrt(1+ CT_h*log(CT_h/2)+CT_h/2); 
+                eta_mom = 2/(1+sqrt(1+obj.prop{propNo}.CT));
+                eta_prop = Jratio*obj.prop{propNo}.CT/obj.prop{propNo}.CP;
+                for i = 1:nPanel
+                    if obj.paneltype(i) == 1 || obj.surfID(i) == obj.prop{propNo}.ID 
+                        %プロペラ軸との最短距離を求める
+                        r = obj.center(i,:)-obj.prop{propNo}.center;
+                        dotCoef = dot(r,-obj.prop{propNo}.normal);
+                        shortestPoint = obj.prop{propNo}.center - dotCoef.*obj.prop{propNo}.normal;
+                        rs = norm(obj.center(i,:)-shortestPoint);
+                        VxR0 = Vh*sqrt(obj.softplus(obj.prop{propNo}.diameter/2*obj.prop{propNo}.diameter/2 - sum(rs.^2),5))/(obj.prop{propNo}.diameter/2);
+                        %%%%%softPlusを使う
+                        %dCpprop(i,1) = (2*obj.prop{propNo}.rho*(VinfMag+VxR0)*VxR0)/(0.5*obj.prop{propNo}.rho*VinfMag.^2)*eta_prop / eta_mom;
+                        dCpprop(i,1) = (2*obj.prop{propNo}.rho*Vh^2*(omegaProp*rs)^4/((omegaProp*rs)^2+Vh^2)^2)/(0.5*obj.prop{propNo}.rho*VinfMag.^2)*eta_prop / eta_mom;
+                        Vnprop(i,1) = Vo/obj.prop{propNo}.Vinf;
+                        if obj.paneltype(i) == 1
+                            dCpprop(i,1) = dCpprop(i,1) * obj.sigmoid((obj.prop{propNo}.diameter/2-rs),0,obj.prop{propNo}.sigmoidStrength)*obj.sigmoid(dotCoef,0,obj.prop{propNo}.sigmoidStrength);
+                            dVx = Vo*omegaProp^2*rs^2/(omegaProp^2*rs^2+(VinfMag+Vo)^2);
+                            dVxprop(i,1)  = dVx/obj.prop{propNo}.Vinf  * obj.sigmoid((obj.prop{propNo}.diameter/2-rs),0,obj.prop{propNo}.sigmoidStrength)*obj.sigmoid(dotCoef,0,obj.prop{propNo}.sigmoidStrength);
+                        elseif obj.surfID(i) == obj.prop{propNo}.ID
+                            %deltaCpのr積分
+                            %R = obj.prop{propNo}.diameter;
+                            %integ1 = Vh*(rs*sqrt(obj.prop{propNo}.diameter.^2-rs^2)/2/obj.prop{propNo}.diameter+0.5*obj.prop{propNo}.diameter.*atan2(rs,sqrt(obj.prop{propNo}.diameter^2-rs^2)));
+                            %integ2 = Vh^2*(rs-rs^3/3/obj.prop{propNo}.diameter^2);
+                            %muprop(i,1) = 1/8/pi/(1+Vh/2/VinfMag)*((2*VinfMag*integ1+2*integ2)/(0.5*VinfMag.^2)*eta_prop / eta_mom);
+                            dp = 2*obj.prop{propNo}.rho*Vh^2*((Vh^2*rs)/2/(omegaProp^2*rs^2+Vh^2)-3*Vh*atan2(omegaProp*rs,Vh)/2/omegaProp+rs);
+                            muprop(i,1) = 1/8/pi/(1+Vo/VinfMag)/(0.5*obj.prop{propNo}.rho*VinfMag^2)*eta_prop / eta_mom*dp;
+                            %disp([rs,dCpprop(i,1),muprop(i,1),Vnprop(i,1)])
+                            %1;
+                        end
+                    end
+                end
+                RHVprop = RHVprop + (obj.prop{propNo}.LHS*muprop(obj.surfID == obj.prop{propNo}.ID,1)+obj.prop{propNo}.RHS*Vnprop(obj.surfID == obj.prop{propNo}.ID,1));
+            end
+        end
+
         function [VortexAr,VortexBr,VortexAc,VortexBc] = influenceMatrix(obj,rowIndex,colIndex)
             %%%%%%%%%%%%%%%%%%%影響係数の計算　パネル⇒パネル%%%%%%%%%%%%%%%
             %rowIndex : 計算する行
@@ -1570,7 +1722,8 @@ classdef UNLSI
                 Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                 PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                 PB = PA-Al.*smdot;
-                phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
                 VortexA = VortexA+phiV;
                 %2回目
                 a.X = POI.X-Nw2.X;
@@ -1727,7 +1880,7 @@ classdef UNLSI
 
         end
         
-        function [VortexA,VortexB] = propellerInfluenceMatrix(obj,ID)
+        function [VortexA,VortexB] = propellerInfluenceMatrix(obj,ID,propWake)
             verts = obj.tri.Points;
             con  = obj.tri.ConnectivityList(obj.paneltype==1,:);
             %normal = obj.normal(obj.paneltype==1,:);
@@ -1740,21 +1893,21 @@ classdef UNLSI
             POI.Y(:,1) = obj.center(obj.paneltype==1,2);
             POI.Z(:,1) = obj.center(obj.paneltype==1,3);
             
-            c.X(1,:) = obj.center(obj.paneltype==4,1)';
-            c.Y(1,:) = obj.center(obj.paneltype==4,2)';
-            c.Z(1,:) = obj.center(obj.paneltype==4,3)';
-            n.X(1,:) = obj.normal(obj.paneltype==4,1)';
-            n.Y(1,:) = obj.normal(obj.paneltype==4,2)';
-            n.Z(1,:) = obj.normal(obj.paneltype==4,3)';
-            N1.X(1,:) = verts(obj.tri.ConnectivityList(obj.paneltype==4,1),1)';
-            N1.Y(1,:) = verts(obj.tri.ConnectivityList(obj.paneltype==4,1),2)';
-            N1.Z(1,:) = verts(obj.tri.ConnectivityList(obj.paneltype==4,1),3)';
-            N2.X(1,:) = verts(obj.tri.ConnectivityList(obj.paneltype==4,2),1)';
-            N2.Y(1,:) = verts(obj.tri.ConnectivityList(obj.paneltype==4,2),2)';
-            N2.Z(1,:) = verts(obj.tri.ConnectivityList(obj.paneltype==4,2),3)';
-            N3.X(1,:) = verts(obj.tri.ConnectivityList(obj.paneltype==4,3),1)';
-            N3.Y(1,:) = verts(obj.tri.ConnectivityList(obj.paneltype==4,3),2)';
-            N3.Z(1,:) = verts(obj.tri.ConnectivityList(obj.paneltype==4,3),3)';
+            c.X(1,:) = obj.center(obj.surfID == ID,1)';
+            c.Y(1,:) = obj.center(obj.surfID == ID,2)';
+            c.Z(1,:) = obj.center(obj.surfID == ID,3)';
+            n.X(1,:) = obj.normal(obj.surfID == ID,1)';
+            n.Y(1,:) = obj.normal(obj.surfID == ID,2)';
+            n.Z(1,:) = obj.normal(obj.surfID == ID,3)';
+            N1.X(1,:) = verts(obj.tri.ConnectivityList(obj.surfID == ID,1),1)';
+            N1.Y(1,:) = verts(obj.tri.ConnectivityList(obj.surfID == ID,1),2)';
+            N1.Z(1,:) = verts(obj.tri.ConnectivityList(obj.surfID == ID,1),3)';
+            N2.X(1,:) = verts(obj.tri.ConnectivityList(obj.surfID == ID,2),1)';
+            N2.Y(1,:) = verts(obj.tri.ConnectivityList(obj.surfID == ID,2),2)';
+            N2.Z(1,:) = verts(obj.tri.ConnectivityList(obj.surfID == ID,2),3)';
+            N3.X(1,:) = verts(obj.tri.ConnectivityList(obj.surfID == ID,3),1)';
+            N3.Y(1,:) = verts(obj.tri.ConnectivityList(obj.surfID == ID,3),2)';
+            N3.Z(1,:) = verts(obj.tri.ConnectivityList(obj.surfID == ID,3),3)';
             POI.X = repmat(POI.X,[1,ncol]);
             POI.Y = repmat(POI.Y,[1,ncol]);
             POI.Z = repmat(POI.Z,[1,ncol]);
@@ -1934,7 +2087,9 @@ classdef UNLSI
 
             %プロペラwakeの計算
             %プロペラエッジ検出
+            warning('off','MATLAB:triangulation:PtsNotInTriWarnId');
             pellerTR = triangulation(obj.tri.ConnectivityList(obj.surfID == ID,:),obj.tri.Points);
+            warning('on','MATLAB:triangulation:PtsNotInTriWarnId');
             pellerEdge = pellerTR.freeBoundary();
             if obj.halfmesh == 1
                 %対称面にエッジがある場合は削除
@@ -1953,12 +2108,11 @@ classdef UNLSI
             POI.Y = obj.center(obj.paneltype==1,2);
             POI.Z = obj.center(obj.paneltype==1,3);
             pellerNormal = mean(obj.normal(obj.surfID == ID,:),1);
-            xwake = 100;
             for wakeNo = 1:size(pellerEdge,1)
                 wakepos(1,:) = pellerTR.Points(pellerEdge(wakeNo,1),:)+[0,0,0];
                 wakepos(2,:) = pellerTR.Points(pellerEdge(wakeNo,2),:)+[0,0,0];
-                wakepos(3,:) = pellerTR.Points(pellerEdge(wakeNo,2),:)-xwake.*pellerNormal;
-                wakepos(4,:) = pellerTR.Points(pellerEdge(wakeNo,1),:)-xwake.*pellerNormal;
+                wakepos(3,:) = pellerTR.Points(pellerEdge(wakeNo,2),:)-propWake.*pellerNormal;
+                wakepos(4,:) = pellerTR.Points(pellerEdge(wakeNo,1),:)-propWake.*pellerNormal;
                 [~, ~, nbuff] = obj.vertex(wakepos(1,:),wakepos(2,:),wakepos(3,:));
                 Nw1.X = repmat(wakepos(2,1),[nbPanel,1]);
                 Nw1.Y = repmat(wakepos(2,2),[nbPanel,1]);

@@ -1,0 +1,9 @@
+# VSPGEOM Tag Key File
+modGeom.vspgeom
+4
+
+# tag#,geom#,surf#,gname,gid,ssname1,ssname2,...,ssid1,ssid2,...
+1,0,0,WingGeom,ZAXWQEUVZC
+2,0,1,WingGeom,ZAXWQEUVZC
+3,1,0,PropGeom,KLXGLBQYKJ
+4,1,1,PropGeom,KLXGLBQYKJ
