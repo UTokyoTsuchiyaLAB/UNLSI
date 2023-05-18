@@ -45,7 +45,7 @@
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             
             [orgMeshVerts, orgMeshCon,surfID,wakeLineID, desOrg] = meshGenFun(unscaledVariables(:)');
-            obj = obj@UNLSI(orgMeshVerts,orgMeshCon,surfID,wakeLineID,halfmesh)
+            obj = obj@UNLSI(orgMeshVerts,orgMeshCon,surfID,wakeLineID,halfmesh);
             obj.lb = lb(:)';
             obj.ub = ub(:)';
             obj.designScale = (ub-lb);
@@ -54,30 +54,6 @@
             end
             obj.geomGenFun = geomGenFun;
             obj.meshGenFun = meshGenFun;
-            [orgGeomVerts,orgGeomCon,optSREF,optBREF,optCREF,optXYZREF,obj.argin_x,desOrg] = obj.geomGenFun(desOrg);
-            obj.orgMesh = triangulation(orgMeshCon,orgMeshVerts);
-            obj = obj.setREFS(optSREF,optBREF,optCREF);
-            obj = obj.setRotationCenter(optXYZREF);
-            obj.unscaledVar = desOrg(:)';
-            obj.scaledVar = (desOrg(:)'-obj.lb)./obj.designScale;
-            obj.orgGeom =  triangulation(orgGeomCon,orgGeomVerts);
-            
-            obj.setting.propCalcFlag = 0;
-            obj.setting.chekMeshMethod = "delete";
-            obj.setting.Mach = Mach;
-            obj.setting.alpha = alpha;
-            obj.setting.beta = beta;
-            if numel(obj.setting.Mach) ~= numel(obj.setting.alpha) || numel(obj.setting.Mach) ~= numel(obj.setting.beta) || numel(obj.setting.beta) ~= numel(obj.setting.alpha)
-                error("No. of case is not match");
-            end
-            
-            obj.iteration = 0;
-            fprintf("iteration No. %d ---> Variables:\n",obj.iteration)
-            disp(desOrg);
-            obj.LagrangianInfo.Lorg = [];
-            obj.LagrangianInfo.dL_dx = [];
-            obj.LagrangianInfo.alin = [];
-            obj.LagrangianInfo.blin = [];  
 
             %%%%%%%%%%%オプションのデフォルト設定
             % gradientCalcMethod
@@ -100,9 +76,38 @@
             obj.setting.coefficient = 1; 
             obj.setting.gradientCalcMethod = "direct"; %設計変数偏微分の取得方法："direct", "chain", "nonlin"
             obj.setting.HessianUpdateMethod = "BFGS"; %ヘッシアン更新は "BFGS","DFP","Broyden","SR1"から選択
+            obj.setting.updateMethod = "Levenberg–Marquardt";
             obj.setting.betaLM = 0.5; %ヘッシアンの対角項と非対角項の重み。1ならフルヘッシアン、0なら対角項のみ
             obj.setting.TrustRegion = 0.1; %設計更新を行う際のスケーリングされた設計変数更新量の最大値
+            obj.setting.propCalcFlag = 0;
+            obj.setting.checkMeshMethod = "delete";
+            obj.setting.checkMeshTol = 0.00001;
+            obj.setting.Mach = Mach;
+            obj.setting.alpha = alpha;
+            obj.setting.beta = beta;
             %%%%%%%%%%%%%
+            if numel(obj.setting.Mach) ~= numel(obj.setting.alpha) || numel(obj.setting.Mach) ~= numel(obj.setting.beta) || numel(obj.setting.beta) ~= numel(obj.setting.alpha)
+                error("No. of case is not match");
+            end
+            obj = obj.checkMesh(obj.setting.checkMeshTol,obj.setting.checkMeshMethod);
+            
+            [orgGeomVerts,orgGeomCon,optSREF,optBREF,optCREF,optXYZREF,obj.argin_x,desOrg] = obj.geomGenFun(desOrg);
+            obj.orgMesh = triangulation(orgMeshCon,orgMeshVerts);
+            obj = obj.setREFS(optSREF,optBREF,optCREF);
+            obj = obj.setRotationCenter(optXYZREF);
+            obj.unscaledVar = desOrg(:)';
+            obj.scaledVar = (desOrg(:)'-obj.lb)./obj.designScale;
+            obj.orgGeom =  triangulation(orgGeomCon,orgGeomVerts);
+            
+            obj.iteration = 0;
+            fprintf("iteration No. %d ---> Variables:\n",obj.iteration)
+            disp(desOrg);
+            obj.LagrangianInfo.Lorg = [];
+            obj.LagrangianInfo.dL_dx = [];
+            obj.LagrangianInfo.alin = [];
+            obj.LagrangianInfo.blin = [];  
+
+
 
             obj.Hessian = obj.setting.H0;
 
@@ -128,7 +133,7 @@
             [orgMeshVerts, orgMeshCon,surfID,wakeLineID, unscaledVariables] = obj.meshGenFun(unscaledVariables(:)');
             fprintf("iteration No. %d ---> Variables:\n",obj.iteration)
             disp(unscaledVariables);
-            obj = obj.setMesh(orgMeshVerts,orgMeshCon,surfID,wakeLineID,obj.setting.chekMeshMethod);
+            obj = obj.setMesh(orgMeshVerts,orgMeshCon,surfID,wakeLineID,obj.setting.checkMeshMethod,obj.setting.checkMeshTol);
             [orgGeomVerts,orgGeomCon,optSREF,optBREF,optCREF,optXYZREF,obj.argin_x,desOrg] = obj.geomGenFun(unscaledVariables);
             obj.orgMesh = triangulation(orgMeshCon,orgMeshVerts);
             obj = obj.setREFS(optSREF,optBREF,optCREF);
@@ -195,7 +200,7 @@
         end
 
     
-        function viewMesh(obj,modMesh,fig,~)
+        function viewMesh(obj,fig,modMesh,~)
             %%%%%%%%%%%Meshの表示%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             %最後の引数によって
             %メッシュの変化量を色に表示するか動かを設定できる
@@ -203,6 +208,9 @@
             %fig : 描画するfigure
             %~ : 適当な引数を入れるとメッシュ変化量を表示する
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            if nargin == 2
+                modMesh = obj.orgMesh.Points;
+            end
             viewtri = triangulation(obj.orgMesh.ConnectivityList,modMesh);
             figure(fig);
             if nargin < 4
@@ -214,7 +222,7 @@
             axis equal;drawnow();
         end
 
-        function viewGeom(obj,modGeom,fig,~)
+        function viewGeom(obj,fig,modGeom,~)
             %%%%%%%%%%%Geomの表示%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             %最後の引数によって
             %メッシュの変化量を色に表示するか動かを設定できる
@@ -222,6 +230,9 @@
             %fig : 描画するfigure
             %~ : 適当な引数を入れるとメッシュ変化量を表示する
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            if nargin == 2
+                modGeom = obj.orgGeom.Points;
+            end
             viewtri = triangulation(obj.orgGeom.ConnectivityList,modGeom);
             figure(fig);
             if nargin < 4
@@ -233,16 +244,19 @@
             axis equal;drawnow();
         end
 
-        function checkGeomGenWork(obj,pert,fig)
+        function checkGeomGenWork(obj,pert,checkVar,fig)
             %%%%%%%%%%%設計変数が機能しているかチェックする%%%%%%%%%%%
             %最後の引数によって
             %メッシュの変化量を色に表示するか動かを設定できる
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             ndim = numel(obj.scaledVar);
+            if nargin == 2
+                checkVar = 1:ndim;
+            end
             randparam = rand(1).*ones(1,ndim);
             randDes = randparam.*obj.designScale+obj.lb;
             modSurforg = obj.geomGenFun(randDes);
-            if nargin == 3
+            if nargin == 4
                 viewtri = triangulation(obj.orgGeom.ConnectivityList,modSurforg);
                 figure(fig);clf
                 trisurf(viewtri);
@@ -251,14 +265,14 @@
                 disp(randDes);
                 pause(1);
             end
-            for i = 1:ndim
+            for i = checkVar
                 sampleDes = randparam.*obj.designScale+obj.lb;
                 sampleDes(i) = (randparam(i) + pert).*obj.designScale(i)+obj.lb(i);
                 modSurf = obj.geomGenFun(sampleDes);
                 if all(abs(modSurforg(:)-modSurf(:)) <sqrt(eps))
                     error("Variables No. %d : NOT MOVED",i);
                 end
-                if nargin == 3
+                if nargin == 4
                     viewtri = triangulation(obj.orgGeom.ConnectivityList,modSurf);
                     figure(fig);clf
                     trisurf(viewtri);
@@ -268,7 +282,7 @@
             end
         end
 
-        function obj = setPropParameter(obj,Vinf,rho,CT,CP,rpm)
+        function [obj,thrust,power,Jref] = setPropParameter(obj,Vinf,rho,CT,CP,rpm)
            %%%%%%%%%UNLSIのCfパラメータを一括設定する%%%%%%%%%%%%
             %変数についてはUNLSIのsetPropStateを参照
            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -278,7 +292,7 @@
             obj.setting.CT = CT;
             obj.setting.CP = CP;
             obj.setting.rpm = rpm;
-            obj = obj.setPropState(obj.setting.Vinf,obj.setting.rho,obj.setting.CT,obj.setting.CP,obj.setting.rpm);
+            [obj,thrust,power,Jref] = obj.setPropState(obj.setting.Vinf,obj.setting.rho,obj.setting.CT,obj.setting.CP,obj.setting.rpm);
         end
 
         function obj = setCfParameter(obj,Re,Lch,k,LTratio,CfeCoefficient)
@@ -530,21 +544,45 @@
             fprintf("iteration No. %d : Gradient Caluculation Completed\n",obj.iteration);
         end
 
-        function nextUnscaledVar = descentLagrangian(obj,varargin)
+        function [nextUnscaledVar,scaleddxNorm] = descentLagrangian(obj,varargin)
             %%%%%%%%%%%%%Lagrangianの降下方向に向かう設計変数を計算する%%%%%%%%%
             %
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             if nargin>1
                 obj = obj.setOptions(varargin{:});
             end
-            fprintf("--TrustRegion : %f, --Beta(Levenberg-Marquardt) : %f\n",obj.setting.TrustRegion,obj.setting.betaLM)
+            fprintf("--updateMethod : %s\n",obj.setting.updateMethod)
+            fprintf("--TrustRegion : %f\n",obj.setting.TrustRegion)
+            if strcmpi(obj.setting.updateMethod,"Levenberg–Marquardt")
+                fprintf("--Beta(Levenberg-Marquardt) : %f\n",obj.setting.betaLM)
+            end
             desOrg = obj.scaledVar.*obj.designScale+obj.lb;
             lbf = -obj.scaledVar;
             ubf = 1-obj.scaledVar;
-            options = optimoptions(@fmincon,'Algorithm','interior-point','Display','final-detailed','EnableFeasibilityMode',true,"SubproblemAlgorithm","cg",'MaxFunctionEvaluations',10000);
-            dxscaled = fmincon(@(x)obj.fminconObj(x,obj.Hessian+obj.setting.betaLM*diag(diag(obj.Hessian)),obj.LagrangianInfo.dL_dx),zeros(numel(obj.scaledVar),1),obj.LagrangianInfo.alin,obj.LagrangianInfo.blin,[],[],lbf,ubf,@(x)obj.fminconNlc(x,obj.setting.TrustRegion),options);
+            ndim = numel(lbf);
+            if strcmpi(obj.setting.updateMethod,"Levenberg–Marquardt")
+                options = optimoptions(@fmincon,'Algorithm','interior-point','Display','final-detailed','EnableFeasibilityMode',true,"SubproblemAlgorithm","cg",'MaxFunctionEvaluations',10000);
+                dxscaled = fmincon(@(x)obj.fminconObj(x,obj.Hessian+obj.setting.betaLM*diag(diag(obj.Hessian)),obj.LagrangianInfo.dL_dx),zeros(numel(obj.scaledVar),1),obj.LagrangianInfo.alin,obj.LagrangianInfo.blin,[],[],lbf,ubf,@(x)obj.fminconNlc(x,obj.setting.TrustRegion),options);
+            elseif strcmpi(obj.setting.updateMethod,"dogleg")
+                %sd方向を求める行列
+                Aeq = [eye(ndim),obj.LagrangianInfo.dL_dx(:)];
+                beq = zeros(ndim,1);
+                options = optimoptions(@fmincon,'Algorithm','interior-point','Display','final-detailed','EnableFeasibilityMode',true,"SubproblemAlgorithm","cg",'MaxFunctionEvaluations',10000);
+                xsd_t = fmincon(@(x)obj.fminconObj(x,obj.Hessian,obj.LagrangianInfo.dL_dx),zeros(numel(obj.scaledVar)+1,1),[obj.LagrangianInfo.alin,zeros(size(obj.LagrangianInfo.alin,1),1)],obj.LagrangianInfo.blin,Aeq,beq,[lbf,-100],[ubf,100],[],options);
+                xsd = xsd_t(1:ndim);
+                xqn = fmincon(@(x)obj.fminconObj(x,obj.Hessian,obj.LagrangianInfo.dL_dx),zeros(numel(obj.scaledVar),1),obj.LagrangianInfo.alin,obj.LagrangianInfo.blin,[],[],lbf,ubf,[],options);
+                if norm(xqn) <= obj.setting.TrustRegion
+                    dxscaled = xqn;
+                elseif norm(xqn) > obj.setting.TrustRegion && norm(xsd) > obj.setting.TrustRegion
+                    dxscaled = (obj.setting.TrustRegion / norm(xsd) ).* xsd;
+                else
+                    sdl = fsolve(@(s)obj.doglegsearch(s,xsd,xqn,obj.setting.TrustRegion),1);
+                    dxscaled = xsd + sdl .* (xqn-xsd);
+                end
+            end
             dx = dxscaled(:)'.*obj.designScale;
             nextUnscaledVar = desOrg + dx(:)';
+            scaleddxNorm = norm(dxscaled);
         end
 
         function obj = updateHessian(obj,varargin)  
@@ -589,11 +627,11 @@
                 else
                     fprintf("and not positive-define\n");
                 end
-                fprintf("eigen value -->\n");
-                disp(d(:)');
             else
                 fprintf("Hessian is Unsymmetric\n");
             end
+            fprintf("Hessian diag value -->\n");
+            disp(diag(obj.Hessian)');
         end
 
         function [nextUnscaledVar,obj] = calcNextVariables(obj,objandConsFun,cmin,cmax,varargin)
@@ -612,25 +650,54 @@
             %%%%%%%%%%%%最適化の履歴をプロットする%%%%%%%%
             %fig : 描画するFigure
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            if isempty(obj.history.conVal)
+                wNum = 4;
+            else
+                wNum = 5;
+            end
             figure(fig);clf;
             plotiter = 1:obj.iteration;
-            subplot(5,1,1);grid on;
-            plot(plotiter,obj.history.objVal,"-o");
-            subplot(5,1,2);grid on;
+
+            subplot(wNum,1,1)
+            plot(plotiter,obj.history.scaledVar,"-o","LineWidth",1);
+            ylabel("Var(scaled)");
+            set(gca,"FontSize",14,'xticklabel',[]);grid on;
+
+            subplot(wNum,1,2);grid on;
+            plot(plotiter,obj.history.dL_dx,"-o","LineWidth",1);
+            ylabel("dL/dx");
+            set(gca,"FontSize",14,'xticklabel',[]);grid on;
+            subplot(wNum,1,3);grid on;
+            plot(plotiter,obj.history.LagrangianVal,"-o","LineWidth",1);
+            ylabel("Lag val");
+            set(gca,"FontSize",14,'xticklabel',[]);grid on;
+            subplot(wNum,1,4);grid on;
+            plot(plotiter,obj.history.objVal,"-o","LineWidth",1);
+            ylabel("Obj val");
+            
             if not(isempty(obj.history.conVal))
-                plot(plotiter',obj.history.conVal,"-o");
+                set(gca,"FontSize",14,'xticklabel',[]);grid on;
+                subplot(wNum,1,5);grid on;
+                plot(plotiter,obj.history.conVal,"-o","LineWidth",1);
+                ylabel("Cons val");
+                set(gca,"FontSize",14);grid on;
+            else
+                set(gca,"FontSize",14);grid on;
             end
-            subplot(5,1,3);grid on;
-            plot(plotiter,obj.history.LagrangianVal,"-o");
-            %subplot(5,1,4);grid on;
-            %plot(plotiter,obj.history.trAccuracyVal,"-o");
-            subplot(5,1,5);grid on;
-            %plot(plotiter,obj.history.dxNormVal,"-o");
+            xlabel("Iteration")
+            set(gca,"FontSize",14);
+            
+
             drawnow();
         end
     end
 
     methods(Static)
+        
+        function res = doglegsearch(s,xsd,xqn,TR)
+            vec = xsd+s*(xqn-xsd);
+            res = sqrt(sum(vec.^2))-TR;
+        end
 
         function res = fminconObj(dx,H,g)
             %%%SQPの更新ベクトルの目的関数%%%%%
@@ -638,7 +705,8 @@
             %H：ヘシアン
             %g：勾配
             %%%%%%%%%%%%%%%%%%%%%%
-            res = 0.5 * dx(:)'*H*dx(:) + g*dx(:);
+            ndim = numel(g);
+            res = 0.5 * dx(1:ndim)'*H*dx(1:ndim) + g*dx(1:ndim);
         end
 
         function [c,ceq] = fminconNlc(dx,TR)
@@ -730,7 +798,7 @@
                     [VortexAr,VortexBr,VortexAc,VortexBc] = obj2.influenceMatrix(obj2,obj.approxMat.calcIndex{i},obj.approxMat.calcIndex{i});
                     %
                     for wakeNo = 1:numel(obj.wakeline)
-                        for edgeNo = 1:numel(obj.wakeline{wakeNo}.edge)-1
+                        for edgeNo = 1:size(obj.wakeline{wakeNo}.validedge,2)
                             interpID(1) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.upperID(edgeNo));
                             interpID(2) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.lowerID(edgeNo));
                             if isempty(intersect(interpID,obj.approxMat.calcIndex{i}))
@@ -788,29 +856,28 @@
                 end
             
                 
-                for wakeNo = 1:numel(obj.wakeline)
-                    theta = linspace(pi,0,numel(obj.wakeline{wakeNo}.edge)*obj.LLT.n_interp+1);
-                    iter = 1;
-                    obj.LLT.sp{wakeNo} = [];
-                    obj.LLT.calcMu{wakeNo} = zeros(1,nbPanel);
-                    s = zeros(1,numel(obj.wakeline{wakeNo}.edge));
-                    for edgeNo = 1:numel(obj.wakeline{wakeNo}.edge)-1
-                        s(edgeNo+1) = s(edgeNo) + norm([obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo),2:3)-obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo+1),2:3)]);
-                    end
-                    for edgeNo = 1:numel(obj.wakeline{wakeNo}.edge)-1
+            for wakeNo = 1:numel(obj.wakeline)
+                theta = linspace(pi,0,size(obj.wakeline{wakeNo}.validedge,2)*obj.LLT.n_interp+1);
+                obj.LLT.sp{wakeNo} = [];
+                obj.LLT.calcMu{wakeNo} = zeros(1,nbPanel);
+                s = zeros(1,numel(obj.wakeline{wakeNo}.edge));
+                jter = 1;
+                for edgeNo = 1:numel(obj.wakeline{wakeNo}.edge)-1
+                    s(edgeNo+1) = s(edgeNo) + norm(obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo),2:3)-obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo+1),2:3));
+                    if obj.wakeline{wakeNo}.valid(edgeNo) == 1
                         obj.LLT.sp{wakeNo} =  [obj.LLT.sp{wakeNo},(s(edgeNo)+s(edgeNo+1))./2];
+                        jter = jter+1;
                     end
-                    sd = (s(end)-s(1))*(cos(theta)./2+0.5)+s(1);
-                    obj.LLT.sinterp{wakeNo} = (sd(2:end)+sd(1:end-1))./2;
-                    obj.LLT.yinterp{wakeNo} = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),2),obj.LLT.sinterp{wakeNo},'linear','extrap');
-                    obj.LLT.zinterp{wakeNo} = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),3),obj.LLT.sinterp{wakeNo},'linear','extrap');
-                    yd = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),2),sd,'linear','extrap');
-                    zd = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),3),sd,'linear','extrap');
-                    obj.LLT.phiinterp{wakeNo} = atan((zd(2:end)-zd(1:end-1))./(yd(2:end)-yd(1:end-1)));
-                    obj.LLT.spanel{wakeNo} = (sd(2:end)-sd(1:end-1))./2;
-                    
                 end
-                obj.LLT.Qij = obj.Calc_Q(horzcat(obj.LLT.yinterp{:}),horzcat(obj.LLT.zinterp{:}),horzcat(obj.LLT.phiinterp{:}),horzcat(obj.LLT.spanel{:}),obj.halfmesh);
+                sd = (s(end)-s(1))*(cos(theta)./2+0.5)+s(1);
+                obj.LLT.sinterp{wakeNo} = (sd(2:end)+sd(1:end-1))./2;
+                obj.LLT.yinterp{wakeNo} = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),2),obj.LLT.sinterp{wakeNo},'linear','extrap');
+                obj.LLT.zinterp{wakeNo} = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),3),obj.LLT.sinterp{wakeNo},'linear','extrap');
+                yd = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),2),sd,'linear','extrap');
+                zd = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),3),sd,'linear','extrap');
+                obj.LLT.phiinterp{wakeNo} = atan((zd(2:end)-zd(1:end-1))./(yd(2:end)-yd(1:end-1)));
+                obj.LLT.spanel{wakeNo} = (sd(2:end)-sd(1:end-1))./2;
+            end
 
 
                 approxmatedObj.approxMat = [];

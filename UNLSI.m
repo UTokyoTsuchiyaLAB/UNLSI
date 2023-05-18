@@ -90,17 +90,28 @@ classdef UNLSI
             end
             %wakeのつくパネルIDを特定
             for wakeNo = 1:numel(obj.wakeline)
+                panelNo = 1;
+                obj.wakeline{wakeNo}.valid = zeros(1,numel(obj.wakeline{wakeNo}.edge)-1);
                 for edgeNo = 1:numel(obj.wakeline{wakeNo}.edge)-1
                     attachpanel = obj.tri.edgeAttachments(obj.wakeline{wakeNo}.edge(edgeNo),obj.wakeline{wakeNo}.edge(edgeNo+1));
-                    phivert = obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo+1),2:3)-obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo),2:3);
-                    phiwake = atan2d(phivert(2),phivert(1));
-                    if abs(phiwake)<90
-                        obj.wakeline{wakeNo}.upperID(edgeNo) = attachpanel{1}(1);
-                        obj.wakeline{wakeNo}.lowerID(edgeNo) = attachpanel{1}(2);
+                    if numel(attachpanel{1})==2
+                        obj.wakeline{wakeNo}.validedge(1,panelNo) = obj.wakeline{wakeNo}.edge(edgeNo);
+                        obj.wakeline{wakeNo}.validedge(2,panelNo) = obj.wakeline{wakeNo}.edge(edgeNo+1);
+                        obj.wakeline{wakeNo}.valid(edgeNo) = 1;
+                        phivert = obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo+1),2:3)-obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo),2:3);
+                        phiwake = atan2d(phivert(2),phivert(1));
+                        if abs(phiwake)<90
+                            obj.wakeline{wakeNo}.upperID(panelNo) = attachpanel{1}(1);
+                            obj.wakeline{wakeNo}.lowerID(panelNo) = attachpanel{1}(2);
+                        else
+                            obj.wakeline{wakeNo}.upperID(panelNo) = attachpanel{1}(2);
+                            obj.wakeline{wakeNo}.lowerID(panelNo) = attachpanel{1}(1);
+                        end
+                        panelNo = panelNo + 1;
                     else
-                        obj.wakeline{wakeNo}.upperID(edgeNo) = attachpanel{1}(2);
-                        obj.wakeline{wakeNo}.lowerID(edgeNo) = attachpanel{1}(1);
+                        warning("invalid wake edge detected");
                     end
+
                 end
             end
             obj.checkMesh(sqrt(eps),"warning");
@@ -182,12 +193,14 @@ classdef UNLSI
 
         end
 
-        function obj = setMesh(obj,verts,connectivity,surfID,wakelineID,checkMeshMethod)
+        function obj = setMesh(obj,verts,connectivity,surfID,wakelineID,checkMeshMethod,checkMeshTol)
             if nargin == 5
                 checkMeshMethod = 'warning';
+                checkMeshTol = sqrt(eps);
             end
             obj.tri = triangulation(connectivity,verts);
             obj.surfID = surfID;
+            obj.wakeline = [];
             for i = 1:numel(wakelineID)
                 obj.wakeline{i}.edge = wakelineID{i};
             end
@@ -201,6 +214,9 @@ classdef UNLSI
             obj.Cfe = {};
             obj.LHS = [];
             obj.RHS = [];
+            lltninterp = obj.LLT.n_interp;
+            obj.LLT = [];
+            obj.LLT.n_interp = lltninterp;
             for i = 1:numel(obj.paneltype)
                 [obj.area(i,1),~ , obj.normal(i,:)] = obj.vertex(verts(connectivity(i,1),:),verts(connectivity(i,2),:),verts(connectivity(i,3),:));
                 obj.center(i,:) = [mean(verts(obj.tri.ConnectivityList(i,:),1)),mean(verts(obj.tri.ConnectivityList(i,:),2)),mean(verts(obj.tri.ConnectivityList(i,:),3))];
@@ -227,16 +243,26 @@ classdef UNLSI
             end
             %wakeのつくパネルIDを特定
             for wakeNo = 1:numel(obj.wakeline)
+                panelNo = 1;
+                obj.wakeline{wakeNo}.valid = zeros(1,numel(obj.wakeline{wakeNo}.edge)-1);
                 for edgeNo = 1:numel(obj.wakeline{wakeNo}.edge)-1
                     attachpanel = obj.tri.edgeAttachments(obj.wakeline{wakeNo}.edge(edgeNo),obj.wakeline{wakeNo}.edge(edgeNo+1));
-                    phivert = obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo+1),2:3)-obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo),2:3);
-                    phiwake = atan2d(phivert(2),phivert(1));
-                    if abs(phiwake)<90
-                        obj.wakeline{wakeNo}.upperID(edgeNo) = attachpanel{1}(1);
-                        obj.wakeline{wakeNo}.lowerID(edgeNo) = attachpanel{1}(2);
+                    if numel(attachpanel{1})==2
+                        obj.wakeline{wakeNo}.validedge(1,panelNo) = obj.wakeline{wakeNo}.edge(edgeNo);
+                        obj.wakeline{wakeNo}.validedge(2,panelNo) = obj.wakeline{wakeNo}.edge(edgeNo+1);
+                        obj.wakeline{wakeNo}.valid(edgeNo) = 1;
+                        phivert = obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo+1),2:3)-obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo),2:3);
+                        phiwake = atan2d(phivert(2),phivert(1));
+                        if abs(phiwake)<90
+                            obj.wakeline{wakeNo}.upperID(panelNo) = attachpanel{1}(1);
+                            obj.wakeline{wakeNo}.lowerID(panelNo) = attachpanel{1}(2);
+                        else
+                            obj.wakeline{wakeNo}.upperID(panelNo) = attachpanel{1}(2);
+                            obj.wakeline{wakeNo}.lowerID(panelNo) = attachpanel{1}(1);
+                        end
+                        panelNo = panelNo + 1;
                     else
-                        obj.wakeline{wakeNo}.upperID(edgeNo) = attachpanel{1}(2);
-                        obj.wakeline{wakeNo}.lowerID(edgeNo) = attachpanel{1}(1);
+                        warning("invalid wake edge detected");
                     end
                 end
             end
@@ -245,7 +271,7 @@ classdef UNLSI
                     obj = obj.setProp(propNo,obj.prop{propNo}.ID,obj.prop{propNo}.diameter,obj.prop{propNo}.XZsliced);
                 end
             end
-            obj.checkMesh(sqrt(eps),checkMeshMethod);
+            obj = obj.checkMesh(checkMeshTol,checkMeshMethod);
         end
 
         function obj = setVerts(obj,verts)
@@ -285,7 +311,7 @@ classdef UNLSI
                     for i = 1:numel(obj.wakeline)
                         wakelineID{i} = obj.wakeline{i}.edge;
                     end
-                    obj = obj.setMesh(obj.tri.Points,newCon,obj.surfID,wakelineID);
+                    obj = obj.setMesh(obj.tri.Points,newCon,obj.surfID,wakelineID,"warning",0);
                 else
                     error("some panel areas are too small");
                 end
@@ -453,21 +479,25 @@ classdef UNLSI
             %
             
             for wakeNo = 1:numel(obj.wakeline)
-                theta = linspace(pi,0,numel(obj.wakeline{wakeNo}.edge)*obj.LLT.n_interp+1);
+                theta = linspace(pi,0,size(obj.wakeline{wakeNo}.validedge,2)*obj.LLT.n_interp+1);
                 iter = 1;
                 obj.LLT.sp{wakeNo} = [];
                 obj.LLT.calcMu{wakeNo} = zeros(1,nbPanel);
                 s = zeros(1,numel(obj.wakeline{wakeNo}.edge));
+                jter = 1;
                 for edgeNo = 1:numel(obj.wakeline{wakeNo}.edge)-1
-                    s(edgeNo+1) = s(edgeNo) + norm([obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo),2:3)-obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo+1),2:3)]);
+                    s(edgeNo+1) = s(edgeNo) + norm(obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo),2:3)-obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo+1),2:3));
+                    if obj.wakeline{wakeNo}.valid(edgeNo) == 1
+                        obj.LLT.sp{wakeNo} =  [obj.LLT.sp{wakeNo},(s(edgeNo)+s(edgeNo+1))./2];
+                        jter = jter+1;
+                    end
                 end
-                for edgeNo = 1:numel(obj.wakeline{wakeNo}.edge)-1
+                for edgeNo = 1:size(obj.wakeline{wakeNo}.validedge,2)
                     interpID(1) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.upperID(edgeNo));
                     interpID(2) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.lowerID(edgeNo));
                     [influence] = obj.wakeInfluenceMatrix(obj,wakeNo,edgeNo,1:nbPanel,wakepanellength,nwake);
                     obj.LHS(:,interpID(1)) = obj.LHS(:,interpID(1)) - influence;
                     obj.LHS(:,interpID(2)) = obj.LHS(:,interpID(2)) + influence;
-                    obj.LLT.sp{wakeNo} =  [obj.LLT.sp{wakeNo},(s(edgeNo)+s(edgeNo+1))./2];
                     obj.LLT.calcMu{wakeNo}(iter,interpID(1)) = -1;
                     obj.LLT.calcMu{wakeNo}(iter,interpID(2)) = 1;
                     iter = iter+1;
@@ -659,11 +689,11 @@ classdef UNLSI
                 obj.prop{propNo}.rpm = rpm(propNo);
                 obj.prop{propNo}.Vinf = Vinf;
                 obj.prop{propNo}.rho = rho;
-                thrust = obj.prop{propNo}.CT * obj.prop{propNo}.rho * (obj.prop{propNo}.rpm/60)^2 * obj.prop{propNo}.diameter^4;
-                power =  obj.prop{propNo}.CP * obj.prop{propNo}.rho * (obj.prop{propNo}.rpm/60)^3 * obj.prop{propNo}.diameter^5;
-                obj.prop{propNo}.thrust = thrust;
-                obj.prop{propNo}.power = power;
-                Jref =  Vinf / ( 2*obj.prop{propNo}.rpm*obj.prop{propNo}.diameter/2/60);
+                thrust(propNo) = obj.prop{propNo}.CT * obj.prop{propNo}.rho * (obj.prop{propNo}.rpm/60)^2 * obj.prop{propNo}.diameter^4;
+                power(propNo) =  obj.prop{propNo}.CP * obj.prop{propNo}.rho * (obj.prop{propNo}.rpm/60)^3 * obj.prop{propNo}.diameter^5;
+                obj.prop{propNo}.thrust = thrust(propNo);
+                obj.prop{propNo}.power = power(propNo);
+                Jref(propNo) =  Vinf / ( 2*obj.prop{propNo}.rpm*obj.prop{propNo}.diameter/2/60);
             end
         end
 
@@ -1169,7 +1199,7 @@ classdef UNLSI
                         dotCoef = dot(r,-obj.prop{propNo}.normal);
                         shortestPoint = obj.prop{propNo}.center - dotCoef.*obj.prop{propNo}.normal;
                         rs = norm(obj.center(i,:)-shortestPoint);
-                        VxR0 = Vh*sqrt(obj.softplus(obj.prop{propNo}.diameter/2*obj.prop{propNo}.diameter/2 - sum(rs.^2),5))/(obj.prop{propNo}.diameter/2);
+                        %VxR0 = Vh*sqrt(obj.softplus(obj.prop{propNo}.diameter/2*obj.prop{propNo}.diameter/2 - sum(rs.^2),5))/(obj.prop{propNo}.diameter/2);
                         %%%%%softPlusを使う
                         %dCpprop(i,1) = (2*obj.prop{propNo}.rho*(VinfMag+VxR0)*VxR0)/(0.5*obj.prop{propNo}.rho*VinfMag.^2)*eta_prop / eta_mom;
                         dCpprop(i,1) = (2*obj.prop{propNo}.rho*Vh^2*(omegaProp*rs)^4/((omegaProp*rs)^2+Vh^2)^2)/(0.5*obj.prop{propNo}.rho*VinfMag.^2)*eta_prop / eta_mom;
@@ -1651,10 +1681,10 @@ classdef UNLSI
             nrow = numel(rowIndex);
             VortexA = zeros(nrow,1);
             for i = 1:nwake
-                wakepos(1,:) = obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo),:)+[xwake*(i-1),0,0];
-                wakepos(2,:) = obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo+1),:)+[xwake*(i-1),0,0];
-                wakepos(3,:) = obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo+1),:)+[xwake*i,0,0];
-                wakepos(4,:) = obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo),:)+[xwake*i,0,0];
+                wakepos(1,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+[xwake*(i-1),0,0];
+                wakepos(2,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+[xwake*(i-1),0,0];
+                wakepos(3,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+[xwake*i,0,0];
+                wakepos(4,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+[xwake*i,0,0];
                 [~, ~, nbuff] = obj.vertex(wakepos(1,:),wakepos(2,:),wakepos(3,:));
 
                 ulvec = obj.center(obj.wakeline{wakeNo}.lowerID(edgeNo),:)-obj.center(obj.wakeline{wakeNo}.upperID(edgeNo),:);
