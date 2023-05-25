@@ -15,6 +15,7 @@ classdef UNLSI
         BREF %横方向基準長
         XYZREF %回転中心
         paneltype %各パネルのタイプ 1:body 2:base 3:structure
+        cpcalctype %Cpを計算する方法の選択 %1:1-V^2 2: -2u 3: -2u-v^2-w^2
         IndexPanel2Solver %パネルのインデックス⇒ソルバー上でのインデックス
         VindWake
         wakePanelLength
@@ -50,6 +51,7 @@ classdef UNLSI
                 obj.wakeline{i}.edge = wakelineID{i};
             end
             obj.paneltype = ones(size(connectivity,1),1);
+            obj.cpcalctype = ones(size(connectivity,1),1);
             obj.IndexPanel2Solver = 1:numel(obj.paneltype);
             obj.halfmesh = halfmesh;
             obj.LLT.n_interp = 10;
@@ -89,11 +91,13 @@ classdef UNLSI
                 obj.wakeline(deleteiter) = [];
             end
             %wakeのつくパネルIDを特定
+            wakesurfID = [];
             for wakeNo = 1:numel(obj.wakeline)
                 panelNo = 1;
                 obj.wakeline{wakeNo}.valid = zeros(1,numel(obj.wakeline{wakeNo}.edge)-1);
                 for edgeNo = 1:numel(obj.wakeline{wakeNo}.edge)-1
                     attachpanel = obj.tri.edgeAttachments(obj.wakeline{wakeNo}.edge(edgeNo),obj.wakeline{wakeNo}.edge(edgeNo+1));
+                    wakesurfID = [wakesurfID,setdiff(obj.surfID(attachpanel{1}),wakesurfID)];
                     if numel(attachpanel{1})==2
                         obj.wakeline{wakeNo}.validedge(1,panelNo) = obj.wakeline{wakeNo}.edge(edgeNo);
                         obj.wakeline{wakeNo}.validedge(2,panelNo) = obj.wakeline{wakeNo}.edge(edgeNo+1);
@@ -113,6 +117,10 @@ classdef UNLSI
                     end
 
                 end
+            end
+            %wakeSurfIDにあるもの以外はcpcalctypeをlinearに
+            for i = setdiff(unique(obj.surfID)',wakesurfID)
+                obj = obj.setCpCalcType(i,"linear");
             end
             obj.checkMesh(sqrt(eps),"warning");
         end
@@ -205,6 +213,7 @@ classdef UNLSI
                 obj.wakeline{i}.edge = wakelineID{i};
             end
             obj.paneltype = ones(size(connectivity,1),1);
+            obj.cpcalctype = ones(size(connectivity,1),1);
             obj.IndexPanel2Solver = 1:numel(obj.paneltype);
             obj.cluster = cell([1,numel(obj.paneltype)]);
             obj.area = zeros(numel(obj.paneltype),1);
@@ -242,11 +251,13 @@ classdef UNLSI
                 obj.wakeline(deleteiter) = [];
             end
             %wakeのつくパネルIDを特定
+            wakesurfID = [];
             for wakeNo = 1:numel(obj.wakeline)
                 panelNo = 1;
                 obj.wakeline{wakeNo}.valid = zeros(1,numel(obj.wakeline{wakeNo}.edge)-1);
                 for edgeNo = 1:numel(obj.wakeline{wakeNo}.edge)-1
                     attachpanel = obj.tri.edgeAttachments(obj.wakeline{wakeNo}.edge(edgeNo),obj.wakeline{wakeNo}.edge(edgeNo+1));
+                    wakesurfID = [wakesurfID,setdiff(obj.surfID(attachpanel{1}),wakesurfID)];
                     if numel(attachpanel{1})==2
                         obj.wakeline{wakeNo}.validedge(1,panelNo) = obj.wakeline{wakeNo}.edge(edgeNo);
                         obj.wakeline{wakeNo}.validedge(2,panelNo) = obj.wakeline{wakeNo}.edge(edgeNo+1);
@@ -270,6 +281,10 @@ classdef UNLSI
                 for propNo = 1:numel(obj.prop)
                     obj = obj.setProp(propNo,obj.prop{propNo}.ID,obj.prop{propNo}.diameter,obj.prop{propNo}.XZsliced);
                 end
+            end
+            %wakeSurfIDにあるもの以外はcpcalctypeをlinearに
+            for i = setdiff(unique(obj.surfID)',wakesurfID)
+                obj = obj.setCpCalcType(i,"linear");
             end
             obj = obj.checkMesh(checkMeshTol,checkMeshMethod);
         end
@@ -380,6 +395,23 @@ classdef UNLSI
             end
         end
 
+        function obj = setCpCalcType(obj,ID,typename)
+            %%%%%%%%%%%%%%%%Cpの計算方法の指定関数%%%%%%%%%%%%%%%%
+            %panelname : incompressible 1 一般的な圧力推算 1-V^2
+            %panelname : linear         2 線形化 -2u
+            %panelname : slender body   3 -2u-w^2-v^2 
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            if strcmpi(typename,"incompressible")
+                obj.cpcalctype(obj.surfID==ID,1) = 1;
+            elseif strcmpi(typename,"linear")
+                obj.cpcalctype(obj.surfID==ID,1) = 2;
+            elseif strcmpi(typename,"slender-body")
+                obj.cpcalctype(obj.surfID==ID,1) = 3;
+            else
+                error("invalid calc type name")
+            end
+        end
+
         function obj = makeCluster(obj,nCluster,edgeAngleThreshold)
             %%%%%%%%%%%%%パネルクラスターの作成%%%%%%%%%%%%%%%%%%
             %各パネルの近隣パネルを指定の数集める
@@ -451,7 +483,8 @@ classdef UNLSI
                     lmnMat = (Minv\(CPmat-repmat(pnt,[size(CPmat,1),1]))')';
                     bb = [lmnMat(1:end,1),lmnMat(1:end,2),lmnMat(1:end,3),ones(size(lmnMat,1),1)];
                     Bmat=pinv(bb,sqrt(eps));
-                    Vnmat = Minv(:,[1,2])*[1,0,0,0;0,1,0,0]*Bmat;
+                    %Vnmat = Minv(:,[1,2])*[1,0,0,0;0,1,0,0]*Bmat;
+                    Vnmat = Minv*[1,0,0,0;0,1,0,0;0,0,1,0;]*Bmat;
                     for iter = 1:3
                         obj.mu2v{iter}(i,obj.IndexPanel2Solver(obj.cluster{i})) = Vnmat(iter,:);
                     end
@@ -759,7 +792,7 @@ classdef UNLSI
                     end
                     
                     dCpprop =  zeros(nPanel,1);
-                    dVxprop = zeros(nPanel,1);
+                    dVxprop = zeros(nPanel,3);
                     if propCalcFlag == 1
                         RHV = obj.RHS*sigmas;
                        [RHVprop,dVxprop,dCpprop] = obj.calcPropRHV(obj,T);
@@ -768,16 +801,19 @@ classdef UNLSI
                         RHV = obj.RHS*sigmas;
                     end
                     u =  -obj.LHS\RHV;
-                    potential = u + sum(Vinf(obj.paneltype == 1,:).*obj.center(obj.paneltype == 1,:),2);
                     dv = zeros(nPanel,3);
                     for i = 1:3
-                        dv(:,i) = obj.mu2v{i}*(potential);
+                        dv(:,i) = obj.mu2v{i}*u;
                     end
-                    obj.Cp{flowNo}(obj.paneltype==1,iterflow) = ((1+dCpprop(obj.paneltype==1,:))-(sqrt(sum(dv(obj.paneltype==1,:).^2,2))+dVxprop(obj.paneltype==1,:)).^2)./(1-obj.flow{flowNo}.Mach^2);
+                    dv = Vinf + dv + dVxprop(:,1);
+                    dv = dv - obj.normal.*(dot(obj.normal,dv,2));
+                    obj.Cp{flowNo}(obj.paneltype==1 & obj.cpcalctype == 1,iterflow) = ((1+dCpprop(obj.paneltype==1 & obj.cpcalctype == 1,:))-(sqrt(sum(dv(obj.paneltype==1 & obj.cpcalctype == 1,:).^2,2))).^2)./(1-obj.flow{flowNo}.Mach^2);
+                    obj.Cp{flowNo}(obj.paneltype==1 & obj.cpcalctype == 3,iterflow) = (dCpprop(obj.paneltype==1 & obj.cpcalctype == 3,:)-2*(dv(obj.paneltype==1 & obj.cpcalctype == 3,1)+dVxprop(obj.paneltype==1 & obj.cpcalctype == 3,1)-1)-dv(obj.paneltype==1 & obj.cpcalctype == 3,2).^2-dv(obj.paneltype==1 & obj.cpcalctype == 3,3).^2)./(1-obj.flow{flowNo}.Mach^2);
+                    obj.Cp{flowNo}(obj.paneltype==1 & obj.cpcalctype == 2,iterflow) = (dCpprop(obj.paneltype==1 & obj.cpcalctype == 2,:)-2*(dv(obj.paneltype==1 & obj.cpcalctype == 2,1)-Vinf(obj.paneltype==1 & obj.cpcalctype == 2,1)))./(1-obj.flow{flowNo}.Mach^2);
                     obj.Cp{flowNo}(obj.paneltype==2,iterflow) = (-0.139-0.419.*(obj.flow{flowNo}.Mach-0.161).^2);
                     uinterp = [];
                     for i = 1:numel(obj.wakeline)
-                        uinterp = [uinterp,interp1(obj.LLT.sp{i},obj.LLT.calcMu{i}*(u.*(1+dVxprop(obj.paneltype==1,:))),obj.LLT.sinterp{i},'linear','extrap')];
+                        uinterp = [uinterp,interp1(obj.LLT.sp{i},obj.LLT.calcMu{i}*(u.*(1+dVxprop(obj.paneltype==1,1))),obj.LLT.sinterp{i},'linear','extrap')];
                     end
                     Vind = obj.LLT.Qij*uinterp';
                     %{
@@ -996,13 +1032,15 @@ classdef UNLSI
                        [RHVprop,dVxprop,dCpprop] = obj.calcPropRHV(obj,T);
                     end
                     usolve = u(nbPanel*(iterflow-1)+1:nbPanel*iterflow,1);
-                    potential = usolve + sum(Vinf(obj.paneltype == 1,:).*obj.center(obj.paneltype == 1,:),2);
                     dv = zeros(nPanel,3);
                     for i = 1:3
-                        dv(:,i) = obj.mu2v{i}*(potential);
+                        dv(:,i) = obj.mu2v{i}*usolve;
                     end
-               
-                    obj.Cp{flowNo}(obj.paneltype==1,iterflow) = ((1+dCpprop(obj.paneltype==1,:))-(sqrt(sum(dv(obj.paneltype==1,:).^2,2))+dVxprop(obj.paneltype==1,:)).^2)./(1-obj.flow{flowNo}.Mach^2);
+                    dv = Vinf + dv + dVxprop(:,1);
+                    dv = dv - obj.normal.*(dot(obj.normal,dv,2));
+                    obj.Cp{flowNo}(obj.paneltype==1 & obj.cpcalctype == 1,iterflow) = ((1+dCpprop(obj.paneltype==1 & obj.cpcalctype == 1,:))-(sqrt(sum(dv(obj.paneltype==1 & obj.cpcalctype == 1,:).^2,2))).^2)./(1-obj.flow{flowNo}.Mach^2);
+                    obj.Cp{flowNo}(obj.paneltype==1 & obj.cpcalctype == 3,iterflow) = (dCpprop(obj.paneltype==1 & obj.cpcalctype == 3,:)-2*(dv(obj.paneltype==1 & obj.cpcalctype == 3,1)+dVxprop(obj.paneltype==1 & obj.cpcalctype == 3,1)-1)-dv(obj.paneltype==1 & obj.cpcalctype == 3,2).^2-dv(obj.paneltype==1 & obj.cpcalctype == 3,3).^2)./(1-obj.flow{flowNo}.Mach^2);
+                    obj.Cp{flowNo}(obj.paneltype==1 & obj.cpcalctype == 2,iterflow) = (dCpprop(obj.paneltype==1 & obj.cpcalctype == 2,:)-2*(dv(obj.paneltype==1 & obj.cpcalctype == 2,1)-Vinf(obj.paneltype==1 & obj.cpcalctype == 2,1)))./(1-obj.flow{flowNo}.Mach^2);
                     obj.Cp{flowNo}(obj.paneltype==2,iterflow) = (-0.139-0.419.*(obj.flow{flowNo}.Mach-0.161).^2);
                     uinterp = [];
                     for i = 1:numel(obj.wakeline)
@@ -1178,7 +1216,7 @@ classdef UNLSI
             nbPanel = sum(obj.paneltype == 1);
             dCpprop =  zeros(nPanel,1);
             Vnprop =  zeros(nPanel,1);
-            dVxprop = zeros(nPanel,1);
+            dVxprop = zeros(nPanel,3);
             muprop =  zeros(nPanel,1);
             RHVprop = zeros(nbPanel,1);
             %%%%プロペラ計算はまだまだ勉強不足

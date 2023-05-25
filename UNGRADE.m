@@ -76,8 +76,9 @@
             obj.setting.coefficient = 1; 
             obj.setting.gradientCalcMethod = "direct"; %設計変数偏微分の取得方法："direct", "chain", "nonlin"
             obj.setting.HessianUpdateMethod = "BFGS"; %ヘッシアン更新は "BFGS","DFP","Broyden","SR1"から選択
-            obj.setting.updateMethod = "Levenberg–Marquardt";
-            obj.setting.betaLM = 0.5; %ヘッシアンの対角項と非対角項の重み。1ならフルヘッシアン、0なら対角項のみ
+            obj.setting.updateMethod = "Levenberg–Marquardt";%解を更新する方法
+            obj.setting.betaLM = 0.5; %レーベンバーグマッカートの重み係数
+            obj.setting.alphaSD = 0.5; %最急降下法の重み 
             obj.setting.TrustRegion = 0.1; %設計更新を行う際のスケーリングされた設計変数更新量の最大値
             obj.setting.propCalcFlag = 0;
             obj.setting.checkMeshMethod = "delete";
@@ -552,9 +553,14 @@
                 obj = obj.setOptions(varargin{:});
             end
             fprintf("--updateMethod : %s\n",obj.setting.updateMethod)
-            fprintf("--TrustRegion : %f\n",obj.setting.TrustRegion)
+
             if strcmpi(obj.setting.updateMethod,"Levenberg–Marquardt")
+                fprintf("--TrustRegion : %f\n",obj.setting.TrustRegion)
                 fprintf("--Beta(Levenberg-Marquardt) : %f\n",obj.setting.betaLM)
+            elseif strcmpi(obj.setting.updateMethod,"dogleg")
+                fprintf("--TrustRegion : %f\n",obj.setting.TrustRegion)
+            elseif strcmpi(obj.setting.updateMethod,"Steepest-Decent")
+                fprintf("--Alpha(Steepest-Decent) : %f\n",obj.setting.alphaSD)
             end
             desOrg = obj.scaledVar.*obj.designScale+obj.lb;
             lbf = -obj.scaledVar;
@@ -579,6 +585,9 @@
                     sdl = fsolve(@(s)obj.doglegsearch(s,xsd,xqn,obj.setting.TrustRegion),1);
                     dxscaled = xsd + sdl .* (xqn-xsd);
                 end
+            elseif strcmpi(obj.setting.updateMethod,"Steepest-Decent")
+                options = optimoptions(@fmincon,'Algorithm','interior-point','Display','final-detailed','EnableFeasibilityMode',true,"SubproblemAlgorithm","cg",'MaxFunctionEvaluations',10000);
+                dxscaled = fmincon(@(x)obj.fminconObj(x,2.*eye(ndim),2.*obj.setting.alphaSD.*obj.LagrangianInfo.dL_dx),zeros(numel(obj.scaledVar),1),obj.LagrangianInfo.alin,obj.LagrangianInfo.blin,[],[],lbf,ubf,[],options);
             end
             dx = dxscaled(:)'.*obj.designScale;
             nextUnscaledVar = desOrg + dx(:)';
@@ -837,23 +846,24 @@
                 approxmatedObj.mu2v{2} = sparse(nPanel,nbPanel);
                 approxmatedObj.mu2v{3} = sparse(nPanel,nbPanel);
             
-                for i = 1:nPanel
-                    if approxmatedObj.paneltype(i) == 1
-                        CPmat =approxmatedObj.center(approxmatedObj.cluster{i},1:3);
-                        pnt = approxmatedObj.center(i,:);
-                        m = approxmatedObj.tri.Points(approxmatedObj.tri.ConnectivityList(i,1),:)'-pnt(:);
-                        m = m./norm(m);
-                        l = cross(m,approxmatedObj.normal(i,:)');
-                        Minv = [l,m,approxmatedObj.normal(i,:)'];
-                        lmnMat = (Minv\(CPmat-repmat(pnt,[size(CPmat,1),1]))')';
-                        bb = [lmnMat(1:end,1),lmnMat(1:end,2),lmnMat(1:end,3),ones(size(lmnMat,1),1)];
-                        Bmat=pinv(bb,sqrt(eps));
-                        Vnmat = Minv(:,[1,2])*[1,0,0,0;0,1,0,0]*Bmat;
-                        for iter = 1:3
-                            approxmatedObj.mu2v{iter}(i,approxmatedObj.IndexPanel2Solver(approxmatedObj.cluster{i})) = Vnmat(iter,:);
-                        end
+            for i = 1:nPanel
+                if obj.paneltype(i) == 1
+                    CPmat =obj.center(obj.cluster{i},1:3);
+                    pnt = obj.center(i,:);
+                    m = obj.tri.Points(obj.tri.ConnectivityList(i,1),:)'-pnt(:);
+                    m = m./norm(m);
+                    l = cross(m,obj.normal(i,:)');
+                    Minv = [l,m,obj.normal(i,:)'];
+                    lmnMat = (Minv\(CPmat-repmat(pnt,[size(CPmat,1),1]))')';
+                    bb = [lmnMat(1:end,1),lmnMat(1:end,2),lmnMat(1:end,3),ones(size(lmnMat,1),1)];
+                    Bmat=pinv(bb,sqrt(eps));
+                    %Vnmat = Minv(:,[1,2])*[1,0,0,0;0,1,0,0]*Bmat;
+                    Vnmat = Minv*[1,0,0,0;0,1,0,0;0,0,1,0;]*Bmat;
+                    for iter = 1:3
+                        approxmatedObj.mu2v{iter}(i,obj.IndexPanel2Solver(obj.cluster{i})) = Vnmat(iter,:);
                     end
                 end
+            end
             
                 
             for wakeNo = 1:numel(obj.wakeline)
