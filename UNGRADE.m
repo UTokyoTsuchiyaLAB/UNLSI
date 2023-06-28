@@ -322,12 +322,12 @@
             for iter = 1:numel(varargin)/2
                 if isfield(obj.setting,varargin{2*iter-1})
                     obj.setting = setfield(obj.setting,varargin{2*iter-1},varargin{2*iter});
-                    if strcmp(varargin{2*iter-1},"nCluster")
+                    if strcmpi(varargin{2*iter-1},"nCluster")
                         if any(obj.flowNoList(:,3) == 1)
                             obj = obj.makeCluster(obj.setting.nCluster,obj.setting.edgeAngleThreshold);
                         end
                     end
-                    if strcmp(varargin{2*iter-1},"Mach")
+                    if strcmpi(varargin{2*iter-1},"Mach")
                         if numel(obj.setting.Mach) ~= numel(obj.setting.alpha) || numel(obj.setting.Mach) ~= numel(obj.setting.beta) || numel(obj.setting.beta) ~= numel(obj.setting.alpha)
                             error("No. of case is not match");
                         end

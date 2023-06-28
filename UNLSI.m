@@ -395,6 +395,34 @@ classdef UNLSI
             end
         end
 
+        function obj = setBasewithAngle(obj,alpha,beta,threshold)
+            %%%%%%%%%%%%%%%%角度によるベース面指定%%%%%%%%%%%%%%%%
+            %alphabetaで指定した角度に対してthreshold(deg)角度以下のパネルをベース面として設定する
+            %alpha,beta : AoA Sideslip(deg)
+            %threshold : deg 
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            flowVec(1) = cosd(alpha)*cosd(beta);
+            flowVec(2) = -sind(beta);
+            flowVec(3) = sind(alpha)*cosd(beta);
+            for i = 1:numel(obj.paneltype)
+                if obj.paneltype(i) == 1
+                    if(abs(acosd(dot(flowVec,obj.normal(i,:))))<threshold)
+                        obj.paneltype(i,1) = 2;
+                    end
+                end
+            end
+            index = 1;
+            %パネルタイプによってはパネル法連立方程式に含まれないので、連立方程式上でのインデックスと全体のインデックスを関連付ける
+            obj.IndexPanel2Solver = zeros(numel(obj.paneltype),1);
+            for i = 1:numel(obj.paneltype)
+                if obj.paneltype(i) == 1
+                    obj.IndexPanel2Solver(i) = index;
+                    index = index+1;
+                end
+            end
+        end
+
+
         function obj = setCpCalcType(obj,ID,typename)
             %%%%%%%%%%%%%%%%Cpの計算方法の指定関数%%%%%%%%%%%%%%%%
             %panelname : incompressible 1 一般的な圧力推算 1-V^2
