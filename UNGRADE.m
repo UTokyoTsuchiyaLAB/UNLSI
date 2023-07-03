@@ -43,7 +43,7 @@
             %lb：設計変数の下限
             %ub：設計変数の上限
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-            
+            warning('off','MATLAB:triangulation:PtsNotInTriWarnId');
             [orgMeshVerts, orgMeshCon,surfID,wakeLineID, desOrg] = meshGenFun(unscaledVariables(:)');
             obj = obj@UNLSI(orgMeshVerts,orgMeshCon,surfID,wakeLineID,halfmesh);
             obj.lb = lb(:)';
@@ -91,9 +91,9 @@
                 error("No. of case is not match");
             end
             obj = obj.checkMesh(obj.setting.checkMeshTol,obj.setting.checkMeshMethod);
-            
+            warning('off','MATLAB:triangulation:PtsNotInTriWarnId');
             [orgGeomVerts,orgGeomCon,optSREF,optBREF,optCREF,optXYZREF,obj.argin_x,desOrg] = obj.geomGenFun(desOrg);
-            obj.orgMesh = triangulation(orgMeshCon,orgMeshVerts);
+            obj.orgMesh = triangulation(obj.tri.ConnectivityList,obj.tri.Points);
             obj = obj.setREFS(optSREF,optBREF,optCREF);
             obj = obj.setRotationCenter(optXYZREF);
             obj.unscaledVar = desOrg(:)';
@@ -125,6 +125,7 @@
             if any(obj.flowNoList(:,3) == 1)
                 obj = obj.makeCluster(obj.setting.nCluster,obj.setting.edgeAngleThreshold);
             end
+            warning('on','MATLAB:triangulation:PtsNotInTriWarnId');
         end
         
         function obj = updateMeshGeomfromVariables(obj,unscaledVariables,meshDeformFlag)
@@ -132,6 +133,7 @@
             %unscaledVariables : スケーリングされていない設計変数
             %meshDeformFlag : 1:新しくメッシュを作らずにmeshdeformationによって変形したものを新しいメッシュとする
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            warning('off','MATLAB:triangulation:PtsNotInTriWarnId');
             if nargin<3
                 meshDeformFlag = 0;
             end
@@ -143,14 +145,17 @@
                 fprintf("iteration No. %d set by Mesh Deformation ---> Variables:\n",obj.iteration)
                 disp(unscaledVariables);
                 obj = obj.setMesh(orgMeshVerts,orgMeshCon,surfID,wakelineID,obj.setting.checkMeshMethod,obj.setting.checkMeshTol);
+                obj.history.setMeshbyDeform(obj.iteration) = 1;
             else
                 [orgMeshVerts, orgMeshCon,surfID,wakelineID, unscaledVariables] = obj.meshGenFun(unscaledVariables(:)');
                 fprintf("iteration No. %d set by Mesh Generation ---> Variables:\n",obj.iteration)
                 disp(unscaledVariables);
                 obj = obj.setMesh(orgMeshVerts,orgMeshCon,surfID,wakelineID,obj.setting.checkMeshMethod,obj.setting.checkMeshTol);
                 [orgGeomVerts,orgGeomCon,optSREF,optBREF,optCREF,optXYZREF,obj.argin_x,desOrg] = obj.geomGenFun(unscaledVariables);
+                obj.history.setMeshbyDeform(obj.iteration) = 0;
             end
-            obj.orgMesh = triangulation(orgMeshCon,orgMeshVerts);
+            warning('off','MATLAB:triangulation:PtsNotInTriWarnId');
+            obj.orgMesh = triangulation(obj.tri.ConnectivityList,obj.tri.Points);
             obj = obj.setREFS(optSREF,optBREF,optCREF);
             obj = obj.setRotationCenter(optXYZREF);
             obj.unscaledVar = desOrg(:)';
@@ -166,6 +171,7 @@
             for i = 1:numel(obj.flow)
                 obj = obj.setCf(i,obj.setting.Re,obj.setting.Lch,obj.setting.k,obj.setting.LTratio,obj.setting.coefficient);
             end
+            warning('on','MATLAB:triangulation:PtsNotInTriWarnId');
         end
 
         function obj = solveAnalysis(obj,flowNo,alpha,beta,omega)
@@ -258,7 +264,11 @@
             end
             axis equal;drawnow();
         end
-
+%{
+        function [errMax,errMin] = calcErrMeshGeom(obj)
+            [errMax,errMin] = obj.dist2geom(obj.orgGeom,obj.orgMesh);
+        end
+%}
         function checkGeomGenWork(obj,pert,checkVar,fig)
             %%%%%%%%%%%設計変数が機能しているかチェックする%%%%%%%%%%%
             %最後の引数によって
@@ -295,14 +305,6 @@
                     pause(1);
                 end
             end
-        end
-
-        function [errMax,errMean] = calcErrMeshGeom(obj)
-            geom.faces = obj.orgGeom.ConnectivityList;
-            geom.vertices = obj.orgGeom.Points;
-            pVError = distanceVertex2Mesh(geom, obj.orgMesh.Points);
-            errMean = mean(pVError);
-            errMax = max(pVError);
         end
 
         function [obj,thrust,power,Jref] = setPropParameter(obj,Vinf,rho,CT,CP,rpm)
@@ -778,11 +780,11 @@
             md.x = scatteredInterpolant(obj.orgGeom.Points,modGeomVerts(:,1)-obj.orgGeom.Points(:,1),'linear','linear');
             md.y = scatteredInterpolant(obj.orgGeom.Points,modGeomVerts(:,2)-obj.orgGeom.Points(:,2),'linear','linear');
             md.z = scatteredInterpolant(obj.orgGeom.Points,modGeomVerts(:,3)-obj.orgGeom.Points(:,3),'linear','linear');
-            dVerts(:,1) = md.x(obj.orgMesh.Points);
-            dVerts(:,2) = md.y(obj.orgMesh.Points);
-            dVerts(:,3) = md.z(obj.orgMesh.Points);
-            modVerts = obj.orgMesh.Points+dVerts;
-            con = obj.orgMesh.ConnectivityList;
+            dVerts(:,1) = md.x(obj.tri.Points);
+            dVerts(:,2) = md.y(obj.tri.Points);
+            dVerts(:,3) = md.z(obj.tri.Points);
+            modVerts = obj.tri.Points+dVerts;
+            con = obj.tri.ConnectivityList;
         end
         
         function obj = makeMeshGradient(obj,pert)
@@ -944,7 +946,107 @@
                     end
                 end
         end
+        %{
 
+        function [errMax,errMean] = dist2geom(geom,mesh)
+            numV = size(geom.Points,1);
+            numF = size(geom.ConnectivityList,1);
+            tV = size(mesh.Points,1);
+            dMin = Inf(tV,1);
+            for c1 = 1:tV 
+                nn = geom.nearestNeighbor(mesh.Points(c1,:));
+                dMin(c1) = norm(geom.Points(nn,:)-mesh.Points(c1,:));
+
+                ne = geom.vertexAttachments(nn);
+                for c2 = ne{1}
+                    for c3 = 1:2 
+                        for c4 = c3+1:3
+                            v1 = mesh.Points(c1,:);
+                            v2 = geom.Points(geom.ConnectivityList(c2,c3),:);
+                            v3 = geom.Points(geom.ConnectivityList(c2,c4),:);
+                            if ( all(min(v2,v3) < (v1 + dMin(c1))) && all(max(v2,v3) > (v1 - dMin(c1))) )
+                                d = norm(cross((v3-v2),(v2-v1)))/norm(v3 - v2);
+                                s = - (v2-v1)*(v3-v2)' / (norm(v3-v2))^2;
+                                if (s>=0 && s<=1)
+                                    if d < dMin(c1) 
+                                        dMin(c1) = d;
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+
+                for c2 = ne{1}
+                    v1 = mesh.Points(c1,:);
+                    v2 = geom.Points(geom.ConnectivityList(c2,1),:);
+                    v3 = geom.Points(geom.ConnectivityList(c2,2),:);
+                    v4 = geom.Points(geom.ConnectivityList(c2,3),:);
+                    if ( all(min([v2;v3;v4]) < (v1 + dMin(c1))) && all(max([v2;v3;v4]) > (v1 - dMin(c1))) )
+                        n = cross((v4-v2),(v3-v2)) / norm(cross((v4-v2),(v3-v2)));
+                        d = abs(n * (v1 - v2)');
+                        n = cross((v4-v2),(v3-v2)) / norm(cross((v4-v2),(v3-v2)));
+                        f1 = v1 + d * n;
+                        f2 = v1 - d * n;
+                        m = [v3-v2;v4-v2]';
+                        if(abs(f1-v2)>0)
+                            r1 = m\(f1-v2)';
+                        else
+                            r1 = [inf;inf];
+                        end
+                        if(abs(f2-v2)>0)
+                            r2 = m\(f2-v2)';
+                        else
+                            r2 = [inf;inf];
+                        end
+                        if ((sum(r1)<=1 && sum(r1)>=0 && all(r1 >=0) && all(r1 <=1)) || (sum(r2)<=1 && sum(r2)>=0 && all(r2 >=0) && all(r2 <=1)))
+                            if d < dMin(c1)
+                                dMin(c1) = d;
+                            end
+                        end
+                    end
+                end
+            end
+            
+            pVError = dMin; 
+            errMean = mean(pVError);
+            errMax = max(pVError);
+        end
+
+        function dist = edgeDist(v1,v2,v3)
+            d = norm(cross((v3-v2),(v2-v1)))/norm(v3 - v2);
+            s = - (v2-v1)*(v3-v2)' / (norm(v3-v2))^2;
+            if (s>=0 && s<=1)
+                dist = d;
+            else
+                dist = inf;
+            end
+        end
+
+        function dist = faceDist(v1,v2,v3,v4)
+            n = cross((v4-v2),(v3-v2)) / norm(cross((v4-v2),(v3-v2)));
+            d = abs(n * (v1 - v2)');
+            n = cross((v4-v2),(v3-v2)) / norm(cross((v4-v2),(v3-v2)));
+            f1 = v1 + d * n;
+            f2 = v1 - d * n;
+            m = [v3-v2;v4-v2]';
+            if(abs(f1-v2)>0)
+                r1 = m\(f1-v2)';
+            else
+                r1 = [inf;inf];
+            end
+            if(abs(f2-v2)>0)
+                r2 = m\(f2-v2)';
+            else
+                r2 = [inf;inf];
+            end
+            if ((sum(r1)<=1 && sum(r1)>=0 && all(r1 >=0) && all(r1 <=1)) || (sum(r2)<=1 && sum(r2)>=0 && all(r2 >=0) && all(r2 <=1)))
+                dist = d;
+            else
+                dist = inf;
+            end
+        end
+        %}
         %%%%%%%%%%%%%%%%%%%%%%%%
         %準ニュートン法のアップデートの手実装
         %s 設計変数の変化量

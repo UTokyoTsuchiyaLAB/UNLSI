@@ -38,6 +38,7 @@ classdef UNLSI
 
     methods(Access = public)
         function obj = UNLSI(verts,connectivity,surfID,wakelineID,halfmesh)
+            warning('off','MATLAB:triangulation:PtsNotInTriWarnId');
             %%%%%%%%%%%Constructor%%%%%%%%%%%%%
             %verts:頂点座標
             %conectivity:各パネルの頂点ID
@@ -125,6 +126,7 @@ classdef UNLSI
                 obj = obj.setCpCalcType(i,"linear");
             end
             obj.checkMesh(sqrt(eps),"warning");
+            warning('on','MATLAB:triangulation:PtsNotInTriWarnId');
         end
        
 
@@ -204,6 +206,7 @@ classdef UNLSI
         end
 
         function obj = setMesh(obj,verts,connectivity,surfID,wakelineID,checkMeshMethod,checkMeshTol)
+            warning('off','MATLAB:triangulation:PtsNotInTriWarnId');
             if nargin == 5
                 checkMeshMethod = 'warning';
                 checkMeshTol = sqrt(eps);
@@ -290,6 +293,7 @@ classdef UNLSI
                 obj = obj.setCpCalcType(i,"linear");
             end
             obj = obj.checkMesh(checkMeshTol,checkMeshMethod);
+            warning('on','MATLAB:triangulation:PtsNotInTriWarnId');
         end
 
         function obj = setVerts(obj,verts)
@@ -299,6 +303,7 @@ classdef UNLSI
             %最適化を行うときに、設計変数の勾配を計算するとき等に使用する
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             %triangulationはreadonlyなので、新しく作り直す
+            warning('off','MATLAB:triangulation:PtsNotInTriWarnId');
             con = obj.tri.ConnectivityList;
             obj.tri = triangulation(con,verts);
             
@@ -307,6 +312,7 @@ classdef UNLSI
                 obj.center(i,:) = [mean(verts(obj.tri.ConnectivityList(i,:),1)),mean(verts(obj.tri.ConnectivityList(i,:),2)),mean(verts(obj.tri.ConnectivityList(i,:),3))];
             end
             obj.checkMesh(sqrt(eps),"warning");
+            warning('on','MATLAB:triangulation:PtsNotInTriWarnId');
         end
 
         function obj = checkMesh(obj,tol,outType)
@@ -321,15 +327,15 @@ classdef UNLSI
                 if strcmpi(outType,'warning')
                     warning("some panel areas are too small");
                 elseif strcmpi(outType,'delete')
-                    warning("some panel areas are too small and deleted");
+                    
                     deleteIndex = obj.area<tol;
+                    if any(deleteIndex)
+                        warning("some panel areas are too small and deleted");
+                    end
                     newCon = obj.tri.ConnectivityList;
                     newCon(deleteIndex,:) = [];
                     obj.surfID(deleteIndex,:) = [];
-                    for i = 1:numel(obj.wakeline)
-                        wakelineID{i} = obj.wakeline{i}.edge;
-                    end
-                    obj = obj.setMesh(obj.tri.Points,newCon,obj.surfID,wakelineID,"warning",0);
+                    obj = obj.setMesh(obj.tri.Points,newCon,obj.surfID,obj.wakelineID,"warning",0);
                 else
                     error("some panel areas are too small");
                 end

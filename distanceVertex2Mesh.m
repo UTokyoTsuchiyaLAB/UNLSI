@@ -50,12 +50,11 @@ warning ('off','MATLAB:rankDeficientMatrix'); % turn off warnings for
             % defficient ranks occuring in point-to-face distance
             % calculation
 
-if isfield(mesh, 'faces') && isfield(mesh, 'vertices')
-    vertices = mesh.vertices;
-    faces = mesh.faces;
-else
-    error('Mesh Structure must contain fields ''vertics'' and ''faces''!');
-end
+%vertices = mesh.vertices;
+%faces = mesh.faces;
+%morita Modified
+vertices = mesh.Points;
+faces = mesh.ConnectivityList;
 
 [numV,dim] = size(vertices);
 [numF,pts] = size(faces);
