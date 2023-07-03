@@ -9,6 +9,7 @@ classdef UNLSI
         tri %MATLAB triangulationクラス
         surfID %各パネルのタグ番号
         wakeline %wakeパネルの設定
+        wakelineID %生データ
         halfmesh %半裁かどうか(半裁:1)
         SREF %基準面積
         CREF %縦方向基準長
@@ -47,6 +48,7 @@ classdef UNLSI
             %データの格納、パネル法線、面積の計算
             obj.tri = triangulation(connectivity,verts);
             obj.surfID = surfID;
+            obj.wakelineID = wakelineID;
             for i = 1:numel(wakelineID)
                 obj.wakeline{i}.edge = wakelineID{i};
             end
@@ -208,6 +210,7 @@ classdef UNLSI
             end
             obj.tri = triangulation(connectivity,verts);
             obj.surfID = surfID;
+            obj.wakelineID = wakelineID;
             obj.wakeline = [];
             for i = 1:numel(wakelineID)
                 obj.wakeline{i}.edge = wakelineID{i};
@@ -1164,13 +1167,18 @@ classdef UNLSI
             %disp([CL,CDo,CDi,CDtot,CMY]);
         end
         
-        function dynCoef = calcDynCoef(obj,flowNo,alpha,beta,difference)
+        function [dynCoef,dynCoefStruct] = calcDynCoef(obj,flowNo,alpha,beta,difference)
             %%%動微係数の計算%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             %%%%%%%%%%%%%%%%TO DO alpha とbetaも
             %結果はDyncoefに格納される
-            %[1:Clp, 2:Cmp, 3:Cnp;
-            % 1:Clq, 2:Cmq, 3:Cnq;
-            % 1:Clr, 2:Cmr, 3,Cnr]
+            % 横軸    beta, alpha, p, q, r
+            %        --------------------
+            %    Cx  |
+            % 縦 Cz  |
+            % 軸 Cmx |
+            %    Cmy |
+            %    Cmz |
+            %dynCoefStructは構造体で出力する。
             %flowNo:解きたい流れのID
             %alpha:迎角[deg]
             %beta:横滑り角[deg]
@@ -1225,6 +1233,23 @@ classdef UNLSI
                         0, 0,-1, 0, 1, 0;
                         0,-1, 0, 1, 0, 1];
             dynCoef = (axisRot.*dynCoef)';
+            if(nargout>1)
+                dynCoefStruct.Cyb = dynCoef(2,1);
+                dynCoefStruct.Clb = dynCoef(4,1);
+                dynCoefStruct.Cnb = dynCoef(6,1);
+                dynCoefStruct.Cxa = dynCoef(1,2);
+                dynCoefStruct.Cza = dynCoef(3,2);
+                dynCoefStruct.Cma = dynCoef(5,2);
+                dynCoefStruct.Cyp = dynCoef(2,3);
+                dynCoefStruct.Clp = dynCoef(4,3);
+                dynCoefStruct.Cnp = dynCoef(6,3);
+                dynCoefStruct.Cxq = dynCoef(1,4);
+                dynCoefStruct.Czq = dynCoef(3,4);
+                dynCoefStruct.Cmq = dynCoef(5,4);
+                dynCoefStruct.Cyr = dynCoef(2,5);
+                dynCoefStruct.Clr = dynCoef(4,5);
+                dynCoefStruct.Cnr = dynCoef(6,5);
+            end
 
         end
     end
