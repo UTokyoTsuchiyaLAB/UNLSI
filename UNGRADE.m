@@ -76,7 +76,7 @@
             obj.setting.coefficient = 1; 
             obj.setting.gradientCalcMethod = "direct"; %設計変数偏微分の取得方法："direct", "chain", "nonlin"
             obj.setting.HessianUpdateMethod = "BFGS"; %ヘッシアン更新は "BFGS","DFP","Broyden","SR1"から選択
-            obj.setting.updateMethod = "Steepest-Descent";%解を更新する方法 Steepest-Descent,Levenberg–Marquardt,dogleg
+            obj.setting.updateMethod = "Levenberg–Marquardt";%解を更新する方法 Steepest-Descent,Levenberg–Marquardt,dogleg
             obj.setting.betaLM = 0.5; %レーベンバーグマッカートの重み係数
             obj.setting.alphaSD = 0.5; %最急降下法の重み 
             obj.setting.TrustRegion = 0.1; %設計更新を行う際のスケーリングされた設計変数更新量の最大値

@@ -1,25 +1,26 @@
 clear;
-orgVal = [4,4,4,4,4]; %設計変数の初期値
+orgVal = [2,2,2,2,2,2]; %設計変数の初期値
 
-Machrange = [0.001,0.001,0.001]; %解析するマッハ数
-alpharange = [2,4,6]; %解析する迎角
-betarange = [0,0,0]; %解析する横滑り角
+Machrange = [0.001,0.001]; %解析するマッハ数
+alpharange = [2,3]; %解析する迎角
+betarange = [0,0]; %解析する横滑り角
+geomErr = 0.005;
 
-ub = [  4,   4,   4,   4,   4]; %設計変数の下限値
-lb = [  1,   1,   1,   1,   1]; %設計変数の上限値
-cmin = [0,0,0,0]';%制約条件の下限値
-cmax = [10,10,10,10]';%制約条件の上限値
+lb = [  1,   1,   1,   1,   1,   1]; %設計変数の下限値
+ub = [  4,   4,   4,   4,   4,   4]; %設計変数の上限値
+cmin = [0.15]';%制約条件の下限値
+cmax = [0.17]';%制約条件の上限値
 
 ungradetest = UNGRADE(@(x)vspMeshGen(x,"wing","org.des"),@(x)vspGeomGen(x,"wing","org.des"),orgVal,lb,ub,1,Machrange,alpharange,betarange);%コンストラクタの実行
 ungradetest.checkGeomGenWork(0.5);%設計変数が動いているかチェックする
 ungradetest = ungradetest.setCfParameter(500000,4,0.052*(10^-5),0,1); %摩擦係数関連のパラメータのセット
 ungradetest = ungradetest.setOptions('n_divide',3); %設定値の変更 n_divide:パネル法行列を計算するときの分割数
-[Iorg,~,ungradetest] = ungradetest.evaluateObjFun(@objFun); %評価関数を計算する
+[Iorg,conorg,ungradetest] = ungradetest.evaluateObjFun(@objFun); %評価関数を計算する
 ungradetest.plotGeometry(1,ungradetest.Cp{1}(:,1),[-2,1]); %機体形状と圧力係数をプロットする
 
 
 %%%%%%%%%%%%%%%%%初級者向け -- とりあえず実行%%%%%%%%%%%%%%%%%%%%%%%%%
-for i = 1:15
+for i = 1:5
     [nextVar,ungradetest] = ungradetest.calcNextVariables(@objFun,cmin,cmax,"TrustRegion",0.2,"betaLM",0.5);%次の設計変数を計算する
     ungradetest= ungradetest.updateMeshGeomfromVariables(nextVar);%次の設計変数を用いて機体形状を更新する
     %%%%%%%%%ここから
@@ -31,18 +32,28 @@ end
 
 %%%%%%%%%%%%%%%%%上級者向け -- calcNextVariablesの中身を個別実行%%%%%%%%%%%%%%%%%%
 for i = 1:30
-    ungradetest = ungradetest.calcLagrangianGradient(@objFun,cmin,cmax,"TrustRegion",0.2,"betaLM",0.5);%次の設計変数を計算する
+    ungradetest = ungradetest.calcLagrangianGradient(@objFun,cmin,cmax,"TrustRegion",0.2);%次の設計変数を計算する
     ungradetest = ungradetest.updateHessian();%準ニュートン法のヘッシアン更新
-    nextVar = ungradetest.descentLagrangian();%次の設計変数を計算する
-    ungradetestdx= ungradetest.updateMeshGeomfromVariables(nextVar);%次の設計変数を用いて機体形状を更新する
-    [Idx,~,ungradetestdx] = ungradetestdx.evaluateObjFun(@objFun);
-    if Idx<Iorg
+    [nextVar,dxNorm] = ungradetest.descentLagrangian();%次の設計変数を計算する
+    ungradetestdx= ungradetest.updateMeshGeomfromVariables(nextVar,1);%MeshDeformationにより次の設計変数を用いて機体形状を更新する。
+    if max(distanceVertex2Mesh(ungradetest.orgGeom, ungradetest.orgMesh.Points))>geomErr
+        ungradetestdx= ungradetest.updateMeshGeomfromVariables(nextVar);%Mesh計算を行い、次の機体形状を更新する
+    end
+    [Idx,condx,ungradetestdx] = ungradetestdx.evaluateObjFun(@objFun);
+    penartyorg = 100 * sum(max(max(0,cmin-conorg),max(conorg-cmax)));
+    penartydx = 100 * sum(max(max(0,cmin-condx),max(condx-cmax)));
+    if Idx + penartydx<Iorg + penartyorg
         ungradetest = ungradetestdx;
         Iorg = Idx;
+        conorg = condx;
     else
-        nextVar = ungradetest.descentLagrangian("betaLM",2.0);%次の設計変数を計算する。ここでのsettingの変更は残らない
-        ungradetest= ungradetest.updateMeshGeomfromVariables(nextVar);%次の設計変数を用いて機体形状を更新する
-        [Iorg,~,ungradetest] = ungradetest.evaluateObjFun(@objFun);
+        nextVar = ungradetest.descentLagrangian("TrustRegion",dxNorm*0.5);%次の設計変数を計算する。ここでのsettingの変更は残らない
+        ungradetestdx= ungradetest.updateMeshGeomfromVariables(nextVar,1);%%MeshDeformationにより次の設計変数を用いて機体形状を更新する。
+        if max(distanceVertex2Mesh(ungradetest.orgGeom, ungradetest.orgMesh.Points))>geomErr
+            ungradetestdx= ungradetest.updateMeshGeomfromVariables(nextVar);%%Mesh計算を行い、次の機体形状を更新する
+        end
+        ungradetest = ungradetestdx;
+        [Iorg,conorg,ungradetest] = ungradetest.evaluateObjFun(@objFun);
     end
     
     ungradetest.plotGeometry(1,ungradetest.Cp{1}(:,1),[-2,1]);
