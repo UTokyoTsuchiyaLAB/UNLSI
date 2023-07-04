@@ -52,7 +52,6 @@
             if any(obj.designScale<0)
                 error("check the ub and lb setting");
             end
-
             obj.geomGenFun = geomGenFun;
             obj.meshGenFun = meshGenFun;
 
@@ -191,12 +190,11 @@
                 end 
             end
             if nargin<5
-                omega = [];
+                obj = obj.solveFlow(flowNo,alpha,beta,[],obj.setting.propCalcFlag);
+            else
+                obj = obj.solveFlow(flowNo,alpha,beta,omega,obj.setting.propCalcFlag);
             end
-            u0 = obj.solvePertPotential(flowNo,alpha,beta,omega,obj.setting.propCalcFlag);
-            [~,~,~,~,obj] = obj.solveFlowForAdjoint(u0,flowNo,alpha,beta,omega,obj.setting.propCalcFlag);
-            udw = obj.calcDynCoefdu(alpha,beta,omega);
-            [~,obj] =  obj.calcDynCoefforAdjoint(u0,udw,flowNo,alpha,beta,omega,obj.setting.propCalcFlag);
+
         end
 
         function [I,con,obj] = evaluateObjFun(obj,objandConsFun)
@@ -217,12 +215,9 @@
             for iter = 1:numel(obj.flow)
                 alphabuff = obj.setting.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                 betabuff = obj.setting.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
-                u0 = obj.solvePertPotential(iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);
-                [~,~,~,~,obj] = obj.solveFlowForAdjoint(u0,iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);
-                udw = obj.calcDynCoefdu(alphabuff,betabuff,[]);
-                [~,obj] =  obj.calcDynCoefforAdjoint(u0,udw,iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);
+                [obj] = obj.solveFlow(iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);
             end
-            [I,con] = objandConsFun(desOrg,obj.AERODATA,obj.DYNCOEF,obj.Cp,obj.Cfe,obj.SREF,obj.BREF,obj.CREF,obj.XYZREF,obj.argin_x);
+            [I,con] = objandConsFun(desOrg,obj.AERODATA,obj.Cp,obj.Cfe,obj.SREF,obj.BREF,obj.CREF,obj.XYZREF,obj.argin_x);
         end
 
     
@@ -388,9 +383,7 @@
             %cmin,cmax : 制約の上下限値
             %varargin : 追加するとsetOptionsをその変数で実行してくれる
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-            if any(cmax-cmin<0)
-                error("check the cmin and cmax setting");
-            end
+
             if nargin>4
                 obj = obj.setOptions(varargin{:});
             end
@@ -414,17 +407,16 @@
                 alphabuff = obj.setting.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                 betabuff = obj.setting.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                 [u0solve,~] = obj.solvePertPotential(iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);%ポテンシャルを求める
-                udw{iter} = obj.calcDynCoefdu(alphabuff,betabuff,[]);
                 [AERODATA0,Cp0,Cfe0,R0solve,obj] = obj.solveFlowForAdjoint(u0solve,iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);%ポテンシャルから空力係数を計算
-                [DYNCOEF0,obj] =  obj.calcDynCoefforAdjoint(u0solve,udw{iter},iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);
                 %結果をマッピング
                 lktable = find(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                 for i = 1:numel(lktable)
                     u0((lktable(i)-1)*nbPanel+1:lktable(i)*nbPanel,1) = u0solve(nbPanel*(i-1)+1:nbPanel*i,1);
                     R0((lktable(i)-1)*nbPanel+1:lktable(i)*nbPanel,1) = R0solve(nbPanel*(i-1)+1:nbPanel*i,1);
                 end
+
             end
-            [I0,con0] = objandConsFun(desOrg,AERODATA0,DYNCOEF0,Cp0,Cfe0,obj.SREF,obj.BREF,obj.CREF,obj.XYZREF,obj.argin_x);
+            [I0,con0] = objandConsFun(desOrg,AERODATA0,Cp0,Cfe0,obj.SREF,obj.BREF,obj.CREF,obj.XYZREF,obj.argin_x);
             fprintf("Orginal Objective Value and Constraints:\n")
             disp([I0,con0(:)']);
             obj.history.objVal(obj.iteration) = I0;
@@ -447,9 +439,8 @@
                     alphabuff = obj.setting.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                     betabuff = obj.setting.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                     [AERODATA,Cp,Cfe,~,obj] = obj.solveFlowForAdjoint(usolve,iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);
-                    [DYNCOEF,obj] =  obj.calcDynCoefforAdjoint(usolve,udw{iter},iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);
                 end
-                [I,con] = objandConsFun(desOrg,AERODATA,DYNCOEF,Cp,Cfe,obj.SREF,obj.BREF,obj.CREF,obj.XYZREF,obj.argin_x);
+                [I,con] = objandConsFun(desOrg,AERODATA,Cp,Cfe,obj.SREF,obj.BREF,obj.CREF,obj.XYZREF,obj.argin_x);
                 dI_du(i) = (I-I0)/pert;%評価関数のポテンシャルに関する偏微分
                 if not(isempty(con))
                     dcon_du(:,i) = (con-con0)/pert;
@@ -527,14 +518,12 @@
                     alphabuff = obj.setting.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                     betabuff = obj.setting.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                     [AERODATA,Cp,Cfe,Rsolve,obj2] = obj2.solveFlowForAdjoint(u0solve,iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);
-                    udwdx = obj2.calcDynCoefdu(alphabuff,betabuff,[]);
-                    [DYNCOEF,obj2] =  obj2.calcDynCoefforAdjoint(u0solve,udwdx,iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);
                     for k = 1:numel(lktable)
                         R((lktable(k)-1)*nbPanel+1:lktable(k)*nbPanel,1) = Rsolve(nbPanel*(k-1)+1:nbPanel*k,1);
                     end
                 end
                 
-                [I,con] = objandConsFun(des,AERODATA,DYNCOEF,Cp,Cfe,SREF2,BREF2,CREF2,XYZREF2,argin_x2);
+                [I,con] = objandConsFun(des,AERODATA,Cp,Cfe,SREF2,BREF2,CREF2,XYZREF2,argin_x2);
                 dI_dx(i) = (I-I0)/pert;%評価関数の設計変数に関する偏微分
                 if not(isempty(con))
                     dcon_dx(:,i) = (con-con0)/pert;
@@ -739,11 +728,8 @@
             
             if not(isempty(obj.history.conVal))
                 set(gca,"FontSize",14,'xticklabel',[]);grid on;
-                subplot(wNum,1,5);grid on;hold on;
-                for i = 1:size(obj.history.conVal,1)
-                    plot(plotiter,obj.history.conVal(i,:),"-o","LineWidth",1);
-                end
-                hold off;
+                subplot(wNum,1,5);grid on;
+                plot(plotiter,obj.history.conVal,"-o","LineWidth",1);
                 ylabel("Cons val");
                 set(gca,"FontSize",14);grid on;
             else

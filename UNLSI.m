@@ -32,7 +32,8 @@ classdef UNLSI
         mu2v %ポテンシャル⇒機体表面速度への変換行列
         Cp %圧力係数
         Cfe %表面摩擦係数
-        AERODATA %結果の格納
+        AERODATA %空力解析結果の格納
+        DYNCOEF %同安定微係数結果の格納
         LLT
     end
 
@@ -1044,7 +1045,7 @@ classdef UNLSI
                     Vinf = zeros(nPanel,3);
                     for i = 1:nPanel
                        rvec = obj.center(i,:)'-obj.XYZREF(:);
-                       Vinf(i,:) = (T*[1;0;0])'-(cross(omega(iterflow,:)./180.*pi,rvec(:)))';
+                       Vinf(i,:) = (T*[1;0;0])'-(cross(omega(iterflow,:)./180.*pi,rvec(:)'));
                     end
                 end
                 Tvec(:,1) = obj.normal(:,2).* Vinf(:,3)-obj.normal(:,3).* Vinf(:,2);
@@ -1172,8 +1173,8 @@ classdef UNLSI
             end
             %disp([CL,CDo,CDi,CDtot,CMY]);
         end
-        
-        function [dynCoef,dynCoefStruct] = calcDynCoef(obj,flowNo,alpha,beta,difference)
+        %{
+        function [DYNCOEF,dynCoefStruct] = calcDynCoef(obj,flowNo,alpha,beta,difference)
             %%%動微係数の計算%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             %%%%%%%%%%%%%%%%TO DO alpha とbetaも
             %結果はDyncoefに格納される
@@ -1196,39 +1197,39 @@ classdef UNLSI
             %有限差分による計算
             ind = [15:20];%AERODATA = [18:CMX, 19:CMY, 20: CMZ]
             nondim = [obj.BREF/(2*1),obj.CREF/(2*1),obj.BREF/(2*1)];
-            dynCoef = zeros(5,6);
+            DYNCOEF = zeros(5,6);
             if strcmp(difference,"forward")
                 dw = sqrt(eps);
                 delta = obj.solveFlow(flowNo,alpha,beta+dw);
                 tmp = (delta.AERODATA{flowNo} - obj.AERODATA{flowNo})./(dw/180*pi);
-                dynCoef(1,:) = tmp(ind); %beta
+                DYNCOEF(1,:) = tmp(ind); %beta
                 delta = obj.solveFlow(flowNo,alpha+dw,beta);
                 tmp = (delta.AERODATA{flowNo} - obj.AERODATA{flowNo})./(dw/180*pi);
-                dynCoef(2,:) = tmp(ind); % alpha
+                DYNCOEF(2,:) = tmp(ind); % alpha
                 for i = 1:3%p,q,rについて差分をとる
                     omega = zeros(1,3);
                     omega(i) = dw;
                     delta = obj.solveFlow(flowNo,alpha,beta,omega);
                     tmp = (delta.AERODATA{flowNo} - obj.AERODATA{flowNo})./((dw/180*pi)*nondim(i));
-                    dynCoef(2+i,:) = tmp(ind);
+                    DYNCOEF(2+i,:) = tmp(ind);
                 end
             elseif strcmp(difference,"central")
                 dw = eps^(1/3);
                 delta1 = obj.solveFlow(flowNo,alpha,beta+dw);
                 delta2 = obj.solveFlow(flowNo,alpha,beta-dw);
                 tmp = (delta1.AERODATA{flowNo} - delta2.AERODATA{flowNo})./(2*(dw/180*pi));
-                dynCoef(1,:) = tmp(ind);
+                DYNCOEF(1,:) = tmp(ind);
                 delta1 = obj.solveFlow(flowNo,alpha+dw,beta);
                 delta2 = obj.solveFlow(flowNo,alpha-dw,beta);
                 tmp = (delta1.AERODATA{flowNo} - delta2.AERODATA{flowNo})./(2*(dw/180*pi));
-                dynCoef(2,:) = tmp(ind);
+                DYNCOEF(2,:) = tmp(ind);
                 for i = 1:3
                     omega = zeros(1,3);
                     omega(i) = dw;
                     delta1 = obj.solveFlow(flowNo,alpha,beta,omega);
                     delta2 = obj.solveFlow(flowNo,alpha,beta,-omega);
                     tmp = (delta1.AERODATA{flowNo} - delta2.AERODATA{flowNo})./(2*(dw/180*pi)*nondim(i));
-                    dynCoef(2+i,:) = tmp(ind);
+                    DYNCOEF(2+i,:) = tmp(ind);
                 end
             else 
                 error("Supported difference methods are ""foraward"" and ""central"".")
@@ -1238,28 +1239,192 @@ classdef UNLSI
                         0,-1, 0, 1, 0, 1;
                         0, 0,-1, 0, 1, 0;
                         0,-1, 0, 1, 0, 1];
-            dynCoef = (axisRot.*dynCoef)';
+            DYNCOEF = (axisRot.*DYNCOEF)';
             if(nargout>1)
-                dynCoefStruct.Cyb = dynCoef(2,1);
-                dynCoefStruct.Clb = dynCoef(4,1);
-                dynCoefStruct.Cnb = dynCoef(6,1);
-                dynCoefStruct.Cxa = dynCoef(1,2);
-                dynCoefStruct.Cza = dynCoef(3,2);
-                dynCoefStruct.Cma = dynCoef(5,2);
-                dynCoefStruct.Cyp = dynCoef(2,3);
-                dynCoefStruct.Clp = dynCoef(4,3);
-                dynCoefStruct.Cnp = dynCoef(6,3);
-                dynCoefStruct.Cxq = dynCoef(1,4);
-                dynCoefStruct.Czq = dynCoef(3,4);
-                dynCoefStruct.Cmq = dynCoef(5,4);
-                dynCoefStruct.Cyr = dynCoef(2,5);
-                dynCoefStruct.Clr = dynCoef(4,5);
-                dynCoefStruct.Cnr = dynCoef(6,5);
+                dynCoefStruct.Cyb = DYNCOEF(2,1);
+                dynCoefStruct.Clb = DYNCOEF(4,1);
+                dynCoefStruct.Cnb = DYNCOEF(6,1);
+                dynCoefStruct.Cxa = DYNCOEF(1,2);
+                dynCoefStruct.Cza = DYNCOEF(3,2);
+                dynCoefStruct.Cma = DYNCOEF(5,2);
+                dynCoefStruct.Cyp = DYNCOEF(2,3);
+                dynCoefStruct.Clp = DYNCOEF(4,3);
+                dynCoefStruct.Cnp = DYNCOEF(6,3);
+                dynCoefStruct.Cxq = DYNCOEF(1,4);
+                dynCoefStruct.Czq = DYNCOEF(3,4);
+                dynCoefStruct.Cmq = DYNCOEF(5,4);
+                dynCoefStruct.Cyr = DYNCOEF(2,5);
+                dynCoefStruct.Clr = DYNCOEF(4,5);
+                dynCoefStruct.Cnr = DYNCOEF(6,5);
             end
 
         end
-    end
+        %}
+        function obj = calcDynCoef(obj,flowNo,alpha,beta,omega,propCalcFlag)
+                %%%動微係数の計算%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+                %%%%%%%%%%%%%%%%TO DO alpha とbetaも
+                %結果はDyncoefに格納される
+                % 横軸    beta, alpha, p, q, r
+                %        --------------------
+                %    Cx  |
+                % 縦 Cz  |
+                % 軸 Cmx |
+                %    Cmy |
+                %    Cmz |
+                %dynCoefStructは構造体で出力する。
+                %flowNo:解きたい流れのID
+                %alpha:迎角[deg]
+                %beta:横滑り角[deg]
+                %difference:有限差分の方法 "forward"(デフォルト)-前進差分 "central"-中心差分
+                %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+                u0 = obj.solvePertPotential(flowNo,alpha,beta,omega,propCalcFlag);
+                udw = obj.calcDynCoefdu(alpha,beta,omega);
+                [~,obj] =  obj.calcDynCoefforAdjoint(u0,udw,flowNo,alpha,beta,omega,propCalcFlag);
+        end
 
+        function [udw] = calcDynCoefdu(obj,alpha,beta,omega)
+            nPanel = numel(obj.paneltype);
+            nbPanel = sum(obj.paneltype == 1);
+            dw = eps^(1/3);
+            udw = zeros(nbPanel*numel(alpha),5);
+            for iterflow = 1:numel(alpha)
+                %betaについて
+                Vinfdw = repmat([-cosd(alpha(iterflow))*sind(beta(iterflow))*dw,-cosd(beta(iterflow))*dw,-sind(alpha(iterflow))*sind(beta(iterflow))*dw],[nPanel,1]);
+                vdw = zeros(nbPanel,1);
+                iter = 1;
+                for i = 1:nPanel
+                    if obj.paneltype(i) == 1
+                        vdw(iter,1) = dot(Vinfdw(i,:)',obj.normal(i,:)');
+                        iter = iter+1;
+                    end
+                end
+                rhsdw = obj.RHS*vdw;
+                udw(1+nbPanel*(iterflow-1):nbPanel*iterflow,1) = -obj.LHS\rhsdw;
+    
+                %alphaについて
+                Vinfdw = repmat([-sind(alpha(iterflow))*cosd(beta(iterflow))*dw,0,cosd(alpha(iterflow))*cosd(beta(iterflow))*dw],[nPanel,1]);
+                vdw = zeros(nbPanel,1);
+                iter = 1;
+                for i = 1:nPanel
+                    if obj.paneltype(i) == 1
+                        vdw(iter,1) = dot(Vinfdw(i,:)',obj.normal(i,:)');
+                        iter = iter+1;
+                    end
+                end
+                rhsdw = obj.RHS*vdw;
+                udw(1+nbPanel*(iterflow-1):nbPanel*iterflow,2) = -obj.LHS\rhsdw;
+                for jter = 1:3%p,q,rについて差分をとる
+                    if isempty(omega)
+                        omegadw = zeros(1,3);
+                    else
+                        omegadw = omega(iterflow,:);
+                    end
+                    omegadw(jter) = omegadw(jter)+dw;
+                    Vinfdw = zeros(nPanel,3);
+                    for i = 1:nPanel
+                       rvec = obj.center(i,:)'-obj.XYZREF(:);
+                       Vinfdw(i,:) = -(cross(omegadw,rvec(:)))';
+                    end
+                    vdw = zeros(nbPanel,1);
+                    iter = 1;
+                    for i = 1:nPanel
+                        if obj.paneltype(i) == 1
+                            vdw(iter,1) = dot(Vinfdw(i,:)',obj.normal(i,:)');
+                            iter = iter+1;
+                        end
+                    end
+                    rhsdw = obj.RHS*vdw;
+                    udw(1+nbPanel*(iterflow-1):nbPanel*iterflow,2+i) = -obj.LHS\rhsdw;
+                end
+            end
+        end
+
+        function [DYNCOEF,obj] = calcDynCoefforAdjoint(obj,u0,udw,flowNo,alpha,beta,omega,propCalcFlag)
+                %%%動微係数の計算%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+                %%%%%%%%%%%%%%%%TO DO alpha とbetaも
+                %結果はDyncoefに格納される
+                % 横軸    beta, alpha, p, q, r
+                %        --------------------
+                %    Cx  |
+                % 縦 Cz  |
+                % 軸 Cmx |
+                %    Cmy |
+                %    Cmz |
+                %dynCoefStructは構造体で出力する。
+                %flowNo:解きたい流れのID
+                %alpha:迎角[deg]
+                %beta:横滑り角[deg]
+                %difference:有限差分の方法 "forward"(デフォルト)-前進差分 "central"-中心差分
+                %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+                if nargin<7
+                    propCalcFlag = 0;
+                end
+                %ノミナルについて流れ変数を取得する。
+                dw = eps^(1/3);%rad
+                AERODATA0 = obj.solveFlowForAdjoint(u0,flowNo,alpha,beta,omega,propCalcFlag);
+                %有限差分による計算
+                ind = 15:20;%AERODATA = [18:CMX, 19:CMY, 20: CMZ]
+                nondim = [obj.BREF/(2*1),obj.CREF/(2*1),obj.BREF/(2*1)];
+                for i = 1:numel(alpha)
+                    obj.DYNCOEF{flowNo,i} = zeros(5,6);
+                end
+                %betaについて
+                dAERODATA = obj.solveFlowForAdjoint(u0+udw(:,1),flowNo,alpha,beta+dw*180/pi,[],propCalcFlag);
+                tmp = (dAERODATA{flowNo} - AERODATA0{flowNo})./dw;
+                for i = 1:size(dAERODATA{flowNo},1)
+                    obj.DYNCOEF{flowNo,i}(1,:) = tmp(i,ind); % beta
+                end
+
+                %alphaについて
+                dAERODATA = obj.solveFlowForAdjoint(u0+udw(:,2),flowNo,alpha+dw*180/pi,beta,[],propCalcFlag);
+                tmp = (dAERODATA{flowNo} - AERODATA0{flowNo})./dw;
+                for i = 1:size(dAERODATA{flowNo},1)
+                    obj.DYNCOEF{flowNo,i}(2,:) = tmp(i,ind); % beta
+                end
+
+                for jter = 1:3%p,q,rについて差分をとる
+                    if isempty(omega)
+                        omegadw = zeros(1,3);
+                    else
+                        omegadw = omega(iterflow,:);
+                    end
+                    omegadw(jter) = omegadw(jter)+dw;
+                    dAERODATA = obj.solveFlowForAdjoint(u0+udw(:,2+jter),flowNo,alpha,beta,repmat(omegadw,[numel(alpha),1]).*180./pi,propCalcFlag);
+                    tmp = (dAERODATA{flowNo} - AERODATA0{flowNo})./(dw*nondim(jter));
+                    for i = 1:size(dAERODATA{flowNo},1)
+                        obj.DYNCOEF{flowNo,i}(2+jter,:) = tmp(i,ind); % beta
+                    end
+                end
+                axisRot = [ 0, 1, 0,-1, 0,-1;
+                           -1, 0,-1, 0, 1, 0;
+                            0,-1, 0, 1, 0, 1;
+                            0, 0,-1, 0, 1, 0;
+                            0,-1, 0, 1, 0, 1];
+                for i = 1:numel(alpha)
+                    obj.DYNCOEF{flowNo,i} = (axisRot.*obj.DYNCOEF{flowNo,i})';
+                end
+                DYNCOEF = obj.DYNCOEF;
+                %{
+                if(nargout>1)
+                    dynCoefStruct.Cyb = DYNCOEF(2,1);
+                    dynCoefStruct.Clb = DYNCOEF(4,1);
+                    dynCoefStruct.Cnb = DYNCOEF(6,1);
+                    dynCoefStruct.Cxa = DYNCOEF(1,2);
+                    dynCoefStruct.Cza = DYNCOEF(3,2);
+                    dynCoefStruct.Cma = DYNCOEF(5,2);
+                    dynCoefStruct.Cyp = DYNCOEF(2,3);
+                    dynCoefStruct.Clp = DYNCOEF(4,3);
+                    dynCoefStruct.Cnp = DYNCOEF(6,3);
+                    dynCoefStruct.Cxq = DYNCOEF(1,4);
+                    dynCoefStruct.Czq = DYNCOEF(3,4);
+                    dynCoefStruct.Cmq = DYNCOEF(5,4);
+                    dynCoefStruct.Cyr = DYNCOEF(2,5);
+                    dynCoefStruct.Clr = DYNCOEF(4,5);
+                    dynCoefStruct.Cnr = DYNCOEF(6,5);
+                end
+                %}
+            end
+        end
     methods(Static)
 
         function res = softplus(x,beta)
