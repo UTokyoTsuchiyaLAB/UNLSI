@@ -31,6 +31,8 @@
         history %設計更新の履歴
         flowNoList %マッハ数とflowNoの関連付け行列
         LagrangianInfo
+        deflGroup
+        deflGain
     end
 
     methods(Access = public)
@@ -56,13 +58,16 @@
             obj.geomGenFun = geomGenFun;
             obj.meshGenFun = meshGenFun;
 
+            obj.deflGroup = [];
+            obj.deflGain = [];
+
             %%%%%%%%%%%オプションのデフォルト設定
             % gradientCalcMethod
             % 'direct'-->直接パネル法行列を計算し差分を作成
             % 'chain'-->各節点位置の変化に対する近似パネル法行列と、設計変数変化に対する節点位置の変化を用いてチェインルールで勾配計算する。
             % 'nonlin'-->approxmatによる近似パネル法行列を使った直接最適化
             % 
-            obj.setting.nMemory = 3; %記憶制限準ニュートン法のさかのぼり回数（厳密な記憶制限法は実装していない）
+            obj.setting.nMemory = 6; %記憶制限準ニュートン法のさかのぼり回数（厳密な記憶制限法は実装していない）
             obj.setting.H0 = eye(numel(obj.lb)); %初期ヘッシアン
             obj.setting.n_wake = 5;
             obj.setting.wakeLength = 20;
@@ -127,6 +132,11 @@
                 obj = obj.makeCluster(obj.setting.nCluster,obj.setting.edgeAngleThreshold);
             end
             warning('on','MATLAB:triangulation:PtsNotInTriWarnId');
+        end
+
+        function obj = setDeflection(deflGroup,deflGain)
+            obj.deflGroup = deflGroup;
+            obj.deflGain = deflGain;
         end
         
         function obj = updateMeshGeomfromVariables(obj,unscaledVariables,meshDeformFlag)
@@ -195,8 +205,8 @@
             end
             u0 = obj.solvePertPotential(flowNo,alpha,beta,omega,obj.setting.propCalcFlag);
             [~,~,~,~,obj] = obj.solveFlowForAdjoint(u0,flowNo,alpha,beta,omega,obj.setting.propCalcFlag);
-            udw = obj.calcDynCoefdu(alpha,beta,omega);
-            [~,obj] =  obj.calcDynCoefforAdjoint(u0,udw,flowNo,alpha,beta,omega,obj.setting.propCalcFlag);
+            [udwf,udwr] = obj.calcDynCoefdu(flowNo,alpha,beta,omega,obj.deflGroup,obj.deflGain);
+            [~,obj] =  obj.calcDynCoefforAdjoint(u0,udwf,udwr,flowNo,alpha,beta,omega,obj.setting.propCalcFlag,obj.deflGroup,obj.deflGain);
         end
 
         function [I,con,obj] = evaluateObjFun(obj,objandConsFun)
@@ -219,8 +229,8 @@
                 betabuff = obj.setting.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                 u0 = obj.solvePertPotential(iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);
                 [~,~,~,~,obj] = obj.solveFlowForAdjoint(u0,iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);
-                udw = obj.calcDynCoefdu(alphabuff,betabuff,[]);
-                [~,obj] =  obj.calcDynCoefforAdjoint(u0,udw,iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);
+                [udwf,udwr] = obj.calcDynCoefdu(iter,alphabuff,betabuff,[],obj.deflGroup,obj.deflGain);
+                [~,obj] =  obj.calcDynCoefforAdjoint(u0,udwf,udwr,iter,alphabuff,betabuff,[],obj.setting.propCalcFlag,obj.deflGroup,obj.deflGain);
             end
             [I,con] = objandConsFun(desOrg,obj.AERODATA,obj.DYNCOEF,obj.Cp,obj.Cfe,obj.SREF,obj.BREF,obj.CREF,obj.XYZREF,obj.argin_x);
         end
@@ -414,9 +424,9 @@
                 alphabuff = obj.setting.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                 betabuff = obj.setting.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                 [u0solve,~] = obj.solvePertPotential(iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);%ポテンシャルを求める
-                udw{iter} = obj.calcDynCoefdu(alphabuff,betabuff,[]);
+                [udwf{iter},udwr{iter}] = obj.calcDynCoefdu(iter,alphabuff,betabuff,[],obj.deflGroup,obj.deflGain);
                 [AERODATA0,Cp0,Cfe0,R0solve,obj] = obj.solveFlowForAdjoint(u0solve,iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);%ポテンシャルから空力係数を計算
-                [DYNCOEF0,obj] =  obj.calcDynCoefforAdjoint(u0solve,udw{iter},iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);
+                [DYNCOEF0,obj] =  obj.calcDynCoefforAdjoint(u0solve,udwf{iter},udwr{iter},iter,alphabuff,betabuff,[],obj.setting.propCalcFlag,obj.deflGroup,obj.deflGain);
                 %結果をマッピング
                 lktable = find(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                 for i = 1:numel(lktable)
@@ -431,6 +441,8 @@
             obj.history.conVal(:,obj.iteration) = con0(:);
             fprintf("AERODATA of iteration No.%d ->\n",obj.iteration);
             disp(vertcat(AERODATA0{:}));
+            fprintf("DYNCOEF of iteration No.%d ->\n",obj.iteration);
+            disp(DYNCOEF0{:});
             %%%
             %明示・非明示随伴方程式法の実装
             %u微分の計算
@@ -447,7 +459,7 @@
                     alphabuff = obj.setting.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                     betabuff = obj.setting.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                     [AERODATA,Cp,Cfe,~,obj] = obj.solveFlowForAdjoint(usolve,iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);
-                    [DYNCOEF,obj] =  obj.calcDynCoefforAdjoint(usolve,udw{iter},iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);
+                    [DYNCOEF,obj] =  obj.calcDynCoefforAdjoint(usolve,udwf{iter},udwr{iter},iter,alphabuff,betabuff,[],obj.setting.propCalcFlag,obj.deflGroup,obj.deflGain);
                 end
                 [I,con] = objandConsFun(desOrg,AERODATA,DYNCOEF,Cp,Cfe,obj.SREF,obj.BREF,obj.CREF,obj.XYZREF,obj.argin_x);
                 dI_du(i) = (I-I0)/pert;%評価関数のポテンシャルに関する偏微分
@@ -527,8 +539,8 @@
                     alphabuff = obj.setting.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                     betabuff = obj.setting.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                     [AERODATA,Cp,Cfe,Rsolve,obj2] = obj2.solveFlowForAdjoint(u0solve,iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);
-                    udwdx = obj2.calcDynCoefdu(alphabuff,betabuff,[]);
-                    [DYNCOEF,obj2] =  obj2.calcDynCoefforAdjoint(u0solve,udwdx,iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);
+                    [udwfdx,udwrdx] = obj2.calcDynCoefdu(iter,alphabuff,betabuff,[],obj.deflGroup,obj.deflGain);
+                    [DYNCOEF,obj2] =  obj2.calcDynCoefforAdjoint(u0solve,udwfdx,udwrdx,iter,alphabuff,betabuff,[],obj.setting.propCalcFlag,obj.deflGroup,obj.deflGain);
                     for k = 1:numel(lktable)
                         R((lktable(k)-1)*nbPanel+1:lktable(k)*nbPanel,1) = Rsolve(nbPanel*(k-1)+1:nbPanel*k,1);
                     end
