@@ -34,6 +34,7 @@ classdef UNLSI
         Cp %圧力係数
         Cfe %表面摩擦係数
         deflAngle
+        deflGroup
         AERODATA %空力解析結果の格納
         DYNCOEF %同安定微係数結果の格納
         LLT
@@ -153,6 +154,13 @@ classdef UNLSI
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             obj.XYZREF = XYZREF(:)';
         end
+
+        function obj = setDeflGroup(obj,groupNo,groupName,groupID,deflGain)
+            obj.deflGroup{groupNo}.name = groupName;
+            obj.deflGroup{groupNo}.ID = groupID;
+            obj.deflGroup{groupNo}.gain = deflGain;
+        end
+
         function obj = setDeflAngle(obj,ID,rotAxis,angle)
             %%%%%%%%%%%Rotation Center Setting%%%%%%%%%%%%%
             %疑似的な舵角を設定する。
@@ -162,16 +170,17 @@ classdef UNLSI
             % makeEquationの後：方程式内左辺の法線ベクトルの項は無視される。より強い近似。
             % 誤差については要検討。
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-            i = find(obj.deflAngle(:,1)==ID);
-            if isempty(i)
-                error("Invalid ID");
+            for iter = 1:numel(ID)
+                i = find(obj.deflAngle(:,1)==ID(iter));
+                if isempty(i)
+                    error("Invalid ID");
+                end
+                dcm = obj.rod2dcm(rotAxis(iter,:),angle(iter));
+                obj.deflAngle(i,2:end) = [rotAxis(iter,:),angle(iter),dcm(:)'];
             end
-            dcm = obj.rod2dcm(rotAxis,angle);
-            obj.deflAngle(i,2:end) = [rotAxis(:)',angle,dcm(:)'];
-
             for i = 1:numel(obj.paneltype)
-                [obj.area(i,1),~ , obj.orgNormal(i,:)] = obj.vertex(obj.tri.Points(obj.tri.ConnectivityList(i,1),:),obj.tri.Points(obj.tri.ConnectivityList(i,2),:),obj.tri.Points(obj.tri.ConnectivityList(i,3),:));
-                obj.center(i,:) = [mean(obj.tri.Points(obj.tri.ConnectivityList(i,:),1)),mean(obj.tri.Points(obj.tri.ConnectivityList(i,:),2)),mean(obj.tri.Points(obj.tri.ConnectivityList(i,:),3))];
+                %[obj.area(i,1),~ , obj.orgNormal(i,:)] = obj.vertex(obj.tri.Points(obj.tri.ConnectivityList(i,1),:),obj.tri.Points(obj.tri.ConnectivityList(i,2),:),obj.tri.Points(obj.tri.ConnectivityList(i,3),:));
+                %obj.center(i,:) = [mean(obj.tri.Points(obj.tri.ConnectivityList(i,:),1)),mean(obj.tri.Points(obj.tri.ConnectivityList(i,:),2)),mean(obj.tri.Points(obj.tri.ConnectivityList(i,:),3))];
                 obj.modNormal(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])*obj.orgNormal(i,:)')';
             end
         end
@@ -497,7 +506,7 @@ classdef UNLSI
                         deletelist = [];
                         for j = 1:numel(neighbor)
                             edgeAngle = acos(dot(obj.orgNormal(obj.cluster{i}(index),:),obj.orgNormal(neighbor(j),:)));
-                            if abs(edgeAngle)>edgeAngleThreshold*pi/180 || obj.surfID(obj.cluster{i}(index)) ~= obj.surfID(neighbor(j)) || obj.paneltype(neighbor(j)) ~= 1
+                            if abs(edgeAngle)>edgeAngleThreshold*pi/180 || obj.paneltype(neighbor(j)) ~= 1
                                 deletelist = [deletelist,j];
                             end
                         end
@@ -1129,7 +1138,7 @@ classdef UNLSI
                     obj.Cp{flowNo}(obj.paneltype==2,iterflow) = (-0.139-0.419.*(obj.flow{flowNo}.Mach-0.161).^2);
                     uinterp = [];
                     for i = 1:numel(obj.wakeline)
-                        uinterp = [uinterp,interp1(obj.LLT.sp{i},obj.LLT.calcMu{i}*(usolve.*(1+dVxprop(obj.paneltype==1,:))),obj.LLT.sinterp{i},'linear','extrap')];
+                        uinterp = [uinterp,interp1(obj.LLT.sp{i},obj.LLT.calcMu{i}*(usolve.*(1+dVxprop(obj.paneltype==1,1))),obj.LLT.sinterp{i},'linear','extrap')];
                     end
                     Vind = obj.LLT.Qij*uinterp';
 
@@ -1221,7 +1230,7 @@ classdef UNLSI
             %disp([CL,CDo,CDi,CDtot,CMY]);
         end
 
-        function obj = calcDynCoef(obj,flowNo,alpha,beta,omega,propCalcFlag,deflGroup,deflGain)
+        function obj = calcDynCoef(obj,flowNo,alpha,beta,omega,propCalcFlag,deflDerivFlag)
                 %%%動微係数の計算%%%%%%%%%%%%%%%%%%%%%%%%%%%%
                 %%%%%%%%%%%%%%%%TO DO alpha とbetaも
                 %結果はDyncoefに格納される
@@ -1239,16 +1248,13 @@ classdef UNLSI
                 %difference:有限差分の方法 "forward"(デフォルト)-前進差分 "central"-中心差分
                 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
                 u0 = obj.solvePertPotential(flowNo,alpha,beta,omega,propCalcFlag);
-                [udwf,udwr] = obj.calcDynCoefdu(flowNo,alpha,beta,omega,deflGroup,deflGain);
-                [~,obj] =  obj.calcDynCoefforAdjoint(u0,udwf,udwr,flowNo,alpha,beta,omega,propCalcFlag,deflGroup,deflGain);
+                [udwf,udwr] = obj.calcDynCoefdu(flowNo,alpha,beta,omega,deflDerivFlag);
+                [~,obj] =  obj.calcDynCoefforAdjoint(u0,udwf,udwr,flowNo,alpha,beta,omega,propCalcFlag);
         end
 
-        function [udwf,udwr] = calcDynCoefdu(obj,flowNo,alpha,beta,omega,deflGroup,deflGain)
-            if nargin < 6
-                deflGroup = [];
-                deflGain = [];
-            elseif nargin < 7
-                deflGain = ones(size(deflGroup));
+        function [udwf,udwr] = calcDynCoefdu(obj,flowNo,alpha,beta,omega,deflDerivFlag)
+            if nargin < 5
+                deflDerivFlag = 0;
             end
             nPanel = numel(obj.paneltype);
             nbPanel = sum(obj.paneltype == 1);
@@ -1307,36 +1313,24 @@ classdef UNLSI
                 end
                 udwf = udw;
                 udwr = udw;
-                if not(isempty(deflGroup))
+                if deflDerivFlag == 1
                     orgDeflAngle = obj.deflAngle;
                     for iterflow = 1:numel(alpha)
                         u0 = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow),omega,0);
-                        for i = 1:size(deflGroup,1)
-                            for j = 1:size(deflGroup,2)
-                                deflID = find(deflGroup(i,j)==orgDeflAngle(:,1));
-                                if abs(norm(orgDeflAngle(deflID,2:4))-1)>sqrt(eps)
-                                    error("Defl Axis Not Set");
-                                end
-                                obj = obj.setDeflAngle(orgDeflAngle(deflID,1),orgDeflAngle(deflID,2:4),orgDeflAngle(deflID,5)+dw*180/pi*deflGain(i,j));
+                        for i = 1:numel(obj.deflGroup)
+                            [deflID,~] = find(obj.deflGroup{i}.ID(:)'==orgDeflAngle(:,1));
+                            if any(abs(vecnorm(orgDeflAngle(deflID,2:4),2,2)-1)>sqrt(eps))
+                                error("Defl Axis Not Set");
                             end
+                            obj = obj.setDeflAngle(orgDeflAngle(deflID,1),orgDeflAngle(deflID,2:4),orgDeflAngle(deflID,5)+dw*180/pi*obj.deflGroup{i}.gain(:));
                             uf = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow),omega,0);
                             udwf(1+nbPanel*(iterflow-1):nbPanel*iterflow,5+i) = uf-u0;
-                            for j = 1:size(deflGroup,2)
-                                deflID = find(deflGroup(i,j)==orgDeflAngle(:,1));
-                                if abs(norm(orgDeflAngle(deflID,2:4))-1)>sqrt(eps)
-                                    error("Defl Axis Not Set");
-                                end
-                                obj = obj.setDeflAngle(orgDeflAngle(deflID,1),orgDeflAngle(deflID,2:4),orgDeflAngle(deflID,5)-dw*180/pi*deflGain(i,j));
-                            end
+                            [deflID,~] = find(obj.deflGroup{i}.ID==orgDeflAngle(:,1));
+                            obj = obj.setDeflAngle(orgDeflAngle(deflID,1),orgDeflAngle(deflID,2:4),orgDeflAngle(deflID,5)-dw*180/pi*obj.deflGroup{i}.gain(:));
                             ur = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow),omega,0);
                             udwr(1+nbPanel*(iterflow-1):nbPanel*iterflow,5+i) = u0-ur;
-                            for j = 1:size(deflGroup,2)
-                                deflID = find(deflGroup(i,j)==orgDeflAngle(:,1));
-                                if abs(norm(orgDeflAngle(deflID,2:4))-1)>sqrt(eps)
-                                    error("Defl Axis Not Set");
-                                end
-                                obj = obj.setDeflAngle(orgDeflAngle(deflID,1),orgDeflAngle(deflID,2:4),orgDeflAngle(deflID,5));
-                            end
+                            [deflID,~] = find(obj.deflGroup{i}.ID==orgDeflAngle(:,1));
+                            obj = obj.setDeflAngle(orgDeflAngle(deflID,1),orgDeflAngle(deflID,2:4),orgDeflAngle(deflID,5));
                         end
                     end
                 end
@@ -1369,43 +1363,31 @@ classdef UNLSI
                         udwr(1+nbPanel*(iterflow-1):nbPanel*iterflow,2+jter) = u0-ur;
                     end
                 end
-                if not(isempty(deflGroup))
+                if deflDerivFlag == 1
                     orgDeflAngle = obj.deflAngle;
                     for iterflow = 1:numel(alpha)
                         u0 = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow),omega,0);
-                        for i = 1:size(deflGroup,1)
-                            for j = 1:size(deflGroup,2)
-                                deflID = find(deflGroup(i,j)==orgDeflAngle(:,1));
-                                if abs(norm(orgDeflAngle(deflID,2:4))-1)>sqrt(eps)
-                                    error("Defl Axis Not Set");
-                                end
-                                obj = obj.setDeflAngle(orgDeflAngle(deflID,1),orgDeflAngle(deflID,2:4),orgDeflAngle(deflID,5)+dw*180/pi*deflGain(i,j));
+                        for i = 1:numel(obj.deflGroup)
+                            [deflID,~] = find(obj.deflGroup{i}.ID(:)'==orgDeflAngle(:,1));
+                            if any(abs(vecnorm(orgDeflAngle(deflID,2:4),2,2)-1)>sqrt(eps))
+                                error("Defl Axis Not Set");
                             end
+                            obj = obj.setDeflAngle(orgDeflAngle(deflID,1),orgDeflAngle(deflID,2:4),orgDeflAngle(deflID,5)+dw*180/pi*obj.deflGroup{i}.gain(:));
                             uf = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow),omega,0);
                             udwf(1+nbPanel*(iterflow-1):nbPanel*iterflow,5+i) = uf-u0;
-                            for j = 1:size(deflGroup,2)
-                                deflID = find(deflGroup(i,j)==orgDeflAngle(:,1));
-                                if abs(norm(orgDeflAngle(deflID,2:4))-1)>sqrt(eps)
-                                    error("Defl Axis Not Set");
-                                end
-                                obj = obj.setDeflAngle(orgDeflAngle(deflID,1),orgDeflAngle(deflID,2:4),orgDeflAngle(deflID,5)-dw*180/pi*deflGain(i,j));
-                            end
+                            [deflID,~] = find(obj.deflGroup{i}.ID==orgDeflAngle(:,1));
+                            obj = obj.setDeflAngle(orgDeflAngle(deflID,1),orgDeflAngle(deflID,2:4),orgDeflAngle(deflID,5)-dw*180/pi*obj.deflGroup{i}.gain(:));
                             ur = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow),omega,0);
                             udwr(1+nbPanel*(iterflow-1):nbPanel*iterflow,5+i) = u0-ur;
-                            for j = 1:size(deflGroup,2)
-                                deflID = find(deflGroup(i,j)==orgDeflAngle(:,1));
-                                if abs(norm(orgDeflAngle(deflID,2:4))-1)>sqrt(eps)
-                                    error("Defl Axis Not Set");
-                                end
-                                obj = obj.setDeflAngle(orgDeflAngle(deflID,1),orgDeflAngle(deflID,2:4),orgDeflAngle(deflID,5));
-                            end
+                            [deflID,~] = find(obj.deflGroup{i}.ID==orgDeflAngle(:,1));
+                            obj = obj.setDeflAngle(orgDeflAngle(deflID,1),orgDeflAngle(deflID,2:4),orgDeflAngle(deflID,5));
                         end
                     end
                 end
             end
         end
 
-        function [DYNCOEF,obj] = calcDynCoefforAdjoint(obj,u0,udwf,udwr,flowNo,alpha,beta,omega,propCalcFlag,deflGroup,deflGain)
+        function [DYNCOEF,obj] = calcDynCoefforAdjoint(obj,u0,udwf,udwr,flowNo,alpha,beta,omega,propCalcFlag)
                 %%%動微係数の計算%%%%%%%%%%%%%%%%%%%%%%%%%%%%
                 %%%%%%%%%%%%%%%%TO DO alpha とbetaも
                 %結果はDyncoefに格納される
@@ -1424,18 +1406,6 @@ classdef UNLSI
                 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
                 if nargin<9
                     propCalcFlag = 0;
-                    if size(udwf,2)>5
-                        error("no deflGroup");
-                    end
-                    deflGroup = [];
-                    deflGain = [];
-                end
-                if nargin<10
-                    if size(udwf,2)>5
-                        error("no deflGroup");
-                    end
-                    deflGroup = [];
-                    deflGain = [];
                 end
                 %ノミナルについて流れ変数を取得する。
                 dw = eps^(1/3);%rad
@@ -1481,30 +1451,16 @@ classdef UNLSI
                 end
                 if size(udwf,2)>5
                     orgDeflAngle = obj.deflAngle;
-                    for jter = 1:size(deflGroup,1)
-                        for j = 1:size(deflGroup,2)
-                            deflID = find(deflGroup(jter,j)==orgDeflAngle(:,1));
-                            if abs(norm(orgDeflAngle(deflID,2:4))-1)>sqrt(eps)
-                                error("Defl Axis Not Set");
-                            end
-                            obj = obj.setDeflAngle(orgDeflAngle(deflID,1),orgDeflAngle(deflID,2:4),orgDeflAngle(deflID,5)+dw*180/pi*deflGain(jter,j));
+                    for jter = 1:numel(obj.deflGroup)
+                        [deflID,~] = find(obj.deflGroup{i}.ID(:)'==orgDeflAngle(:,1));
+                        if any(abs(vecnorm(orgDeflAngle(deflID,2:4),2,2)-1)>sqrt(eps))
+                            error("Defl Axis Not Set");
                         end
+                        obj = obj.setDeflAngle(orgDeflAngle(deflID,1),orgDeflAngle(deflID,2:4),orgDeflAngle(deflID,5)+dw*180/pi*obj.deflGroup{jter}.gain(:));
                         AERODATAf = obj.solveFlowForAdjoint(u0+udwf(:,5+jter),flowNo,alpha,beta,[],propCalcFlag);
-                        for j = 1:size(deflGroup,2)
-                            deflID = find(deflGroup(jter,j)==orgDeflAngle(:,1));
-                            if abs(norm(orgDeflAngle(deflID,2:4))-1)>sqrt(eps)
-                                error("Defl Axis Not Set");
-                            end
-                            obj = obj.setDeflAngle(orgDeflAngle(deflID,1),orgDeflAngle(deflID,2:4),orgDeflAngle(deflID,5)-dw*180/pi*deflGain(jter,j));
-                        end
+                        obj = obj.setDeflAngle(orgDeflAngle(deflID,1),orgDeflAngle(deflID,2:4),orgDeflAngle(deflID,5)-dw*180/pi*obj.deflGroup{jter}.gain(:));
                         AERODATAr = obj.solveFlowForAdjoint(u0-udwr(:,5+jter),flowNo,alpha,beta,[],propCalcFlag);
-                        for j = 1:size(deflGroup,2)
-                            deflID = find(deflGroup(jter,j)==orgDeflAngle(:,1));
-                            if abs(norm(orgDeflAngle(deflID,2:4))-1)>sqrt(eps)
-                                error("Defl Axis Not Set");
-                            end
-                            obj = obj.setDeflAngle(orgDeflAngle(deflID,1),orgDeflAngle(deflID,2:4),orgDeflAngle(deflID,5));
-                        end
+                        obj = obj.setDeflAngle(orgDeflAngle(deflID,1),orgDeflAngle(deflID,2:4),orgDeflAngle(deflID,5));
                         tmp = (AERODATAf{flowNo} - AERODATAr{flowNo})./(2*dw);
                         for i = 1:size(AERODATAf{flowNo},1)
                             obj.DYNCOEF{flowNo,i}(5+jter,:) = tmp(i,ind); % defl
@@ -1518,7 +1474,7 @@ classdef UNLSI
                             0, 0,-1, 0, 1, 0;
                             0,-1, 0, 1, 0, 1];
 
-                for i = 1:size(deflGroup,1)
+                for i = 1:numel(obj.deflGroup)
                     axisRot(5+i,:) = [-1, 1, -1,-1, 1,-1];
                 end
                 for i = 1:numel(alpha)

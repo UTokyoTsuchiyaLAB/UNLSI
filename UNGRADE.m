@@ -31,8 +31,6 @@
         history %設計更新の履歴
         flowNoList %マッハ数とflowNoの関連付け行列
         LagrangianInfo
-        deflGroup
-        deflGain
     end
 
     methods(Access = public)
@@ -58,8 +56,6 @@
             obj.geomGenFun = geomGenFun;
             obj.meshGenFun = meshGenFun;
 
-            obj.deflGroup = [];
-            obj.deflGain = [];
 
             %%%%%%%%%%%オプションのデフォルト設定
             % gradientCalcMethod
@@ -134,11 +130,6 @@
             warning('on','MATLAB:triangulation:PtsNotInTriWarnId');
         end
 
-        function obj = setDeflection(deflGroup,deflGain)
-            obj.deflGroup = deflGroup;
-            obj.deflGain = deflGain;
-        end
-        
         function obj = updateMeshGeomfromVariables(obj,unscaledVariables,meshDeformFlag)
             %%%%%%%設計変数からメッシュや解析条件を更新する%%%%%%%%%%%%%%
             %unscaledVariables : スケーリングされていない設計変数
@@ -205,8 +196,8 @@
             end
             u0 = obj.solvePertPotential(flowNo,alpha,beta,omega,obj.setting.propCalcFlag);
             [~,~,~,~,obj] = obj.solveFlowForAdjoint(u0,flowNo,alpha,beta,omega,obj.setting.propCalcFlag);
-            [udwf,udwr] = obj.calcDynCoefdu(flowNo,alpha,beta,omega,obj.deflGroup,obj.deflGain);
-            [~,obj] =  obj.calcDynCoefforAdjoint(u0,udwf,udwr,flowNo,alpha,beta,omega,obj.setting.propCalcFlag,obj.deflGroup,obj.deflGain);
+            [udwf,udwr] = obj.calcDynCoefdu(flowNo,alpha,beta,omega,1);
+            [~,obj] =  obj.calcDynCoefforAdjoint(u0,udwf,udwr,flowNo,alpha,beta,omega,obj.setting.propCalcFlag);
         end
 
         function [I,con,obj] = evaluateObjFun(obj,objandConsFun)
@@ -229,8 +220,8 @@
                 betabuff = obj.setting.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                 u0 = obj.solvePertPotential(iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);
                 [~,~,~,~,obj] = obj.solveFlowForAdjoint(u0,iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);
-                [udwf,udwr] = obj.calcDynCoefdu(iter,alphabuff,betabuff,[],obj.deflGroup,obj.deflGain);
-                [~,obj] =  obj.calcDynCoefforAdjoint(u0,udwf,udwr,iter,alphabuff,betabuff,[],obj.setting.propCalcFlag,obj.deflGroup,obj.deflGain);
+                [udwf,udwr] = obj.calcDynCoefdu(iter,alphabuff,betabuff,[],1);
+                [~,obj] =  obj.calcDynCoefforAdjoint(u0,udwf,udwr,iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);
             end
             [I,con] = objandConsFun(desOrg,obj.AERODATA,obj.DYNCOEF,obj.Cp,obj.Cfe,obj.SREF,obj.BREF,obj.CREF,obj.XYZREF,obj.argin_x);
         end
@@ -424,9 +415,9 @@
                 alphabuff = obj.setting.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                 betabuff = obj.setting.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                 [u0solve,~] = obj.solvePertPotential(iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);%ポテンシャルを求める
-                [udwf{iter},udwr{iter}] = obj.calcDynCoefdu(iter,alphabuff,betabuff,[],obj.deflGroup,obj.deflGain);
+                [udwf{iter},udwr{iter}] = obj.calcDynCoefdu(iter,alphabuff,betabuff,[],1);
                 [AERODATA0,Cp0,Cfe0,R0solve,obj] = obj.solveFlowForAdjoint(u0solve,iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);%ポテンシャルから空力係数を計算
-                [DYNCOEF0,obj] =  obj.calcDynCoefforAdjoint(u0solve,udwf{iter},udwr{iter},iter,alphabuff,betabuff,[],obj.setting.propCalcFlag,obj.deflGroup,obj.deflGain);
+                [DYNCOEF0,obj] =  obj.calcDynCoefforAdjoint(u0solve,udwf{iter},udwr{iter},iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);
                 %結果をマッピング
                 lktable = find(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                 for i = 1:numel(lktable)
@@ -442,7 +433,7 @@
             fprintf("AERODATA of iteration No.%d ->\n",obj.iteration);
             disp(vertcat(AERODATA0{:}));
             fprintf("DYNCOEF of iteration No.%d ->\n",obj.iteration);
-            disp(DYNCOEF0{:});
+            disp(vertcat(DYNCOEF0{:}));
             %%%
             %明示・非明示随伴方程式法の実装
             %u微分の計算
@@ -459,7 +450,7 @@
                     alphabuff = obj.setting.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                     betabuff = obj.setting.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                     [AERODATA,Cp,Cfe,~,obj] = obj.solveFlowForAdjoint(usolve,iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);
-                    [DYNCOEF,obj] =  obj.calcDynCoefforAdjoint(usolve,udwf{iter},udwr{iter},iter,alphabuff,betabuff,[],obj.setting.propCalcFlag,obj.deflGroup,obj.deflGain);
+                    DYNCOEF =  obj.calcDynCoefforAdjoint(usolve,udwf{iter},udwr{iter},iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);
                 end
                 [I,con] = objandConsFun(desOrg,AERODATA,DYNCOEF,Cp,Cfe,obj.SREF,obj.BREF,obj.CREF,obj.XYZREF,obj.argin_x);
                 dI_du(i) = (I-I0)/pert;%評価関数のポテンシャルに関する偏微分
@@ -539,8 +530,8 @@
                     alphabuff = obj.setting.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                     betabuff = obj.setting.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                     [AERODATA,Cp,Cfe,Rsolve,obj2] = obj2.solveFlowForAdjoint(u0solve,iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);
-                    [udwfdx,udwrdx] = obj2.calcDynCoefdu(iter,alphabuff,betabuff,[],obj.deflGroup,obj.deflGain);
-                    [DYNCOEF,obj2] =  obj2.calcDynCoefforAdjoint(u0solve,udwfdx,udwrdx,iter,alphabuff,betabuff,[],obj.setting.propCalcFlag,obj.deflGroup,obj.deflGain);
+                    [udwfdx,udwrdx] = obj2.calcDynCoefdu(iter,alphabuff,betabuff,[],1);
+                    DYNCOEF =  obj2.calcDynCoefforAdjoint(u0solve,udwfdx,udwrdx,iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);
                     for k = 1:numel(lktable)
                         R((lktable(k)-1)*nbPanel+1:lktable(k)*nbPanel,1) = Rsolve(nbPanel*(k-1)+1:nbPanel*k,1);
                     end
@@ -578,7 +569,7 @@
                 blinGrad = [con0(:)+dcon_du*duVec-cmin(:);cmax(:)-con0(:)-dcon_du*duVec;ubfGrad';-lbfGrad'];
             else
                 obj.LagrangianInfo.alin = [eye(numel(ubf));-eye(numel(lbf))];
-                obj.LagrangianInfo.blin = [ubf;-lbf];
+                obj.LagrangianInfo.blin = [ubf';-lbf'];
                 blinGrad = [ubfGrad';-lbfGrad'];
             end
 
@@ -596,7 +587,7 @@
                 obj.LagrangianInfo.dL_dx = dI_dx+lambdaR'*dR_dx+lambda.ineqlin'*[-dcon_dx;dcon_dx;diag(uactiveBound);-diag(lactiveBound)];
             else
                 lambdaR = -(dR_du)\(dI_du)';
-                obj.LagrangianInfo.Lorg = I0lambda.ineqlin'*[obj.scaledVar'.*uactiveBound;-obj.scaledVar'.*lactiveBound];
+                obj.LagrangianInfo.Lorg = I0 + lambda.ineqlin'*[obj.scaledVar'.*uactiveBound;-obj.scaledVar'.*lactiveBound];
                 penaltyorg = 0;
                 obj.LagrangianInfo.dL_dx = dI_dx+lambdaR'*dR_dx+lambda.ineqlin'*[diag(uactiveBound);-diag(lactiveBound)];
             end
