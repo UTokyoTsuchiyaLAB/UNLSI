@@ -1,0 +1,22 @@
+WARNING: 1 open meshes remove
+     Removed: PropGeom
+WARNING: 2 open meshes merged
+     Merged: StackGeom
+     Merged: WingGeom
+...Mass Properties...
+3 Num Comps
+2 Total Num Meshes
+6096 Total Num Tris
+
+1.122138             Total Mass
+-0.008387 0.000000 0.001504       Center of Gravity
+0.077059 0.088682 0.164382       Ixx, Iyy, Izz
+0.000000 -0.000951 0.000000       Ixy, Ixz, Iyz
+0.013812             Volume
+
+Name	Mass	cgX	cgY	cgZ	Ixx	Iyy	Izz	Ixy	Ixz	Iyz	Volume
+StackGeom	0.292729	-0.059154	-0.000000	0.010681	0.000910	0.016622	0.016835	-0.000000	-0.000565	-0.000000	0.006744
+WingGeom	0.579408	0.186233	0.000001	-0.002483	0.076114	0.010984	0.086506	0.000000	0.000052	0.000000	0.007068
+BlankGeom	0.250000	-0.400000	0.000000	0.000000	0.000000	0.000000	0.000000	0.000000	0.000000	0.000000	0.000000
+Name	Mass	cgX	cgY	cgZ	Ixx	Iyy	Izz	Ixy	Ixz	Iyz	Volume
+Totals	1.122138	-0.008387	0.000000	0.001504	0.077059	0.088682	0.164382	0.000000	-0.000951	0.000000	0.013812

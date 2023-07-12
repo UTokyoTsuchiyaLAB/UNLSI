@@ -19,14 +19,22 @@ wing = wing.setRotationCenter([0,0,0]); %回転中心の設定
 wing = wing.setCf(1,2.3*10^6,4.91,0.052*(10^-5),0); %摩擦係数パラメータの指定
 wing = wing.solveFlow(1,winddata.alpha,zeros(size(winddata.alpha))); %パネル法を解く
 disp(wing.AERODATA{1}); %結果の表示
-wing.plotGeometry(1,wing.Cp{1}(:,2),[-2,1]); %圧力係数のプロット
+wing.plotGeometry(1,wing.Cp{1}(:,2),[-2,1],"exact"); %圧力係数のプロット
 
 %%%%%風洞試験結果との比較
 figure(2);clf,grid on;hold on;
+set(gca,"FontSize",14);
 plot(winddata.alpha,winddata.CL,'-o');
 plot(winddata.alpha,wing.AERODATA{1}(:,5),'-o');
 plot(winddata.alpha,wing.AERODATA{1}(:,6),'-o');
+legend("WT","Cp Integral","Trefftz")
+xlabel("AoA deg");
+ylabel("CL");
 figure(3);clf,grid on;hold on;
+set(gca,"FontSize",14);
 plot(winddata.alpha,winddata.CD,'-o');
 plot(winddata.alpha,wing.AERODATA{1}(:,9),'-o');
 plot(winddata.alpha,wing.AERODATA{1}(:,11),'-o');
+legend("WT","Cp Integral","Trefftz")
+xlabel("AoA deg");
+ylabel("CD");
