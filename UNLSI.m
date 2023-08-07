@@ -165,9 +165,6 @@ classdef UNLSI
             %%%%%%%%%%%Rotation Center Setting%%%%%%%%%%%%%
             %疑似的な舵角を設定する。
             %そのID上のパネルの法線ベクトルをロドリゲスの回転ベクトルによって回転する
-            %どこでこの関数を実行するかによって振る舞いが異なるので注意。
-            % makeEquationの前：方程式は一応厳密になる
-            % makeEquationの後：方程式内左辺の法線ベクトルの項は無視される。より強い近似。
             % 誤差については要検討。
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             for iter = 1:numel(ID)
@@ -1557,12 +1554,12 @@ classdef UNLSI
                         %VxR0 = Vh*sqrt(obj.softplus(obj.prop{propNo}.diameter/2*obj.prop{propNo}.diameter/2 - sum(rs.^2),5))/(obj.prop{propNo}.diameter/2);
                         %%%%%softPlusを使う
                         %dCpprop(i,1) = (2*obj.prop{propNo}.rho*(VinfMag+VxR0)*VxR0)/(0.5*obj.prop{propNo}.rho*VinfMag.^2)*eta_prop / eta_mom;
-                        dCpprop(i,1) = (2*obj.prop{propNo}.rho*Vh^2*(omegaProp*rs)^4/((omegaProp*rs)^2+Vh^2)^2)/(0.5*obj.prop{propNo}.rho*VinfMag.^2)*eta_prop / eta_mom;
+                        dCppropval = (2*obj.prop{propNo}.rho*Vh^2*(omegaProp*rs)^4/((omegaProp*rs)^2+Vh^2)^2)/(0.5*obj.prop{propNo}.rho*VinfMag.^2)*eta_prop / eta_mom;
                         Vnprop(i,1) = Vo/obj.prop{propNo}.Vinf;
                         if obj.paneltype(i) == 1
-                            dCpprop(i,1) = dCpprop(i,1) * obj.sigmoid((obj.prop{propNo}.diameter/2-rs),0,obj.prop{propNo}.sigmoidStrength)*obj.sigmoid(dotCoef,0,obj.prop{propNo}.sigmoidStrength);
+                            dCpprop(i,1) = dCpprop(i,1) + dCppropval * obj.sigmoid((obj.prop{propNo}.diameter/2-rs),0,obj.prop{propNo}.sigmoidStrength)*obj.sigmoid(dotCoef,0,obj.prop{propNo}.sigmoidStrength);
                             dVx = Vo*omegaProp^2*rs^2/(omegaProp^2*rs^2+(VinfMag+Vo)^2);
-                            dVxprop(i,1)  = dVx/obj.prop{propNo}.Vinf  * obj.sigmoid((obj.prop{propNo}.diameter/2-rs),0,obj.prop{propNo}.sigmoidStrength)*obj.sigmoid(dotCoef,0,obj.prop{propNo}.sigmoidStrength);
+                            dVxprop(i,1)  = dVxprop(i,1) + dVx/obj.prop{propNo}.Vinf  * obj.sigmoid((obj.prop{propNo}.diameter/2-rs),0,obj.prop{propNo}.sigmoidStrength)*obj.sigmoid(dotCoef,0,obj.prop{propNo}.sigmoidStrength);
                         elseif obj.surfID(i) == obj.prop{propNo}.ID
                             %deltaCpのr積分
                             %R = obj.prop{propNo}.diameter;

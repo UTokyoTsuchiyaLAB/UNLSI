@@ -16,7 +16,7 @@ wing = wing.makeEquation(20,5,10); %パネル法行列の作成
 wing = wing.flowCondition(1,0.0001); %flowNoのマッハ数を指定 
 wing = wing.setREFS(175,36.75,4.91); %基準面積 基準長の設定
 wing = wing.setRotationCenter([0,0,0]); %回転中心の設定
-wing = wing.setCf(1,2.3*10^6,4.91,0.052*(10^-5),0); %摩擦係数パラメータの指定
+wing = wing.setCf(1,2.3*10^6,4.91,0.052*(10^-5),1); %摩擦係数パラメータの指定
 wing = wing.solveFlow(1,winddata.alpha,zeros(size(winddata.alpha))); %パネル法を解く
 disp(wing.AERODATA{1}); %結果の表示
 wing.plotGeometry(1,wing.Cp{1}(:,2),[-2,1],"exact"); %圧力係数のプロット

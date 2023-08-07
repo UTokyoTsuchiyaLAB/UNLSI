@@ -1,34 +1,87 @@
 function fee = UNLSI2FEE(fee,massPropName,propCalcFlag,Mach,alphaDyn,betaDyn,UREF,feeDirectory)
     
     [mass,cgPoint,Inatia] = readMassPropResult(massPropName);
-    fee = fee.flowCondition(1,Mach); %flowNoのマッハ数を指定 
-    fee = fee.setRotationCenter(cgPoint); %回転中心の設定
-    fee = fee.setCf(1,UREF*fee.CREF/15.01*10^6,fee.CREF,0.052*(10^-5),0); %摩擦係数パラメータの指定
-    fee = fee.calcDynCoef(1,alphaDyn,betaDyn,[],propCalcFlag,1);
-    DYNCOEF = fee.DYNCOEF; 
-    REFS = [fee.SREF,fee.BREF,fee.CREF];
-    alpharange1 = -10:2:20;
-    betarange1 = -10:2:10;
-    index = [3,1,11,12,6,18:20];
-    sign = [1,1,1,1,1,-1,1,-1];
-    [x1,x2] = ndgrid(alpharange1,betarange1);
-    fee = fee.solveFlow(1,x1(:),x2(:),[],propCalcFlag);
-    coefdata = fee.AERODATA{1}(:,index).*repmat(sign,[numel(x1),1]);
-    alpharange2 = -10:1:20;
-    betarange2 = -10:1:10;
-    [X1,X2] = ndgrid(alpharange2,betarange2);
-    for i = 1:6
-        coefrbf{i} = RbfppMake(coefdata(:,1:2),coefdata(:,i+2),1,0.01);
-    
-        for a = 1:numel(alpharange2)
-            for b = 1:numel(betarange2)
-                coef{i}(a,b) = execRbfInterp(1,coefrbf{i},[X1(a,b),X2(a,b)]);
+    if numel(Mach) == 1
+        fee = fee.flowCondition(1,Mach); %flowNoのマッハ数を指定 
+        fee = fee.setRotationCenter(cgPoint); %回転中心の設定
+        fee = fee.setCf(1,UREF*fee.CREF/15.01*10^6,fee.CREF,0.052*(10^-5),0); %摩擦係数パラメータの指定
+        fee = fee.calcDynCoef(1,alphaDyn,betaDyn,[],propCalcFlag,1);
+        DYNCOEF = fee.DYNCOEF; 
+        REFS = [fee.SREF,fee.BREF,fee.CREF];
+        alpharange1 = -10:2:20;
+        betarange1 = -10:2:10;
+        index = [3,1,11,12,6,18:20];
+        sign = [1,1,1,1,1,-1,1,-1];
+        [x1,x2] = ndgrid(alpharange1,betarange1);
+        fee = fee.solveFlow(1,x1(:),x2(:),[],propCalcFlag);
+        coefdata = fee.AERODATA{1}(:,index).*repmat(sign,[numel(x1),1]);
+        alpharange2 = -10:1:20;
+        betarange2 = -10:1:10;
+        [X1,X2] = ndgrid(alpharange2,betarange2);
+        for i = 1:6
+            coefrbf{i} = RbfppMake(coefdata(:,1:2),coefdata(:,i+2),1,0.01);
+        
+            for a = 1:numel(alpharange2)
+                for b = 1:numel(betarange2)
+                    coef{i}(a,b) = execRbfInterp(1,coefrbf{i},[X1(a,b),X2(a,b)]);
+                end
             end
+            ppCoef{i} = griddedInterpolant(X1,X2,coef{i},'linear','linear');
         end
-        ppCoef{i} = griddedInterpolant(X1,X2,coef{i},'linear','linear');
+    else
+        for iter = 1:numel(Mach)
+            fee = fee.flowCondition(1,Mach(iter)); %flowNoのマッハ数を指定 
+            fee = fee.setRotationCenter(cgPoint); %回転中心の設定
+            fee = fee.setCf(1,UREF*fee.CREF/15.01*10^6,fee.CREF,0.052*(10^-5),0); %摩擦係数パラメータの指定
+            REFS = [fee.SREF,fee.BREF,fee.CREF];
+            alpharange1 = -10:2:20;
+            betarange1 = -10:2:10;
+            index = [3,1,11,12,6,18:20];
+            sign = [1,1,1,1,1,-1,1,-1];
+            [x1,x2] = ndgrid(alpharange1,betarange1);
+            fee = fee.solveFlow(1,x1(:),x2(:),[],propCalcFlag);
+            coefdata = fee.AERODATA{1}(:,index).*repmat(sign,[numel(x1),1]);
+            for i = 1:6
+                coefrbf{iter,i} = RbfppMake(coefdata(:,1:2),coefdata(:,i+2),1,0.01);
+            end
+            fee = fee.calcDynCoef(1,[0,0],[0,0],[],0,1);
+            DYNCOEF(:,:,iter) = fee.DYNCOEF{1};
+        end
+        alpharange2 = -10:1:20;
+        betarange2 = -10:1:10;
+        machrange2 = linspace(Mach(1),Mach(end),20);
+        [X1,X2,X3] = ndgrid(alpharange2,betarange2,machrange2);
+        for i = 1:6
+            for a = 1:numel(alpharange2)
+                for b = 1:numel(betarange2)
+                    for m = 1:numel(Mach)
+                        coef(m) = execRbfInterp(1,coefrbf{m,i},[X1(a,b,1),X2(a,b,1)]);
+                    end
+                    for c = 1:numel(machrange2)
+                        data(a,b,c) = interp1(Mach,coef,X3(a,b,c),'linear','extrap');
+                    end
+                end
+            end
+            ppCoef{i} = griddedInterpolant(X1,X2,X3,data,"linear","linear");
+        end
+
+        [T1,T2] = ndgrid(alpharange2,machrange2);
+        for iter = 1:6
+            clear val;
+            figure(iter);clf;
+            for i = 1:numel(alpharange2)
+                for j = 1:numel(machrange2)
+                    val(i,j) = ppCoef{iter}(T1(i,j),0,T2(i,j));
+                end
+            end
+            mesh(T1,T2,val);
+        end
+        
+        
     end
     
-    save aeroRBF.mat ppCoef DYNCOEF REFS mass Inatia UREF -mat;
+    
+    save aeroRBF.mat ppCoef DYNCOEF REFS mass Inatia UREF Mach -mat;
     if nargin>7
         copyfile("aeroRBF.mat",fullfile(feeDirectory,"aeroRBF.mat"),"f");
     end
