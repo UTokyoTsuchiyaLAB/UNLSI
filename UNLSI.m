@@ -653,9 +653,11 @@ classdef UNLSI
             %とりあえずpaneltypeで計算しているが、IDで管理したい
             %muとsigma両方
             for propNo = 1:numel(obj.prop)
-                [VortexA,VortexB] = obj.propellerInfluenceMatrix(obj,obj.prop{propNo}.ID,propWake);
-                obj.prop{propNo}.LHS = VortexA;
-                obj.prop{propNo}.RHS = VortexB;
+                [VortexAi,VortexBi,VortexAo,VortexBo] = obj.propellerInfluenceMatrix(obj,obj.prop{propNo}.ID,propWake);
+                obj.prop{propNo}.LHSi = VortexAi;
+                obj.prop{propNo}.RHSi = VortexBi;
+                obj.prop{propNo}.LHSo = VortexAo;
+                obj.prop{propNo}.RHSo = VortexBo;
             end
         end
 
@@ -872,20 +874,28 @@ classdef UNLSI
                     for i = 1:nPanel
                         if obj.paneltype(i) == 1
                             sigmas(iter,1) = dot(Vinf(i,:)',obj.orgNormal(i,:)');
+                            if obj.surfID(i) == 2 
+                                sigmas(iter,1) = sigmas(iter,1) + 4;
+                            elseif obj.surfID(i) == 3 
+                                sigmas(iter,1) = sigmas(iter,1) - 4;
+                            end
                             iter = iter+1;
                         end
+                                                    
                     end
                     
                     dCpprop =  zeros(nPanel,1);
                     dVxprop = zeros(nPanel,3);
                     if propCalcFlag == 1
                         RHV = obj.RHS*sigmas;
-                       [RHVprop,dVxprop,dCpprop] = obj.calcPropRHV(obj,T);
+                       [RHVprop,~,~] = obj.calcPropRHV(obj,T);
                        RHV = RHV + RHVprop;
                     else
                         RHV = obj.RHS*sigmas;
                     end
                     u =  -obj.LHS\RHV;
+                    %figure(2);clf;
+                    %plot(u);
                     dv = zeros(nPanel,3);
                     for i = 1:3
                         dv(:,i) = obj.mu2v{i}*u;
@@ -1555,7 +1565,8 @@ classdef UNLSI
                         %%%%%softPlusを使う
                         %dCpprop(i,1) = (2*obj.prop{propNo}.rho*(VinfMag+VxR0)*VxR0)/(0.5*obj.prop{propNo}.rho*VinfMag.^2)*eta_prop / eta_mom;
                         dCppropval = (2*obj.prop{propNo}.rho*Vh^2*(omegaProp*rs)^4/((omegaProp*rs)^2+Vh^2)^2)/(0.5*obj.prop{propNo}.rho*VinfMag.^2)*eta_prop / eta_mom;
-                        Vnprop(i,1) = Vo/obj.prop{propNo}.Vinf;
+                        disp(Vo/obj.prop{propNo}.Vinf);
+                        Vnprop(i,1) = 5;%Vo/obj.prop{propNo}.Vinf;
                         if obj.paneltype(i) == 1
                             dCpprop(i,1) = dCpprop(i,1) + dCppropval * obj.sigmoid((obj.prop{propNo}.diameter/2-rs),0,obj.prop{propNo}.sigmoidStrength)*obj.sigmoid(dotCoef,0,obj.prop{propNo}.sigmoidStrength);
                             dVx = Vo*omegaProp^2*rs^2/(omegaProp^2*rs^2+(VinfMag+Vo)^2);
@@ -1567,13 +1578,14 @@ classdef UNLSI
                             %integ2 = Vh^2*(rs-rs^3/3/obj.prop{propNo}.diameter^2);
                             %muprop(i,1) = 1/8/pi/(1+Vh/2/VinfMag)*((2*VinfMag*integ1+2*integ2)/(0.5*VinfMag.^2)*eta_prop / eta_mom);
                             dp = 2*obj.prop{propNo}.rho*Vh^2*((Vh^2*rs)/2/(omegaProp^2*rs^2+Vh^2)-3*Vh*atan2(omegaProp*rs,Vh)/2/omegaProp+rs);
-                            muprop(i,1) = 1/8/pi/(1+Vo/VinfMag)/(0.5*obj.prop{propNo}.rho*VinfMag^2)*eta_prop / eta_mom*dp;
+                            %muprop(i,1) = 1/8/pi/(1+Vo/VinfMag)/(0.5*obj.prop{propNo}.rho*VinfMag^2)*eta_prop / eta_mom*dp;
+                            muprop(i,1) = dCppropval;
                             %disp([rs,dCpprop(i,1),muprop(i,1),Vnprop(i,1)])
-                            %1;
+                            1;
                         end
                     end
                 end
-                RHVprop = RHVprop + (obj.prop{propNo}.LHS*muprop(obj.surfID == obj.prop{propNo}.ID,1)+obj.prop{propNo}.RHS*Vnprop(obj.surfID == obj.prop{propNo}.ID,1));
+                RHVprop = RHVprop + (obj.prop{propNo}.LHSi-obj.prop{propNo}.LHSo)*muprop(obj.surfID == obj.prop{propNo}.ID,1) + (obj.prop{propNo}.RHSi-obj.prop{propNo}.RHSo)*Vnprop(obj.surfID == obj.prop{propNo}.ID,1);
             end
         end
 
@@ -2262,14 +2274,13 @@ classdef UNLSI
 
         end
         
-        function [VortexA,VortexB] = propellerInfluenceMatrix(obj,ID,propWake)
+        function [VortexAi,VortexBi,VortexAo,VortexBo] = propellerInfluenceMatrix(obj,ID,propWake)
             verts = obj.tri.Points;
             con  = obj.tri.ConnectivityList(obj.paneltype==1,:);
             %normal = obj.orgNormal(obj.paneltype==1,:);
 
             nbPanel = size(con,1);
             ncol = sum(obj.surfID == ID);
-
     
             POI.X(:,1) = obj.center(obj.paneltype==1,1);
             POI.Y(:,1) = obj.center(obj.paneltype==1,2);
@@ -2293,7 +2304,8 @@ classdef UNLSI
             POI.X = repmat(POI.X,[1,ncol]);
             POI.Y = repmat(POI.Y,[1,ncol]);
             POI.Z = repmat(POI.Z,[1,ncol]);
-
+            
+            %流入側
             c.X = repmat(c.X,[nbPanel,1]);
             c.Y = repmat(c.Y,[nbPanel,1]);
             c.Z = repmat(c.Z,[nbPanel,1]);
@@ -2340,8 +2352,8 @@ classdef UNLSI
             PB = PA-Al.*smdot;
             phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
             srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
-            VortexA = phiV;
-            VortexB = srcV;
+            VortexAi = phiV;
+            VortexBi = srcV;
             %2回目
             a.X = POI.X-N2.X;
             a.Y = POI.Y-N2.Y;
@@ -2363,8 +2375,8 @@ classdef UNLSI
             PB = PA-Al.*smdot;
             phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
             srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
-            VortexA = VortexA+phiV;
-            VortexB = VortexB+srcV;
+            VortexAi = VortexAi+phiV;
+            VortexBi = VortexBi+srcV;
             %3回目
             a.X = POI.X-N3.X;
             a.Y = POI.Y-N3.Y;
@@ -2386,15 +2398,103 @@ classdef UNLSI
             PB = PA-Al.*smdot;
             phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
             srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
-            VortexA = VortexA+phiV;
-            VortexB = VortexB+srcV;
+            VortexAi = VortexAi+phiV;
+            VortexBi = VortexBi+srcV;
+
+            %流出側
+            clear n;
+            n.X(1,:) = -obj.orgNormal(obj.surfID == ID,1)';
+            n.Y(1,:) = -obj.orgNormal(obj.surfID == ID,2)';
+            n.Z(1,:) = -obj.orgNormal(obj.surfID == ID,3)';
+            n.X = repmat(n.X,[nbPanel,1]);
+            n.Y = repmat(n.Y,[nbPanel,1]);
+            n.Z = repmat(n.Z,[nbPanel,1]);
+            PN = obj.matrix_dot(pjk,n);
+
+            %1回目
+            a.X = POI.X-N2.X;
+            a.Y = POI.Y-N2.Y;
+            a.Z = POI.Z-N2.Z;
+            b.X = POI.X-N1.X;
+            b.Y = POI.Y-N1.Y;
+            b.Z = POI.Z-N1.Z;
+            anorm = obj.matrix_norm(a);
+            bnorm = obj.matrix_norm(b);
+            m = obj.getUnitVector(c,n12);
+            l = obj.matrix_cross(m,n);
+            s.X = N1.X-N2.X;
+            s.Y = N1.Y-N2.Y;
+            s.Z = N1.Z-N2.Z;
+            smdot = obj.matrix_dot(s,m);
+            snorm = obj.matrix_norm(s);
+            Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
+            PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
+            PB = PA-Al.*smdot;
+            phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+            srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
+            VortexAo = phiV;
+            VortexBo = srcV;
+            %2回目
+            a.X = POI.X-N3.X;
+            a.Y = POI.Y-N3.Y;
+            a.Z = POI.Z-N3.Z;
+            b.X = POI.X-N2.X;
+            b.Y = POI.Y-N2.Y;
+            b.Z = POI.Z-N2.Z;
+            anorm = obj.matrix_norm(a);
+            bnorm = obj.matrix_norm(b);
+            m = obj.getUnitVector(c,n12);
+            l = obj.matrix_cross(m,n);
+            s.X = N2.X-N3.X;
+            s.Y = N2.Y-N3.Y;
+            s.Z = N2.Z-N3.Z;
+            smdot = obj.matrix_dot(s,m);
+            snorm = obj.matrix_norm(s);
+            Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
+            PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
+            PB = PA-Al.*smdot;
+            phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+            srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
+            VortexAo = VortexAo+phiV;
+            VortexBo = VortexBo+srcV;
+            %3回目
+            a.X = POI.X-N1.X;
+            a.Y = POI.Y-N1.Y;
+            a.Z = POI.Z-N1.Z;
+            b.X = POI.X-N3.X;
+            b.Y = POI.Y-N3.Y;
+            b.Z = POI.Z-N3.Z;
+            anorm = obj.matrix_norm(a);
+            bnorm = obj.matrix_norm(b);
+            m = obj.getUnitVector(c,n12);
+            l = obj.matrix_cross(m,n);
+            s.X = N3.X-N1.X;
+            s.Y = N3.Y-N1.Y;
+            s.Z = N3.Z-N1.Z;
+            smdot = obj.matrix_dot(s,m);
+            snorm = obj.matrix_norm(s);
+            Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
+            PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
+            PB = PA-Al.*smdot;
+            phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+            srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
+            VortexAo = VortexAo+phiV;
+            VortexBo = VortexBo+srcV;
 
             %半裁の考慮
             if obj.halfmesh == 1
+                clear n;
                 POI.Y = -POI.Y;
                 pjk.X = POI.X-c.X;
                 pjk.Y = POI.Y-c.Y;
                 pjk.Z = POI.Z-c.Z;
+                %流入
+                n.X(1,:) = obj.orgNormal(obj.surfID == ID,1)';
+                n.Y(1,:) = obj.orgNormal(obj.surfID == ID,2)';
+                n.Z(1,:) = obj.orgNormal(obj.surfID == ID,3)';
+                n.X = repmat(n.X,[nbPanel,1]);
+                n.Y = repmat(n.Y,[nbPanel,1]);
+                n.Z = repmat(n.Z,[nbPanel,1]);
                 PN = obj.matrix_dot(pjk,n);
                 %1回目
                 a.X = POI.X-N1.X;
@@ -2417,8 +2517,8 @@ classdef UNLSI
                 PB = PA-Al.*smdot;
                 phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
                 srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
-                VortexA = VortexA+phiV;
-                VortexB = VortexB+srcV;
+                VortexAi = VortexAi+phiV;
+                VortexBi = VortexBi+srcV;
                 %2回目
                 a.X = POI.X-N2.X;
                 a.Y = POI.Y-N2.Y;
@@ -2440,8 +2540,8 @@ classdef UNLSI
                 PB = PA-Al.*smdot;
                 phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
                 srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
-                VortexA = VortexA+phiV;
-                VortexB = VortexB+srcV;
+                VortexAi = VortexAi+phiV;
+                VortexBi = VortexBi+srcV;
                 %3回目
                 a.X = POI.X-N3.X;
                 a.Y = POI.Y-N3.Y;
@@ -2463,8 +2563,87 @@ classdef UNLSI
                 PB = PA-Al.*smdot;
                 phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
                 srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
-                VortexA = VortexA+phiV;
-                VortexB = VortexB+srcV;
+                VortexAi = VortexAi+phiV;
+                VortexBi = VortexBi+srcV;
+
+                %流出
+                clear n
+                n.X(1,:) = -obj.orgNormal(obj.surfID == ID,1)';
+                n.Y(1,:) = -obj.orgNormal(obj.surfID == ID,2)';
+                n.Z(1,:) = -obj.orgNormal(obj.surfID == ID,3)';
+                n.X = repmat(n.X,[nbPanel,1]);
+                n.Y = repmat(n.Y,[nbPanel,1]);
+                n.Z = repmat(n.Z,[nbPanel,1]);
+                PN = obj.matrix_dot(pjk,n);
+                %1回目
+                a.X = POI.X-N2.X;
+                a.Y = POI.Y-N2.Y;
+                a.Z = POI.Z-N2.Z;
+                b.X = POI.X-N1.X;
+                b.Y = POI.Y-N1.Y;
+                b.Z = POI.Z-N1.Z;
+                anorm = obj.matrix_norm(a);
+                bnorm = obj.matrix_norm(b);
+                m = obj.getUnitVector(c,n12);
+                l = obj.matrix_cross(m,n);
+                s.X = N1.X-N2.X;
+                s.Y = N1.Y-N2.Y;
+                s.Z = N1.Z-N2.Z;
+                smdot = obj.matrix_dot(s,m);
+                snorm = obj.matrix_norm(s);
+                Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
+                PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
+                PB = PA-Al.*smdot;
+                phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
+                VortexAo = VortexAo+phiV;
+                VortexBo = VortexBo+srcV;
+                %2回目
+                a.X = POI.X-N3.X;
+                a.Y = POI.Y-N3.Y;
+                a.Z = POI.Z-N3.Z;
+                b.X = POI.X-N2.X;
+                b.Y = POI.Y-N2.Y;
+                b.Z = POI.Z-N2.Z;
+                anorm = obj.matrix_norm(a);
+                bnorm = obj.matrix_norm(b);
+                m = obj.getUnitVector(c,n12);
+                l = obj.matrix_cross(m,n);
+                s.X = N2.X-N3.X;
+                s.Y = N2.Y-N3.Y;
+                s.Z = N2.Z-N3.Z;
+                smdot = obj.matrix_dot(s,m);
+                snorm = obj.matrix_norm(s);
+                Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
+                PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
+                PB = PA-Al.*smdot;
+                phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
+                VortexAo = VortexAo+phiV;
+                VortexBo = VortexBo+srcV;
+                %3回目
+                a.X = POI.X-N1.X;
+                a.Y = POI.Y-N1.Y;
+                a.Z = POI.Z-N1.Z;
+                b.X = POI.X-N3.X;
+                b.Y = POI.Y-N3.Y;
+                b.Z = POI.Z-N3.Z;
+                anorm = obj.matrix_norm(a);
+                bnorm = obj.matrix_norm(b);
+                m = obj.getUnitVector(c,n12);
+                l = obj.matrix_cross(m,n);
+                s.X = N3.X-N1.X;
+                s.Y = N3.Y-N1.Y;
+                s.Z = N3.Z-N1.Z;
+                smdot = obj.matrix_dot(s,m);
+                snorm = obj.matrix_norm(s);
+                Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
+                PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
+                PB = PA-Al.*smdot;
+                phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
+                VortexAo = VortexAo+phiV;
+                VortexBo = VortexBo+srcV;
             end
 
             %プロペラwakeの計算
@@ -2699,11 +2878,10 @@ classdef UNLSI
                 end
 
                 %attachする番号を特定し足す
-                VortexA(:,propWakeAttach(wakeNo)) = VortexA(:,propWakeAttach(wakeNo)) + wakeVA;
+                %VortexAi(:,propWakeAttach(wakeNo)) = VortexAi(:,propWakeAttach(wakeNo)) + wakeVA;
 
             end
         end
-        
         function Q_ij=Calc_Q(y,z,phi,dS,halfmesh)
             yd_ij = zeros(numel(y),numel(y));
             zd_ij = zeros(numel(y),numel(y));
