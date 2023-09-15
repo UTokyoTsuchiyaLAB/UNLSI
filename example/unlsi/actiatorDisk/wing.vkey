@@ -1,0 +1,9 @@
+# VSPGEOM Tag Key File
+C:\Users\aerospace\Dropbox\research\UNLSI\example\unlsi\actiatorDisk\wing.vspgeom
+4
+
+# tag#,geom#,surf#,gname,gid,ssname1,ssname2,...,ssid1,ssid2,...
+1,0,0,WingGeom_S,ZAXWQEUVZC
+2,0,1,WingGeom_S,ZAXWQEUVZC
+3,1,0,PropGeom_S,KLXGLBQYKJ
+4,1,1,PropGeom_S,KLXGLBQYKJ
