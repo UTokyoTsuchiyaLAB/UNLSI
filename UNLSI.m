@@ -2260,7 +2260,7 @@ classdef UNLSI
 
         end
         
-        function [VortexAi,VortexBi,VortexAo,VortexBo,wakeVA] = propellerInfluenceMatrix(obj,propNo,propWakeLength,nPropWake)
+        function [VortexAi,VortexBi,VortexAo,VortexBo,wakeVA] = propellerInfluenceMatrix(obj,propNo,propWakeLength)
             ID = obj.prop{propNo}.ID;
             verts = obj.tri.Points;
             con  = obj.tri.ConnectivityList(obj.paneltype==1,:);
@@ -2655,8 +2655,8 @@ classdef UNLSI
             for wakeNo = 1:size(pellerEdge,1)-1
                 wakepos(1,:) = pellerEdge(wakeNo,:)+[0,0,0];
                 wakepos(2,:) = pellerEdge(wakeNo+1,:)+[0,0,0];
-                wakepos(3,:) = pellerEdge(wakeNo+1,:)-propWakeLength.*pellerNormal;
-                wakepos(4,:) = pellerEdge(wakeNo,:)-propWakeLength.*pellerNormal;
+                wakepos(3,:) = pellerEdge(wakeNo+1,:)-propWakeLength*obj.prop{propNo}.diameter.*pellerNormal;
+                wakepos(4,:) = pellerEdge(wakeNo,:)-propWakeLength*obj.prop{propNo}.diameter.*pellerNormal;
                 [~, ~, nbuff] = obj.vertex(wakepos(1,:),wakepos(2,:),wakepos(3,:));
                 Nw1.X = repmat(wakepos(2,1),[nbPanel,1]);
                 Nw1.Y = repmat(wakepos(2,2),[nbPanel,1]);

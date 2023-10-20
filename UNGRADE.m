@@ -67,6 +67,7 @@
             obj.setting.H0 = eye(numel(obj.lb)); %初期ヘッシアン
             obj.setting.n_wake = 5;
             obj.setting.wakeLength = 20;
+            obj.setting.propWakeLength = 2;
             obj.setting.n_divide = 10;
             obj.setting.nCluster = 50;
             obj.setting.edgeAngleThreshold = 50;
@@ -186,7 +187,7 @@
             if isempty(obj.LHS)
                 if any(obj.flowNoList(:,3) == 1)
                     if obj.setting.propCalcFlag == 1
-                        obj = obj.makePropEquation(100);
+                        obj = obj.makePropEquation(obj.setting.propWakeLength);
                     end
                     obj = obj.makeEquation(obj.setting.wakeLength,obj.setting.n_wake,obj.setting.n_divide);
                 end 
@@ -208,7 +209,7 @@
             if isempty(obj.LHS)
                 if any(obj.flowNoList(:,3) == 1)
                     if obj.setting.propCalcFlag == 1
-                        obj = obj.makePropEquation(100);
+                        obj = obj.makePropEquation(obj.setting.propWakeLength);
                     end
                     obj = obj.makeEquation(obj.setting.wakeLength,obj.setting.n_wake,obj.setting.n_divide);
                 end
@@ -402,7 +403,7 @@
             if isempty(obj.LHS)
                 if any(obj.flowNoList(:,3) == 1)
                     if obj.setting.propCalcFlag == 1
-                        obj = obj.makePropEquation(100);
+                        obj = obj.makePropEquation(obj.setting.propWakeLength);
                     end
                     obj = obj.makeEquation(obj.setting.wakeLength,obj.setting.n_wake,obj.setting.n_divide);
                 end
@@ -494,7 +495,7 @@
                     obj2 = obj.setVerts(modMesh);
                     if any(obj.flowNoList(:,3) == 1)
                         if obj.setting.propCalcFlag == 1
-                            obj2 = obj2.makePropEquation(100);
+                            obj2 = obj2.makePropEquation(obj.setting.propWakeLength);
                         end
                         obj2 = obj2.makeEquation(obj.setting.wakeLength,obj.setting.n_wake,obj.setting.n_divide);
                     end
@@ -503,7 +504,7 @@
                     if any(obj.flowNoList(:,3) == 1)
                         obj2 = obj.makeApproximatedInstance(modMesh);
                         if obj.setting.propCalcFlag == 1
-                            obj2 = obj2.makePropEquation(100);
+                            obj2 = obj2.makePropEquation(obj.setting.propWakeLength);
                         end
                     else
                         obj2 = obj.setVerts(modMesh);
