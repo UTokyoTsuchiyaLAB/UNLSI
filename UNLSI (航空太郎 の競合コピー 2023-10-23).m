@@ -438,7 +438,7 @@ classdef UNLSI
             end
         end
 
-        function obj = setBasewithAngle(obj,alpha,beta,threshold,ID)
+        function obj = setBasewithAngle(obj,alpha,beta,threshold)
             %%%%%%%%%%%%%%%%角度によるベース面指定%%%%%%%%%%%%%%%%
             %alphabetaで指定した角度に対してthreshold(deg)角度以下のパネルをベース面として設定する
             %alpha,beta : AoA Sideslip(deg)
@@ -448,7 +448,7 @@ classdef UNLSI
             flowVec(2) = -sind(beta);
             flowVec(3) = sind(alpha)*cosd(beta);
             for i = 1:numel(obj.paneltype)
-                if obj.paneltype(i) == 1 && obj.surfID(i) == ID
+                if obj.paneltype(i) == 1
                     if(abs(acosd(dot(flowVec,obj.orgNormal(i,:))))<threshold)
                         obj.paneltype(i,1) = 2;
                     end
@@ -616,9 +616,7 @@ classdef UNLSI
                 obj.LLT.spanel{wakeNo} = (sd(2:end)-sd(1:end-1))./2;
                 
             end
-            if numel(obj.wakeline)>0
-                obj.LLT.Qij = obj.Calc_Q(horzcat(obj.LLT.yinterp{:}),horzcat(obj.LLT.zinterp{:}),horzcat(obj.LLT.phiinterp{:}),horzcat(obj.LLT.spanel{:}),obj.halfmesh);
-            end
+            obj.LLT.Qij = obj.Calc_Q(horzcat(obj.LLT.yinterp{:}),horzcat(obj.LLT.zinterp{:}),horzcat(obj.LLT.phiinterp{:}),horzcat(obj.LLT.spanel{:}),obj.halfmesh);
         end
 
         function obj = setProp(obj,propNo,ID,diameter,XZsliced)
@@ -906,15 +904,16 @@ classdef UNLSI
                     for i = 1:numel(obj.wakeline)
                         uinterp = [uinterp,interp1(obj.LLT.sp{i},obj.LLT.calcMu{i}*u,obj.LLT.sinterp{i},'linear','extrap')];
                     end
-                    if numel(obj.wakeline)>0
-                        Vind = obj.LLT.Qij*uinterp';
-                        CLt = (2.*horzcat(obj.LLT.spanel{:}).*cos(horzcat(obj.LLT.phiinterp{:}))*uinterp')/(0.5*obj.SREF)/(1-obj.flow{flowNo}.Mach^2);
-                        CDt = ((uinterp.*horzcat(obj.LLT.spanel{:}))*Vind)/(0.5*obj.SREF)/norm(1-obj.flow{flowNo}.Mach^2)^3;
-                    else
-                        CLt = 0;
-                        CDt = 0;
-                    end
-                    else
+                    Vind = obj.LLT.Qij*uinterp';
+                    %{
+                    figure(3);clf;hold on;
+                    plot(horzcat(obj.LLT.yinterp{:}),Vind');
+                    plot(horzcat(obj.LLT.yinterp{:}),uinterp);
+                    ylim([-0.5,3]);
+                    %}
+                    CLt = (2.*horzcat(obj.LLT.spanel{:}).*cos(horzcat(obj.LLT.phiinterp{:}))*uinterp')/(0.5*obj.SREF)/(1-obj.flow{flowNo}.Mach^2);
+                    CDt = ((uinterp.*horzcat(obj.LLT.spanel{:}))*Vind)/(0.5*obj.SREF)/norm(1-obj.flow{flowNo}.Mach^2)^3;
+                else
                     %超音速
                     delta = zeros(nbPanel,1);
                     iter = 1;
@@ -1234,18 +1233,18 @@ classdef UNLSI
                 %%%動微係数の計算%%%%%%%%%%%%%%%%%%%%%%%%%%%%
                 %%%%%%%%%%%%%%%%TO DO alpha とbetaも
                 %結果はDyncoefに格納される
-                % 横軸    beta, alpha, p, q, r
-                %        --------------------
+                % 横軸    beta, alpha, p, q, r, defl.(1) defl.(2) ~
+                %        ---------------------------
                 %    Cx  |
+                %    Cy  |
                 % 縦 Cz  |
                 % 軸 Cmx |
                 %    Cmy |
                 %    Cmz |
-                %dynCoefStructは構造体で出力する。
                 %flowNo:解きたい流れのID
                 %alpha:迎角[deg]
                 %beta:横滑り角[deg]
-                %difference:有限差分の方法 "forward"(デフォルト)-前進差分 "central"-中心差分
+                
                 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
                 u0 = obj.solvePertPotential(flowNo,alpha,beta,omega,propCalcFlag);
                 [udwf,udwr] = obj.calcDynCoefdu(flowNo,alpha,beta,omega,deflDerivFlag);
@@ -2638,9 +2637,9 @@ classdef UNLSI
             nPropWake = 101;         % 点の数（円周上の分割数）
             % 円周上の点の座標を計算する
             if obj.prop{propNo}.XZsliced == 1
-                theta = linspace(pi, 0, nPropWake);
+                theta = linspace(0, pi, nPropWake);
             else
-                theta = linspace(2*pi, 0, nPropWake);
+                theta = linspace(0, 2*pi, nPropWake);
             end
             cirp = obj.prop{propNo}.diameter/2 * [cos(theta); sin(theta); zeros(1, nPropWake)];
             
