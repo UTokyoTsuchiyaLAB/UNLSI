@@ -622,20 +622,21 @@ classdef UNLSI
             end
             obj.prop{propNo}.normal = mean(obj.orgNormal(obj.surfID == ID,:),1);
             obj.prop{propNo}.center = mom./propArea;
-            obj.prop{propNo}.sigmoidStrength = 100;
+
+            obj = makePropEquation(obj,propNo);
+
+
         end
 
-        function obj = makePropEquation(obj)
+        function obj = makePropEquation(obj,propNo)
             %とりあえずpaneltypeで計算しているが、IDで管理したい
             %muとsigma両方
-            for propNo = 1:numel(obj.prop)
-                [VortexAi,VortexBi,VortexAo,VortexBo,propWakeA] = obj.propellerInfluenceMatrix(obj,propNo,obj.settingUNLSI.propWakeLength);
-                obj.prop{propNo}.LHSi = VortexAi;
-                obj.prop{propNo}.RHSi = VortexBi;
-                obj.prop{propNo}.LHSo = VortexAo;
-                obj.prop{propNo}.RHSo = VortexBo;
-                obj.prop{propNo}.wakeLHS = propWakeA;
-            end
+            [VortexAi,VortexBi,VortexAo,VortexBo,propWakeA] = obj.propellerInfluenceMatrix(obj,propNo,obj.settingUNLSI.propWakeLength);
+            obj.prop{propNo}.LHSi = VortexAi;
+            obj.prop{propNo}.RHSi = VortexBi;
+            obj.prop{propNo}.LHSo = VortexAo;
+            obj.prop{propNo}.RHSo = VortexBo;
+            obj.prop{propNo}.wakeLHS = propWakeA;
         end
 
 

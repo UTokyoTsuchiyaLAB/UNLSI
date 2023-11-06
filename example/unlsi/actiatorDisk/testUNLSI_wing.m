@@ -8,7 +8,6 @@ wing = wing.setRotationCenter([0,0,0]); %回転中心の設定
 wing = wing.setOptions("propCalcFlag",1,"Vinf",50,"propWakeLength",0.3);
 wing = wing.makeCluster(); %速度分布を求めるためのパネルクラスターを作成
 wing = wing.setProp(1,2,5,0);
-wing = wing.makePropEquation();
 wing = wing.makeEquation(); %パネル法行列の作成
 %%%%%%%%ここまでは一度計算すればスキップできる
 %}
