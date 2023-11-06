@@ -965,7 +965,10 @@ classdef UNLSI
                 else
                     ReOut = 0;
                 end
-                obj.AERODATA{flowNo}(iterflow,:) = [beta(iterflow),obj.flow{flowNo}.Mach,alpha(iterflow),ReOut,CL,CLt,CDo,CDi,CDtot,CDt,CDtott,CY,CLt/CDtott,CLt^2/pi/AR/CDt,CAp+CAf,CYp+CYf,CNp+CNf,CMX,CMY,CMZ,0,0,0,0];
+                CMl = -CMX;
+                CMm = CMY;
+                CMn = -CMZ;
+                obj.AERODATA{flowNo}(iterflow,:) = [beta(iterflow),obj.flow{flowNo}.Mach,alpha(iterflow),ReOut,CL,CLt,CDo,CDi,CDtot,CDt,CDtott,CY,CLt/CDtott,CLt^2/pi/AR/CDt,CAp+CAf,CYp+CYf,CNp+CNf,CMX,CMY,CMZ,CMl,CMm,CMn,0];
                 
             end
         end
@@ -1198,7 +1201,10 @@ classdef UNLSI
                 else
                     ReOut = 0;
                 end
-                obj.AERODATA{flowNo}(iterflow,:) = [beta(iterflow),obj.flow{flowNo}.Mach,alpha(iterflow),ReOut,CL,CLt,CDo,CDi,CDtot,CDt,CDtott,CY,CLt/CDtott,CLt^2/pi/AR/CDt,CAp+CAf,CYp+CYf,CNp+CNf,CMX,CMY,CMZ,0,0,0,0];
+                CMl = -CMX;
+                CMm = CMY;
+                CMn = -CMZ;
+                obj.AERODATA{flowNo}(iterflow,:) = [beta(iterflow),obj.flow{flowNo}.Mach,alpha(iterflow),ReOut,CL,CLt,CDo,CDi,CDtot,CDt,CDtott,CY,CLt/CDtott,CLt^2/pi/AR/CDt,CAp+CAf,CYp+CYf,CNp+CNf,CMX,CMY,CMZ,CMl,CMm,CMn,0];
                 AERODATA = obj.AERODATA;
                 Cp = obj.Cp;
                 Cfe = obj.Cfe;
