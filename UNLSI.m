@@ -1,10 +1,5 @@
 classdef UNLSI
 
-    %%%%%残タスク
-    %InfluenceMatrixのリファクタリング（任意passive,activeポイント入力⇒行列化）
-    %プロペラ計算のUIを考える
-    %%%%%
-
     properties
         tri %MATLAB triangulationクラス
         surfID %各パネルのタグ番号
@@ -19,12 +14,12 @@ classdef UNLSI
         cpcalctype %Cpを計算する方法の選択 %1:1-V^2 2: -2u 3: -2u-v^2-w^2
         IndexPanel2Solver %パネルのインデックス⇒ソルバー上でのインデックス
         VindWake
-        wakePanelLength
-        nWake
+        setting
         orgNormal %各パネルの法線ベクトル
         modNormal %舵角等によって変更した法線ベクトル
         center %各パネルの中心
         area %各パネルの面積
+        flowNoTable %flowNoが整理されたMatrix
         flow %各flowconditionが格納されたセル配列
         prop %各プロペラ方程式情報が格納されたセル配列
         cluster %パネルクラスターの情報
@@ -48,91 +43,59 @@ classdef UNLSI
             %conectivity:各パネルの頂点ID
             %surfID:パネルのID
             %wakelineID:wakeをつけるエッジ上の頂点ID配列を要素にもつセル配列
-            %halfmesh:半裁メッシュの場合に1を指定
+            %halfmesh:半裁メッシュの場合に1を指定 引数を省略すれば自動設定
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             %データの格納、パネル法線、面積の計算
-            obj.tri = triangulation(connectivity,verts);
-            obj.surfID = surfID;
-            obj.wakelineID = wakelineID;
-            for i = 1:numel(wakelineID)
-                obj.wakeline{i}.edge = wakelineID{i};
+
+            %halfmeshの判定
+            if all(verts(:,2) >=0) ||  all(verts(:,2) <=0)
+                if nargin > 4 
+                    if halfmesh == 0
+                        warning("Signatures of verts' y cordinates are all same, but the half mesh setting is 0 (not halfmesh)");
+                    end
+                else
+                    halfmesh = 1;
+                end
+            else
+               if nargin > 4 
+                    if halfmesh == 1
+                        warning("Signatures of verts' y cordinates are NOT all same, but the half mesh setting is 1 (halfmesh)");
+                    end
+                else
+                    halfmesh = 0;
+               end
             end
-            obj.paneltype = ones(size(connectivity,1),1);
-            obj.cpcalctype = ones(size(connectivity,1),1);
-            obj.IndexPanel2Solver = 1:numel(obj.paneltype);
+                     
+            %%%%%%%%%%%Settingの初期設定%%%%%%%%%%%%%
+            obj.setting.checkMeshMethod = "delete";
+            obj.setting.checkMeshTol = sqrt(eps);
+            obj.setting.LLTnInterp = 10;
+            obj.setting.nCluster = 50;%クラスターの目標数（達成できなければそこで打ち切り）
+            obj.setting.edgeAngleThreshold = 50;%この角度以下であれば近隣パネルとして登録する（角度差が大きすぎるモノをはじくため）
+            obj.setting.wingWakeLength = 100; %各wakeパネルの長さ(機体基準長基準）
+            obj.setting.nCalcDivide = 5;%makeEquationは各パネル数×各パネル数サイズの行列を扱うため、莫大なメモリが必要となる。一度に計算する列をobj.setting.nCalcDivide分割してメモリの消費量を抑えている。
+            obj.setting.angularVelocity = [];
+            obj.setting.propCalcFlag = 0;
+            obj.setting.deflDerivFlag = 1;
+            obj.setting.propWakeLength = 3;
+            obj.setting.nPropWake = 101; %propWake円周上の点の数
+            obj.setting.kCf = 1.015*(10^-5);
+            obj.setting.laminarRatio = 0;
+            obj.setting.coefCf = 0;
+            obj.setting.newtoniantype = "OldTangentCone";
+            obj.setting.resultSearchMethod = "and";
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             obj.halfmesh = halfmesh;
-            obj.LLT.n_interp = 10;
+            obj.flowNoTable = [];
             obj.flow = {};
-            eyebuff = eye(3);
-            obj.deflAngle = [unique(obj.surfID),zeros(numel(unique(obj.surfID)),4),repmat(eyebuff(:)',[numel(unique(obj.surfID)),1])];
+            obj.deflAngle = [];
             obj.SREF = 1;
             obj.CREF = 1;
             obj.BREF = 1;
             obj.XYZREF = [0,0,0];
-            obj.cluster = cell([1,numel(obj.paneltype)]);
-            obj.area = zeros(numel(obj.paneltype),1);
-            obj.orgNormal = zeros(numel(obj.paneltype),3);
-            obj.modNormal = zeros(numel(obj.paneltype),3);
-            obj.center = zeros(numel(obj.paneltype),3);
-            obj.Cp = {};
-            obj.Cfe = {};
-            for i = 1:numel(obj.paneltype)
-                [obj.area(i,1),~ , obj.orgNormal(i,:)] = obj.vertex(verts(connectivity(i,1),:),verts(connectivity(i,2),:),verts(connectivity(i,3),:));
-                obj.center(i,:) = [mean(verts(obj.tri.ConnectivityList(i,:),1)),mean(verts(obj.tri.ConnectivityList(i,:),2)),mean(verts(obj.tri.ConnectivityList(i,:),3))];
-                obj.modNormal(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])*obj.orgNormal(i,:)')';
-            end
 
+            obj = obj.setMesh(verts,connectivity,surfID,wakelineID);
             
-            %半裁メッシュの境界表面上のwakeを削除
-            deleteiter = [];
-            for iter = 1:numel(obj.wakeline)
-                deletelist = [];
-                for j = 1:numel(obj.wakeline{iter}.edge)-1
-                    attachpanel = obj.tri.edgeAttachments(obj.wakeline{iter}.edge(j),obj.wakeline{iter}.edge(j+1));
-                    if numel(attachpanel{1}) < 2
-                        deletelist = [deletelist,j];
-                    end
-                end
-                obj.wakeline{iter}.edge(deletelist) = [];
-                if numel(obj.wakeline{iter}.edge) < 3
-                    deleteiter = [deleteiter,iter];
-                end
-            end
-            obj.wakeline(deleteiter) = [];
-            %wakeのつくパネルIDを特定
-            wakesurfID = [];
-            for wakeNo = 1:numel(obj.wakeline)
-                panelNo = 1;
-                obj.wakeline{wakeNo}.valid = zeros(1,numel(obj.wakeline{wakeNo}.edge)-1);
-                for edgeNo = 1:numel(obj.wakeline{wakeNo}.edge)-1
-                    attachpanel = obj.tri.edgeAttachments(obj.wakeline{wakeNo}.edge(edgeNo),obj.wakeline{wakeNo}.edge(edgeNo+1));
-                    wakesurfID = [wakesurfID,setdiff(obj.surfID(attachpanel{1}),wakesurfID)];
-                    if numel(attachpanel{1})==2
-                        obj.wakeline{wakeNo}.validedge(1,panelNo) = obj.wakeline{wakeNo}.edge(edgeNo);
-                        obj.wakeline{wakeNo}.validedge(2,panelNo) = obj.wakeline{wakeNo}.edge(edgeNo+1);
-                        obj.wakeline{wakeNo}.valid(edgeNo) = 1;
-                        phivert = obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo+1),2:3)-obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo),2:3);
-                        phiwake = atan2d(phivert(2),phivert(1));
-                        if abs(phiwake)<90
-                            obj.wakeline{wakeNo}.upperID(panelNo) = attachpanel{1}(1);
-                            obj.wakeline{wakeNo}.lowerID(panelNo) = attachpanel{1}(2);
-                        else
-                            obj.wakeline{wakeNo}.upperID(panelNo) = attachpanel{1}(2);
-                            obj.wakeline{wakeNo}.lowerID(panelNo) = attachpanel{1}(1);
-                        end
-                        panelNo = panelNo + 1;
-                    else
-                        warning("invalid wake edge detected");
-                    end
-
-                end
-            end
-            %wakeSurfIDにあるもの以外はcpcalctypeをlinearに
-            for i = setdiff(unique(obj.surfID)',wakesurfID)
-                obj = obj.setCpCalcType(i,"linear");
-            end
-            obj.checkMesh(sqrt(eps),"warning");
-            warning('on','MATLAB:triangulation:PtsNotInTriWarnId');
         end
        
 
@@ -238,18 +201,18 @@ classdef UNLSI
 
         end
 
-        function obj = setMesh(obj,verts,connectivity,surfID,wakelineID,checkMeshMethod,checkMeshTol)
+        function obj = setMesh(obj,verts,connectivity,surfID,wakelineID)
             warning('off','MATLAB:triangulation:PtsNotInTriWarnId');
-            if nargin == 5
-                checkMeshMethod = 'warning';
-                checkMeshTol = sqrt(eps);
-            end
             obj.tri = triangulation(connectivity,verts);
             obj.surfID = surfID;
             obj.wakelineID = wakelineID;
             obj.wakeline = [];
             for i = 1:numel(wakelineID)
                 obj.wakeline{i}.edge = wakelineID{i};
+            end
+            if isempty(obj.deflAngle)
+                eyebuff = eye(3);
+                obj.deflAngle = [unique(obj.surfID),zeros(numel(unique(obj.surfID)),4),repmat(eyebuff(:)',[numel(unique(obj.surfID)),1])];
             end
             obj.paneltype = ones(size(connectivity,1),1);
             obj.cpcalctype = ones(size(connectivity,1),1);
@@ -263,9 +226,9 @@ classdef UNLSI
             obj.Cfe = {};
             obj.LHS = [];
             obj.RHS = [];
-            lltninterp = obj.LLT.n_interp;
+            lltninterp = obj.setting.LLTnInterp;
             obj.LLT = [];
-            obj.LLT.n_interp = lltninterp;
+            obj.setting.LLTnInterp = lltninterp;
             for i = 1:numel(obj.paneltype)
                 [obj.area(i,1),~ , obj.orgNormal(i,:)] = obj.vertex(verts(connectivity(i,1),:),verts(connectivity(i,2),:),verts(connectivity(i,3),:));
                 obj.center(i,:) = [mean(verts(obj.tri.ConnectivityList(i,:),1)),mean(verts(obj.tri.ConnectivityList(i,:),2)),mean(verts(obj.tri.ConnectivityList(i,:),3))];
@@ -325,7 +288,7 @@ classdef UNLSI
             for i = setdiff(unique(obj.surfID)',wakesurfID)
                 obj = obj.setCpCalcType(i,"linear");
             end
-            obj = obj.checkMesh(checkMeshTol,checkMeshMethod);
+            obj = obj.checkMesh(obj.setting.checkMeshTol,obj.setting.checkMeshMethod);
             warning('on','MATLAB:triangulation:PtsNotInTriWarnId');
         end
 
@@ -345,7 +308,7 @@ classdef UNLSI
                 obj.center(i,:) = [mean(verts(obj.tri.ConnectivityList(i,:),1)),mean(verts(obj.tri.ConnectivityList(i,:),2)),mean(verts(obj.tri.ConnectivityList(i,:),3))];
                 obj.modNormal(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])*obj.orgNormal(i,:)')';
             end
-            obj.checkMesh(sqrt(eps),"warning");
+            obj.checkMesh(obj.setting.checkMeshTol,obj.setting.checkMeshMethod);
             warning('on','MATLAB:triangulation:PtsNotInTriWarnId');
         end
 
@@ -483,13 +446,11 @@ classdef UNLSI
             end
         end
 
-        function obj = makeCluster(obj,nCluster,edgeAngleThreshold)
+        function obj = makeCluster(obj)
             %%%%%%%%%%%%%パネルクラスターの作成%%%%%%%%%%%%%%%%%%
             %各パネルの近隣パネルを指定の数集める
             %クラスター内のIDは統一（TODO：統一しないオプションをつけるか検討）
             %パネル法連立方程式を解いて得られるポテンシャルから機体表面に沿った微分を計算するための準備
-            %nCluster:クラスターの目標数（達成できなければそこで打ち切り）
-            %edgeAngleThreshold(deg):この角度以下であれば近隣パネルとして登録する（角度差が大きすぎるモノをはじくため）
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
            for i = 1:numel(obj.paneltype)
@@ -503,14 +464,14 @@ classdef UNLSI
                         deletelist = [];
                         for j = 1:numel(neighbor)
                             edgeAngle = acos(dot(obj.orgNormal(obj.cluster{i}(index),:),obj.orgNormal(neighbor(j),:)));
-                            if abs(edgeAngle)>edgeAngleThreshold*pi/180 || obj.paneltype(neighbor(j)) ~= 1
+                            if abs(edgeAngle)> obj.setting.edgeAngleThreshold*pi/180 || obj.paneltype(neighbor(j)) ~= 1
                                 deletelist = [deletelist,j];
                             end
                         end
                         neighbor(deletelist) = [];
                         diffcluster = setdiff(neighbor,obj.cluster{i});
 
-                        if numel(obj.cluster{i})>nCluster
+                        if numel(obj.cluster{i})> obj.setting.nCluster
                             break;
                         end
                         obj.cluster{i} = [obj.cluster{i},diffcluster];
@@ -523,21 +484,13 @@ classdef UNLSI
            end
         end
 
-        function obj = makeEquation(obj,wakepanellength,nwake,n_divide)
+        function obj = makeEquation(obj)
             %%%%%%%%%%%%%パネル法連立方程式行列の作成%%%%%%%%%%%%
             %パネル法の根幹
             %表面微分行列も併せて作成している
-            %wakepanellength:各wakeパネルの長さ
-            %nwake:wakeパネルの数　つまりwakepanellength*nwakeがwakeの長さ、機体長の100倍以上あれば十分
-            %n_divide:この関数は各パネル数×各パネル数サイズの行列を扱うため、莫大なメモリが必要となる。一度に計算する列をn_divide分割してメモリの消費量を抑えている。
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-            if nargin == 3
-                n_divide = 1;
-            end
             nPanel = numel(obj.paneltype);
             nbPanel = sum(obj.paneltype == 1);
-            obj.wakePanelLength = wakepanellength;
-            obj.nWake = nwake;
             %パネル微分行列の作成
             obj.mu2v{1} = sparse(nPanel,nbPanel);
             obj.mu2v{2} = sparse(nPanel,nbPanel);
@@ -567,12 +520,12 @@ classdef UNLSI
             %パネル方連立方程式行列の作成
             %機体パネル⇒機体パネルへの影響
             
-            si = floor(nbPanel/n_divide).*(0:n_divide-1)+1;
-            ei = [floor(nbPanel/n_divide).*(1:n_divide-1),nbPanel];
+            si = floor(nbPanel/obj.setting.nCalcDivide).*(0:obj.setting.nCalcDivide-1)+1;
+            ei = [floor(nbPanel/obj.setting.nCalcDivide).*(1:obj.setting.nCalcDivide-1),nbPanel];
             obj.LHS = zeros(nbPanel);
             obj.RHS = zeros(nbPanel);
 
-            for i= 1:n_divide
+            for i= 1:obj.setting.nCalcDivide
                 [~,~,VortexAc,VortexBc] = obj.influenceMatrix(obj,[],si(i):ei(i));
                 obj.LHS(:,si(i):ei(i)) = VortexAc; 
                 obj.RHS(:,si(i):ei(i)) = VortexBc;
@@ -583,7 +536,7 @@ classdef UNLSI
             %
             
             for wakeNo = 1:numel(obj.wakeline)
-                theta = linspace(pi,0,size(obj.wakeline{wakeNo}.validedge,2)*obj.LLT.n_interp+1);
+                theta = linspace(pi,0,size(obj.wakeline{wakeNo}.validedge,2)*obj.setting.LLTnInterp+1);
                 iter = 1;
                 obj.LLT.sp{wakeNo} = [];
                 obj.LLT.calcMu{wakeNo} = zeros(1,nbPanel);
@@ -599,7 +552,7 @@ classdef UNLSI
                 for edgeNo = 1:size(obj.wakeline{wakeNo}.validedge,2)
                     interpID(1) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.upperID(edgeNo));
                     interpID(2) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.lowerID(edgeNo));
-                    [influence] = obj.wakeInfluenceMatrix(obj,wakeNo,edgeNo,1:nbPanel,wakepanellength,nwake);
+                    [influence] = obj.wakeInfluenceMatrix(obj,wakeNo,edgeNo,1:nbPanel);
                     obj.LHS(:,interpID(1)) = obj.LHS(:,interpID(1)) - influence;
                     obj.LHS(:,interpID(2)) = obj.LHS(:,interpID(2)) + influence;
                     obj.LLT.calcMu{wakeNo}(iter,interpID(1)) = -1;
@@ -651,11 +604,11 @@ classdef UNLSI
             obj.prop{propNo}.sigmoidStrength = 100;
         end
 
-        function obj = makePropEquation(obj,propWake)
+        function obj = makePropEquation(obj)
             %とりあえずpaneltypeで計算しているが、IDで管理したい
             %muとsigma両方
             for propNo = 1:numel(obj.prop)
-                [VortexAi,VortexBi,VortexAo,VortexBo,propWakeA] = obj.propellerInfluenceMatrix(obj,propNo,propWake);
+                [VortexAi,VortexBi,VortexAo,VortexBo,propWakeA] = obj.propellerInfluenceMatrix(obj,propNo,obj.setting.propWakeLength);
                 obj.prop{propNo}.LHSi = VortexAi;
                 obj.prop{propNo}.RHSi = VortexBi;
                 obj.prop{propNo}.LHSo = VortexAo;
@@ -665,7 +618,7 @@ classdef UNLSI
         end
 
 
-        function obj = flowCondition(obj,flowNo,Mach,newtoniantype)
+        function obj = flowCondition(obj,flowNo,Mach,Re)
             %%%%%%%%%%%%%%%%主流の設定%%%%%%%%%%%%%%%%%%%%%%
             %UNLSIでは流れの状態の変化によって不連続的な変化を起こさないよう（設計変数の微分が連続になるよう）考慮されている。
             %特に超音速流解析では主流の状態によって各パネルの膨張と圧縮が切り替わるため、特別な考慮が必要となる。
@@ -676,14 +629,11 @@ classdef UNLSI
             %Mach:マッハ数
             %超音速解析(修正ニュートン流理論)の手法:"OldTangentCone"(デフォルト),"TangentConeEdwards","TangentWedge"
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-            if nargin == 3
-                newtoniantype = "OldTangentCone";
-            end
             obj.flow{flowNo}.Mach = Mach;
             if Mach < 1
                 obj.flow{flowNo}.flowtype = "Souce-Doublet 1st-order Panel";
             else
-                obj.flow{flowNo}.flowtype = strcat(newtoniantype,"+Prandtl-Meyer");
+                obj.flow{flowNo}.flowtype = strcat(obj.setting.newtoniantype,"+Prandtl-Meyer");
             end
             kappa = 1.4;
 
@@ -692,13 +642,13 @@ classdef UNLSI
                 Cpfc = zeros(size(delta));
                 for j =1:size(delta,2)
                     if delta(j) >= 0
-                        if strcmpi(newtoniantype,'TangentConeEdwards')
+                        if strcmpi(obj.setting.newtoniantype,'TangentConeEdwards')
                             Mas = (0.87*Mach-0.554)*sin(delta(j))+0.53;
                             Cpfc(j) = (2 * sin(delta(j))^2)/(1 - 1/4*((Mas^2+5)/(6*Mas^2)));
-                        elseif strcmpi(newtoniantype,'OldTangentCone')
+                        elseif strcmpi(obj.setting.newtoniantype,'OldTangentCone')
                             Mas = 1.090909*Mach*sin(delta(j))+exp(-1.090909*Mach*sin(delta(j)));
                             Cpfc(j) = (2 * sin(delta(j))^2)/(1 - 1/4*((Mas^2+5)/(6*Mas^2)));
-                        elseif strcmpi(newtoniantype,'TangentWedge')
+                        elseif strcmpi(obj.setting.newtoniantype,'TangentWedge')
                             if delta(j)>45.585*pi/180
                                 Cpfc(j)=((1.2*Mach*sin(delta(j))+exp(-0.6*Mach*sin(delta(j))))^2-1.0)/(0.6*Mach^2);
                                 %R=1/Mach^2+(kappa+1)/2*delta(j)/sqrt(Mach^2-1);
@@ -733,9 +683,15 @@ classdef UNLSI
                 end
                 obj.flow{flowNo}.pp = griddedInterpolant(delta,Cpfc,'spline');
             end
+            if nargin == 3
+                Re = 0;
+            else
+                obj = obj.setCf(flowNo,Re);
+            end
+            obj.flowNoTable(flowNo,:) = [Mach,Re]; 
         end
 
-        function obj = setCf(obj,flowNo,Re,Lch,k,LTratio,coefficient)
+        function obj = setCf(obj,flowNo,Re)
             %%%%%%%%%%%%%%%%%%%%%Cf計算における設定%%%%%%%%%%%%%%%%%%%
             %Cf計算の詳細はhttps://openvsp.org/wiki/doku.php?id=parasitedragが詳しい
             %flowNo:流れのID
@@ -752,21 +708,21 @@ classdef UNLSI
                 %k = 0.152*(10^-5);
                 %Smooth molded composite
                 %k = 0.052*(10^-5);
-            %LTratio:層流の割合
-            %coefficient:調整用の係数(デフォルト:1)
+            %obj.setting.laminarRatio:層流の割合
+            %obj.setting.coefCf:調整用の係数(デフォルト:1)
 
             %TODO:パネルIDによってCfの値を切り替えられるようにする
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-            if nargin == 6
-                coefficient = 1;
-            end
             %{
 
             %}
+            obj.flowNoTable(flowNo,:) = [obj.flow{flowNo}.Mach,Re]; 
+            Lch = obj.CREF;
+            obj.flow{flowNo}.Re = Re;
             if(obj.flow{flowNo}.Mach<0.9)
-                Re_Cut = 38.21*((Lch/k)^1.053);
+                Re_Cut = 38.21*((Lch/obj.setting.kCf)^1.053);
             else
-                Re_Cut = 44.62*((Lch/k)^1.053).*((obj.flow{flowNo}.Mach)^1.16);
+                Re_Cut = 44.62*((Lch/obj.setting.kCf)^1.053).*((obj.flow{flowNo}.Mach)^1.16);
             end
             if Re>Re_Cut
                 Re = Re_Cut;
@@ -774,7 +730,7 @@ classdef UNLSI
             Cf_L = 1.328./sqrt(Re);
             Cf_T = 0.455/((log10(Re).^(2.58))*((1+0.144*obj.flow{flowNo}.Mach*obj.flow{flowNo}.Mach)^0.65));
             obj.Cfe{flowNo} = zeros(numel(obj.paneltype),1);
-            obj.Cfe{flowNo}(obj.paneltype==1,1) =(LTratio*Cf_L + (1-LTratio)*Cf_T)*coefficient;
+            obj.Cfe{flowNo}(obj.paneltype==1,1) =(obj.setting.laminarRatio*Cf_L + (1-obj.setting.laminarRatio)*Cf_T)*obj.setting.coefCf;
         end
 
         function [obj,thrust,power,Jref] = setPropState(obj,Vinf,rho,CT,CP,rpm)
@@ -816,7 +772,7 @@ classdef UNLSI
             end
         end
 
-        function obj = solveFlow(obj,flowNo,alpha,beta,omega,propCalcFlag)
+        function obj = solveFlow(obj,alpha,beta,Mach,Re)
             %%%%%%%%%%%%%LSIの求解%%%%%%%%%%%%%%%%%%%%%
             %結果はobj.AERODATAに格納される。
             % 1:Beta 2:Mach 3:AoA 4:Re/1e6 5:CL 6:CLt 7:CDo 8:CDi 9:CDtot 10:CDt 11:CDtot_t 12:CS 13:L/D 14:E(翼効率) 15:CFx 16:CFy 17:CFz 18:CMx 19:CMy 20:CMz 21:CMl 22:CMm 23:CMn 24:FOpt 
@@ -826,13 +782,30 @@ classdef UNLSI
             %beta:横滑り角[deg]
             %omega:主流の回転角速度(deg/s)
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-            if nargin < 5
-                omega = [];
-                propCalcFlag = 0;
-            elseif nargin < 6
-                propCalcFlag = 0;
+            
+            if isempty(obj.flowNoTable)
+                if nargin == 5
+                    obj = obj.flowCondition(1,Mach,Re);
+                else
+                    obj = obj.flowCondition(1,Mach);
+                end
+                flowNo = 1;
+            else
+                flowNo = 0;
+                for i = 1:size(obj.flowNoTable,1)
+                    if obj.flowNoTable(i,1) == Mach && obj.flowNoTable(i,2) == Re
+                        flowNo = i;
+                    end
+                end
+                if flowNo == 0
+                    if nargin == 5
+                        obj = obj.flowCondition(size(obj.flowNoTable,1)+1,Mach,Re);
+                    else
+                        obj = obj.flowCondition(size(obj.flowNoTable,1)+1,Mach);
+                    end
+                    flowNo = size(obj.flowNoTable,1);
+                end
             end
-
             if any(size(alpha) ~= size(beta))
                 error("analysis points are not match");
             end
@@ -851,7 +824,7 @@ classdef UNLSI
                 T(3,2) = sind(alpha(iterflow))*sind(beta(iterflow));
                 T(3,3) = cosd(alpha(iterflow));
 
-                if isempty(omega)
+                if isempty(obj.setting.angularVelocity)
                     Vinf = zeros(nPanel,3);
                     for i = 1:nPanel
                        Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0]))';
@@ -860,7 +833,7 @@ classdef UNLSI
                     Vinf = zeros(nPanel,3);
                     for i = 1:nPanel
                        rvec = obj.center(i,:)'-obj.XYZREF(:);
-                       Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0])-(cross(omega(iterflow,:)./180.*pi,rvec(:)')'))';
+                       Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0])-(cross(obj.setting.angularVelocity(iterflow,:)./180.*pi,rvec(:)')'))';
                     end
                 end
                 
@@ -882,7 +855,7 @@ classdef UNLSI
                                                     
                     end
                     
-                    if propCalcFlag == 1
+                    if obj.setting.propCalcFlag == 1
                         RHV = obj.RHS*sigmas;
                         RHVprop = obj.calcPropRHV(obj,T);
                         RHV = RHV + RHVprop;
@@ -983,14 +956,17 @@ classdef UNLSI
                     CY = T(:,2)'*[CAp+CAf;CYp+CYf;CNp+CNf];
                 end
                 AR = obj.BREF^2/obj.SREF;
-                
-                obj.AERODATA{flowNo}(iterflow,:) = [beta(iterflow),obj.flow{flowNo}.Mach,alpha(iterflow),0,CL,CLt,CDo,CDi,CDtot,CDt,CDtott,CY,CLt/CDtott,CLt^2/pi/AR/CDt,CAp+CAf,CYp+CYf,CNp+CNf,CMX,CMY,CMZ,0,0,0,0];
+                if isfield(obj.flow{flowNo},"Re")
+                    ReOut = obj.flow{flowNo}.Re/1000000;
+                else
+                    ReOut = 0;
+                end
+                obj.AERODATA{flowNo}(iterflow,:) = [beta(iterflow),obj.flow{flowNo}.Mach,alpha(iterflow),ReOut,CL,CLt,CDo,CDi,CDtot,CDt,CDtott,CY,CLt/CDtott,CLt^2/pi/AR/CDt,CAp+CAf,CYp+CYf,CNp+CNf,CMX,CMY,CMZ,0,0,0,0];
                 
             end
-            %disp([CL,CDo,CDi,CDtot,CMY]);
         end
 
-        function [u,R] = solvePertPotential(obj,flowNo,alpha,beta,omega,propCalcFlag)
+        function [u,R] = solvePertPotential(obj,flowNo,alpha,beta)
             %%%%%%%%%%%%%LSIの求解%%%%%%%%%%%%%%%%%%%%%
             %Adjoint法実装のためポテンシャルの変動値のみ求める。
 
@@ -1012,7 +988,7 @@ classdef UNLSI
                 T(3,1) = sind(alpha(iterflow))*cosd(beta(iterflow));
                 T(3,2) = sind(alpha(iterflow))*sind(beta(iterflow));
                 T(3,3) = cosd(alpha(iterflow));
-                if isempty(omega)
+                if isempty(obj.setting.angularVelocity)
                     Vinf = zeros(nPanel,3);
                     for i = 1:nPanel
                        Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0]))';
@@ -1021,7 +997,7 @@ classdef UNLSI
                     Vinf = zeros(nPanel,3);
                     for i = 1:nPanel
                        rvec = obj.center(i,:)'-obj.XYZREF(:);
-                       Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0])-(cross(omega(iterflow,:)./180.*pi,rvec(:)')'))';
+                       Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0])-(cross(obj.setting.angularVelocity(iterflow,:)./180.*pi,rvec(:)')'))';
                     end
                 end
                 if obj.flow{flowNo}.Mach < 1
@@ -1034,7 +1010,7 @@ classdef UNLSI
                             iter = iter+1;
                         end
                     end
-                    if propCalcFlag == 1
+                    if obj.setting.propCalcFlag == 1
                         RHV = obj.RHS*sigmas;
                         RHVprop = obj.calcPropRHV(obj,T);
                         RHV = RHV + RHVprop;
@@ -1065,7 +1041,7 @@ classdef UNLSI
             end
         end
         
-        function [AERODATA,Cp,Cfe,R,obj] = solveFlowForAdjoint(obj,u,flowNo,alpha,beta,omega,propCalcFlag)
+        function [AERODATA,Cp,Cfe,R,obj] = solveFlowForAdjoint(obj,u,flowNo,alpha,beta)
             %%%%%%%%%%%%%LSIの求解%%%%%%%%%%%%%%%%%%%%%
             %ポテンシャルから力を求める
             %結果は配列に出力される
@@ -1094,7 +1070,7 @@ classdef UNLSI
                 T(3,1) = sind(alpha(iterflow))*cosd(beta(iterflow));
                 T(3,2) = sind(alpha(iterflow))*sind(beta(iterflow));
                 T(3,3) = cosd(alpha(iterflow));
-                if isempty(omega)
+                if isempty(obj.setting.angularVelocity)
                     Vinf = zeros(nPanel,3);
                     for i = 1:nPanel
                        Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0]))';
@@ -1103,7 +1079,7 @@ classdef UNLSI
                     Vinf = zeros(nPanel,3);
                     for i = 1:nPanel
                        rvec = obj.center(i,:)'-obj.XYZREF(:);
-                       Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0])-(cross(omega(iterflow,:)./180.*pi,rvec(:)')'))';
+                       Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0])-(cross(obj.setting.angularVelocity(iterflow,:)./180.*pi,rvec(:)')'))';
                     end
                 end
                 Tvec(:,1) = obj.modNormal(:,2).* Vinf(:,3)-obj.modNormal(:,3).* Vinf(:,2);
@@ -1122,7 +1098,7 @@ classdef UNLSI
                             iter = iter+1;
                         end
                     end
-                    if propCalcFlag == 1
+                    if obj.setting.propCalcFlag == 1
                        RHVprop = obj.calcPropRHV(obj,T);
                     end
                     usolve = u(nbPanel*(iterflow-1)+1:nbPanel*iterflow,1);
@@ -1212,14 +1188,19 @@ classdef UNLSI
                 else
                     CY = T(:,2)'*[CAp+CAf;CYp+CYf;CNp+CNf];
                 end
-                AR = obj.BREF^2/obj.SREF;
-                obj.AERODATA{flowNo}(iterflow,:) = [beta(iterflow),obj.flow{flowNo}.Mach,alpha(iterflow),0,CL,CLt,CDo,CDi,CDtot,CDt,CDtott,CY,CLt/CDtott,CLt^2/pi/AR/CDt,CAp+CAf,CYp+CYf,CNp+CNf,CMX,CMY,CMZ,0,0,0,0];
+                AR = obj.BREF^2/obj.SREF;                
+                if isfield(obj.flow{flowNo},"Re")
+                    ReOut = obj.flow{flowNo}.Re/1000000;
+                else
+                    ReOut = 0;
+                end
+                obj.AERODATA{flowNo}(iterflow,:) = [beta(iterflow),obj.flow{flowNo}.Mach,alpha(iterflow),ReOut,CL,CLt,CDo,CDi,CDtot,CDt,CDtott,CY,CLt/CDtott,CLt^2/pi/AR/CDt,CAp+CAf,CYp+CYf,CNp+CNf,CMX,CMY,CMZ,0,0,0,0];
                 AERODATA = obj.AERODATA;
                 Cp = obj.Cp;
                 Cfe = obj.Cfe;
                 if obj.flow{flowNo}.Mach < 1
                     RHV = obj.RHS*sigmas;
-                    if propCalcFlag == 1
+                    if obj.setting.propCalcFlag == 1
                         RHV = RHV+RHVprop;
                     end
                     R(nbPanel*(iterflow-1)+1:nbPanel*iterflow,1) = obj.LHS*usolve+RHV;
@@ -1230,7 +1211,77 @@ classdef UNLSI
             %disp([CL,CDo,CDi,CDtot,CMY]);
         end
 
-        function obj = calcDynCoef(obj,flowNo,alpha,beta,omega,propCalcFlag,deflDerivFlag)
+        function AERODATA = getAERODATA(obj,alpha,beta,Mach,Re)
+            if nargin == 1
+                AERODATA = obj.AERODATA;
+            else
+                %結果を検索して引っかかったrowのものを出力
+                alldata = vertcat(obj.AERODATA{:});
+                if obj.setting.resultSearchMethod == "or"
+                    if nargin == 2
+                        outindex = [find(alldata(:,3) == alpha)];
+                    elseif nargin == 3
+                        outindex = [find(alldata(:,1) == beta);find(alldata(:,3) == alpha)];
+                    elseif nargin == 4
+                        outindex =[find(alldata(:,1) == beta);find(alldata(:,2) == Mach);find(alldata(:,3) == alpha)];
+                    else
+                       outindex =[find(alldata(:,1) == beta);find(alldata(:,2) == Mach);find(alldata(:,3) == alpha);find(alldata(:,4) == Re/1000000)];
+                    end
+                    outindex = unique(outindex);
+                    AERODATA = alldata(outindex,:);
+                elseif obj.setting.resultSearchMethod == "and"
+                    if nargin == 2
+                        outindex = [find(alldata(:,3) == alpha)];
+                    elseif nargin == 3
+                        outindex = intersect(find(alldata(:,1) == beta),find(alldata(:,3) == alpha));
+                    elseif nargin == 4
+                        outindex =intersect(intersect(find(alldata(:,1) == beta),find(alldata(:,2) == Mach)),find(alldata(:,3) == alpha));
+                    else
+                       outindex =intersect(intersect(intersect(find(alldata(:,1) == beta),find(alldata(:,2) == Mach)),find(alldata(:,3) == alpha)),find(alldata(:,4) == Re/1000000));
+                    end
+                    AERODATA = alldata(outindex,:);
+                else
+                    AERODATA = [];
+                end
+            end
+        end
+
+        function Cp = getCp(obj,alpha,beta,Mach,Re)
+            if nargin == 1
+                Cp = obj.Cp;
+            else
+                %結果を検索して引っかかったrowのものを出力
+                alldata = vertcat(obj.AERODATA{:});
+                allCp = horzcat(obj.Cp{:});
+                if obj.setting.resultSearchMethod == "or"
+                    if nargin == 2
+                        outindex = [find(alldata(:,3) == alpha)];
+                    elseif nargin == 3
+                        outindex = [find(alldata(:,1) == beta);find(alldata(:,3) == alpha)];
+                    elseif nargin == 4
+                        outindex =[find(alldata(:,1) == beta);find(alldata(:,2) == Mach);find(alldata(:,3) == alpha)];
+                    else
+                       outindex =[find(alldata(:,1) == beta);find(alldata(:,2) == Mach);find(alldata(:,3) == alpha);find(alldata(:,4) == Re/1000000)];
+                    end
+                    outindex = unique(outindex);
+                    Cp = allCp(:,outindex);s
+                elseif obj.setting.resultSearchMethod == "and"
+                    if nargin == 2
+                        outindex = [find(alldata(:,3) == alpha)];
+                    elseif nargin == 3
+                        outindex = intersect(find(alldata(:,1) == beta),find(alldata(:,3) == alpha));
+                    elseif nargin == 4
+                        outindex =intersect(intersect(find(alldata(:,1) == beta),find(alldata(:,2) == Mach)),find(alldata(:,3) == alpha));
+                    else
+                       outindex =intersect(intersect(intersect(find(alldata(:,1) == beta),find(alldata(:,2) == Mach)),find(alldata(:,3) == alpha)),find(alldata(:,4) == Re/1000000));
+                    end
+                    Cp = allCp(:,outindex);
+                else
+                    Cp = [];
+                end
+            end
+        end
+        function obj = calcDynCoef(obj,flowNo,alpha,beta)
                 %%%動微係数の計算%%%%%%%%%%%%%%%%%%%%%%%%%%%%
                 %%%%%%%%%%%%%%%%TO DO alpha とbetaも
                 %結果はDyncoefに格納される
@@ -1247,15 +1298,12 @@ classdef UNLSI
                 %beta:横滑り角[deg]
                 %difference:有限差分の方法 "forward"(デフォルト)-前進差分 "central"-中心差分
                 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-                u0 = obj.solvePertPotential(flowNo,alpha,beta,omega,propCalcFlag);
-                [udwf,udwr] = obj.calcDynCoefdu(flowNo,alpha,beta,omega,deflDerivFlag);
-                [~,obj] =  obj.calcDynCoefforAdjoint(u0,udwf,udwr,flowNo,alpha,beta,omega,propCalcFlag);
+                u0 = obj.solvePertPotential(flowNo,alpha,beta);
+                [udwf,udwr] = obj.calcDynCoefdu(flowNo,alpha,beta);
+                [~,obj] =  obj.calcDynCoefforAdjoint(u0,udwf,udwr,flowNo,alpha,beta);
         end
 
-        function [udwf,udwr] = calcDynCoefdu(obj,flowNo,alpha,beta,omega,deflDerivFlag)
-            if nargin < 5
-                deflDerivFlag = 0;
-            end
+        function [udwf,udwr] = calcDynCoefdu(obj,flowNo,alpha,beta)
             nPanel = numel(obj.paneltype);
             nbPanel = sum(obj.paneltype == 1);
             dw = eps^(1/3);%rad
@@ -1288,10 +1336,10 @@ classdef UNLSI
                     rhsdw = obj.RHS*vdw;
                     udw(1+nbPanel*(iterflow-1):nbPanel*iterflow,2) = -obj.LHS\rhsdw;
                     for jter = 1:3%p,q,rについて差分をとる
-                        if isempty(omega)
+                        if isempty(obj.setting.angularVelocity)
                             omegadw = zeros(1,3);
                         else
-                            omegadw = omega(iterflow,:);
+                            omegadw = obj.setting.angularVelocity(iterflow,:);
                         end
                         omegadw(jter) = omegadw(jter)+dw;
                         Vinfdw = zeros(nPanel,3);
@@ -1313,21 +1361,21 @@ classdef UNLSI
                 end
                 udwf = udw;
                 udwr = udw;
-                if deflDerivFlag == 1
+                if obj.setting.deflDerivFlag == 1
                     orgDeflAngle = obj.deflAngle;
                     for iterflow = 1:numel(alpha)
-                        u0 = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow),omega,0);
+                        u0 = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow));
                         for i = 1:numel(obj.deflGroup)
                             [deflID,~] = find(obj.deflGroup{i}.ID(:)'==orgDeflAngle(:,1));
                             if any(abs(vecnorm(orgDeflAngle(deflID,2:4),2,2)-1)>sqrt(eps))
                                 error("Defl Axis Not Set");
                             end
                             obj = obj.setDeflAngle(orgDeflAngle(deflID,1),orgDeflAngle(deflID,2:4),orgDeflAngle(deflID,5)+dw*180/pi*obj.deflGroup{i}.gain(:));
-                            uf = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow),omega,0);
+                            uf = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow));
                             udwf(1+nbPanel*(iterflow-1):nbPanel*iterflow,5+i) = uf-u0;
                             [deflID,~] = find(obj.deflGroup{i}.ID==orgDeflAngle(:,1));
                             obj = obj.setDeflAngle(orgDeflAngle(deflID,1),orgDeflAngle(deflID,2:4),orgDeflAngle(deflID,5)-dw*180/pi*obj.deflGroup{i}.gain(:));
-                            ur = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow),omega,0);
+                            ur = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow));
                             udwr(1+nbPanel*(iterflow-1):nbPanel*iterflow,5+i) = u0-ur;
                             [deflID,~] = find(obj.deflGroup{i}.ID==orgDeflAngle(:,1));
                             obj = obj.setDeflAngle(orgDeflAngle(deflID,1),orgDeflAngle(deflID,2:4),orgDeflAngle(deflID,5));
@@ -1336,48 +1384,52 @@ classdef UNLSI
                 end
             else
                 for iterflow = 1:numel(alpha)
-                    u0 = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow),omega,0);
+                    u0 = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow));
                     %betaについて
-                    uf = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow)+dw/pi*180,omega,0);
-                    ur = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow)-dw/pi*180,omega,0);
+                    uf = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow)+dw/pi*180);
+                    ur = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow)-dw/pi*180);
                     udwf(1+nbPanel*(iterflow-1):nbPanel*iterflow,1) = uf-u0;
                     udwr(1+nbPanel*(iterflow-1):nbPanel*iterflow,1) = u0-ur;
                     %alphaについて
-                    uf = obj.solvePertPotential(flowNo,alpha(iterflow)+dw/pi*180,beta(iterflow),omega,0);
-                    ur = obj.solvePertPotential(flowNo,alpha(iterflow)-dw/pi*180,beta(iterflow),omega,0);
+                    uf = obj.solvePertPotential(flowNo,alpha(iterflow)+dw/pi*180,beta(iterflow));
+                    ur = obj.solvePertPotential(flowNo,alpha(iterflow)-dw/pi*180,beta(iterflow));
                     udwf(1+nbPanel*(iterflow-1):nbPanel*iterflow,2) = uf-u0;
                     udwr(1+nbPanel*(iterflow-1):nbPanel*iterflow,2) = u0-ur;
+                    avorg = obj.setting.angularVelocity;
                     for jter = 1:3%p,q,rについて差分をとる
-                        if isempty(omega)
+                        if isempty(obj.setting.angularVelocity)
                             omegadwf = zeros(1,3);
                             omegadwr = zeros(1,3);
                         else
-                            omegadwf = omega(iterflow,:);
-                            omegadwr = omega(iterflow,:);
+                            omegadwf = obj.setting.angularVelocity(iterflow,:);
+                            omegadwr = obj.setting.angularVelocity(iterflow,:);
                         end
                         omegadwf(jter) = omegadwf(jter)+dw/pi*180;
                         omegadwr(jter) = omegadwr(jter)-dw/pi*180;
-                        uf = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow),omegadwf,0);
-                        ur = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow),omegadwr,0);
+                        obj.setting.angularVelocity = omegadwf;
+                        uf = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow),omegadwf);
+                        obj.setting.angularVelocity = omegadwr;
+                        ur = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow),omegadwr);
+                        obj.setting.angularVelocity = avorg;
                         udwf(1+nbPanel*(iterflow-1):nbPanel*iterflow,2+jter) = uf-u0;
                         udwr(1+nbPanel*(iterflow-1):nbPanel*iterflow,2+jter) = u0-ur;
                     end
                 end
-                if deflDerivFlag == 1
+                if obj.setting.deflDerivFlag == 1
                     orgDeflAngle = obj.deflAngle;
                     for iterflow = 1:numel(alpha)
-                        u0 = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow),omega,0);
+                        u0 = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow),0);
                         for i = 1:numel(obj.deflGroup)
                             [deflID,~] = find(obj.deflGroup{i}.ID(:)'==orgDeflAngle(:,1));
                             if any(abs(vecnorm(orgDeflAngle(deflID,2:4),2,2)-1)>sqrt(eps))
                                 error("Defl Axis Not Set");
                             end
                             obj = obj.setDeflAngle(orgDeflAngle(deflID,1),orgDeflAngle(deflID,2:4),orgDeflAngle(deflID,5)+dw*180/pi*obj.deflGroup{i}.gain(:));
-                            uf = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow),omega,0);
+                            uf = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow),0);
                             udwf(1+nbPanel*(iterflow-1):nbPanel*iterflow,5+i) = uf-u0;
                             [deflID,~] = find(obj.deflGroup{i}.ID==orgDeflAngle(:,1));
                             obj = obj.setDeflAngle(orgDeflAngle(deflID,1),orgDeflAngle(deflID,2:4),orgDeflAngle(deflID,5)-dw*180/pi*obj.deflGroup{i}.gain(:));
-                            ur = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow),omega,0);
+                            ur = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow),0);
                             udwr(1+nbPanel*(iterflow-1):nbPanel*iterflow,5+i) = u0-ur;
                             [deflID,~] = find(obj.deflGroup{i}.ID==orgDeflAngle(:,1));
                             obj = obj.setDeflAngle(orgDeflAngle(deflID,1),orgDeflAngle(deflID,2:4),orgDeflAngle(deflID,5));
@@ -1387,7 +1439,7 @@ classdef UNLSI
             end
         end
 
-        function [DYNCOEF,obj] = calcDynCoefforAdjoint(obj,u0,udwf,udwr,flowNo,alpha,beta,omega,propCalcFlag)
+        function [DYNCOEF,obj] = calcDynCoefforAdjoint(obj,u0,udwf,udwr,flowNo,alpha,beta)
                 %%%動微係数の計算%%%%%%%%%%%%%%%%%%%%%%%%%%%%
                 %%%%%%%%%%%%%%%%TO DO alpha とbetaも
                 %結果はDyncoefに格納される
@@ -1404,12 +1456,8 @@ classdef UNLSI
                 %beta:横滑り角[deg]
                 %difference:有限差分の方法 "forward"(デフォルト)-前進差分 "central"-中心差分
                 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-                if nargin<9
-                    propCalcFlag = 0;
-                end
                 %ノミナルについて流れ変数を取得する。
                 dw = eps^(1/3);%rad
-                %AERODATA0 = obj.solveFlowForAdjoint(u0,flowNo,alpha,beta,omega,propCalcFlag);
                 %有限差分による計算
                 ind = 15:20;%AERODATA = [18:CMX, 19:CMY, 20: CMZ]
                 nondim = [obj.BREF/(2*1),obj.CREF/(2*1),obj.BREF/(2*1)];
@@ -1417,33 +1465,36 @@ classdef UNLSI
                     obj.DYNCOEF{flowNo,i} = zeros(5,6);
                 end
                 %betaについて
-                AERODATAf = obj.solveFlowForAdjoint(u0+udwf(:,1),flowNo,alpha,beta+dw*180/pi,[],propCalcFlag);
-                AERODATAr = obj.solveFlowForAdjoint(u0-udwr(:,1),flowNo,alpha,beta-dw*180/pi,[],propCalcFlag);
+                AERODATAf = obj.solveFlowForAdjoint(u0+udwf(:,1),flowNo,alpha,beta+dw*180/pi);
+                AERODATAr = obj.solveFlowForAdjoint(u0-udwr(:,1),flowNo,alpha,beta-dw*180/pi);
                 tmp = (AERODATAf{flowNo} - AERODATAr{flowNo})./(dw*2);
                 for i = 1:size(AERODATAf{flowNo},1)
                     obj.DYNCOEF{flowNo,i}(1,:) = tmp(i,ind); % beta
                 end
 
                 %alphaについて
-                AERODATAf = obj.solveFlowForAdjoint(u0+udwf(:,2),flowNo,alpha+dw*180/pi,beta,[],propCalcFlag);
-                AERODATAr = obj.solveFlowForAdjoint(u0-udwr(:,2),flowNo,alpha-dw*180/pi,beta,[],propCalcFlag);
+                AERODATAf = obj.solveFlowForAdjoint(u0+udwf(:,2),flowNo,alpha+dw*180/pi,beta);
+                AERODATAr = obj.solveFlowForAdjoint(u0-udwr(:,2),flowNo,alpha-dw*180/pi,beta);
                 tmp = (AERODATAf{flowNo} - AERODATAr{flowNo})./(dw*2);
                 for i = 1:size(AERODATAf{flowNo},1)
                     obj.DYNCOEF{flowNo,i}(2,:) = tmp(i,ind); % beta
                 end
-
+                avorg = obj.setting.angularVelocity;
                 for jter = 1:3%p,q,rについて差分をとる
-                    if isempty(omega)
+                    if isempty(obj.setting.angularVelocity)
                         omegadwf = zeros(1,3);
                         omegadwr = zeros(1,3);
                     else
-                        omegadwf = omega(iterflow,:);
-                        omegadwr = omega(iterflow,:);
+                        omegadwf = obj.setting.angularVelocity(iterflow,:);
+                        omegadwr = obj.setting.angularVelocity(iterflow,:);
                     end
                     omegadwf(jter) = omegadwf(jter)+dw.*180./pi;
                     omegadwr(jter) = omegadwr(jter)-dw.*180./pi;
-                    AERODATAf = obj.solveFlowForAdjoint(u0+udwf(:,2+jter),flowNo,alpha,beta,repmat(omegadwf,[numel(alpha),1]),propCalcFlag);
-                    AERODATAr = obj.solveFlowForAdjoint(u0-udwr(:,2+jter),flowNo,alpha,beta,repmat(omegadwr,[numel(alpha),1]),propCalcFlag);
+                    obj.setting.angularVelocity = repmat(omegadwf,[numel(alpha),1]);
+                    AERODATAf = obj.solveFlowForAdjoint(u0+udwf(:,2+jter),flowNo,alpha,beta);
+                    obj.setting.angularVelocity = repmat(omegadwr,[numel(alpha),1]);
+                    AERODATAr = obj.solveFlowForAdjoint(u0-udwr(:,2+jter),flowNo,alpha,beta);
+                    obj.setting.angularVelocity = avorg;
                     tmp = (AERODATAf{flowNo} - AERODATAr{flowNo})./(2*dw*nondim(jter));
                     for i = 1:size(AERODATAf{flowNo},1)
                         obj.DYNCOEF{flowNo,i}(2+jter,:) = tmp(i,ind); % pqr
@@ -1457,9 +1508,9 @@ classdef UNLSI
                             error("Defl Axis Not Set");
                         end
                         obj = obj.setDeflAngle(orgDeflAngle(deflID,1),orgDeflAngle(deflID,2:4),orgDeflAngle(deflID,5)+dw*180/pi*obj.deflGroup{jter}.gain(:));
-                        AERODATAf = obj.solveFlowForAdjoint(u0+udwf(:,5+jter),flowNo,alpha,beta,[],propCalcFlag);
+                        AERODATAf = obj.solveFlowForAdjoint(u0+udwf(:,5+jter),flowNo,alpha,beta);
                         obj = obj.setDeflAngle(orgDeflAngle(deflID,1),orgDeflAngle(deflID,2:4),orgDeflAngle(deflID,5)-dw*180/pi*obj.deflGroup{jter}.gain(:));
-                        AERODATAr = obj.solveFlowForAdjoint(u0-udwr(:,5+jter),flowNo,alpha,beta,[],propCalcFlag);
+                        AERODATAr = obj.solveFlowForAdjoint(u0-udwr(:,5+jter),flowNo,alpha,beta);
                         obj = obj.setDeflAngle(orgDeflAngle(deflID,1),orgDeflAngle(deflID,2:4),orgDeflAngle(deflID,5));
                         tmp = (AERODATAf{flowNo} - AERODATAr{flowNo})./(2*dw);
                         for i = 1:size(AERODATAf{flowNo},1)
@@ -2017,7 +2068,7 @@ classdef UNLSI
             end
         end
 
-        function [VortexA] = wakeInfluenceMatrix(obj,wakeNo,edgeNo,rowIndex,xwake,nwake)
+        function [VortexA] = wakeInfluenceMatrix(obj,wakeNo,edgeNo,rowIndex)
             %%%%%%%%%%%%wakeからパネルへの影響関数%%%%%%%%%%%%%%%%%
             %wakeNoとedgeNoを指定して全パネルへの影響を計算
             %
@@ -2031,11 +2082,11 @@ classdef UNLSI
             POI.Z = center(rowIndex,3);
             nrow = numel(rowIndex);
             VortexA = zeros(nrow,1);
-            for i = 1:nwake
-                wakepos(1,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+[xwake*(i-1),0,0];
-                wakepos(2,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+[xwake*(i-1),0,0];
-                wakepos(3,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+[xwake*i,0,0];
-                wakepos(4,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+[xwake*i,0,0];
+            for i = 1:1
+                wakepos(1,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+[obj.setting.wingWakeLength*obj.CREF*(i-1),0,0];
+                wakepos(2,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+[obj.setting.wingWakeLength*obj.CREF*(i-1),0,0];
+                wakepos(3,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+[obj.setting.wingWakeLength*obj.CREF*i,0,0];
+                wakepos(4,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+[obj.setting.wingWakeLength*obj.CREF*i,0,0];
                 [~, ~, nbuff] = obj.vertex(wakepos(1,:),wakepos(2,:),wakepos(3,:));
                 
                 ulvec = obj.center(obj.wakeline{wakeNo}.lowerID(edgeNo),:)-obj.center(obj.wakeline{wakeNo}.upperID(edgeNo),:);
@@ -2635,14 +2686,13 @@ classdef UNLSI
             end
 
             %プロペラwakeの計算
-            nPropWake = 101;         % 点の数（円周上の分割数）
             % 円周上の点の座標を計算する
             if obj.prop{propNo}.XZsliced == 1
-                theta = linspace(pi, 0, nPropWake);
+                theta = linspace(pi, 0, obj.setting.nPropWake);
             else
-                theta = linspace(2*pi, 0, nPropWake);
+                theta = linspace(2*pi, 0, obj.setting.nPropWake);
             end
-            cirp = obj.prop{propNo}.diameter/2 * [cos(theta); sin(theta); zeros(1, nPropWake)];
+            cirp = obj.prop{propNo}.diameter/2 * [cos(theta); sin(theta); zeros(1, obj.setting.nPropWake)];
             
             % 円周上の点を中心座標と法線ベクトルを使用して回転・平行移動する
             rotation_matrix = vrrotvec2mat(vrrotvec([0, 0, 1], obj.prop{propNo}.normal)); % 回転行列を計算
