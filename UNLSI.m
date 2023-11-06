@@ -14,7 +14,7 @@ classdef UNLSI
         cpcalctype %Cpを計算する方法の選択 %1:1-V^2 2: -2u 3: -2u-v^2-w^2
         IndexPanel2Solver %パネルのインデックス⇒ソルバー上でのインデックス
         VindWake
-        setting
+        settingUNLSI
         orgNormal %各パネルの法線ベクトル
         modNormal %舵角等によって変更した法線ベクトル
         center %各パネルの中心
@@ -51,7 +51,7 @@ classdef UNLSI
             if all(verts(:,2) >=0) ||  all(verts(:,2) <=0)
                 if nargin > 4 
                     if halfmesh == 0
-                        warning("Signatures of verts' y cordinates are all same, but the half mesh setting is 0 (not halfmesh)");
+                        warning("Signatures of verts' y cordinates are all same, but the half mesh settingUNLSI is 0 (not halfmesh)");
                     end
                 else
                     halfmesh = 1;
@@ -59,31 +59,34 @@ classdef UNLSI
             else
                if nargin > 4 
                     if halfmesh == 1
-                        warning("Signatures of verts' y cordinates are NOT all same, but the half mesh setting is 1 (halfmesh)");
+                        warning("Signatures of verts' y cordinates are NOT all same, but the half mesh settingUNLSI is 1 (halfmesh)");
                     end
                 else
                     halfmesh = 0;
                end
             end
                      
-            %%%%%%%%%%%Settingの初期設定%%%%%%%%%%%%%
-            obj.setting.checkMeshMethod = "delete";
-            obj.setting.checkMeshTol = sqrt(eps);
-            obj.setting.LLTnInterp = 10;
-            obj.setting.nCluster = 50;%クラスターの目標数（達成できなければそこで打ち切り）
-            obj.setting.edgeAngleThreshold = 50;%この角度以下であれば近隣パネルとして登録する（角度差が大きすぎるモノをはじくため）
-            obj.setting.wingWakeLength = 100; %各wakeパネルの長さ(機体基準長基準）
-            obj.setting.nCalcDivide = 5;%makeEquationは各パネル数×各パネル数サイズの行列を扱うため、莫大なメモリが必要となる。一度に計算する列をobj.setting.nCalcDivide分割してメモリの消費量を抑えている。
-            obj.setting.angularVelocity = [];
-            obj.setting.propCalcFlag = 0;
-            obj.setting.deflDerivFlag = 1;
-            obj.setting.propWakeLength = 3;
-            obj.setting.nPropWake = 101; %propWake円周上の点の数
-            obj.setting.kCf = 1.015*(10^-5);
-            obj.setting.laminarRatio = 0;
-            obj.setting.coefCf = 0;
-            obj.setting.newtoniantype = "OldTangentCone";
-            obj.setting.resultSearchMethod = "and";
+            %%%%%%%%%%%settingUNLSIの初期設定%%%%%%%%%%%%%
+            obj.settingUNLSI.checkMeshMethod = "delete";
+            obj.settingUNLSI.checkMeshTol = sqrt(eps);
+            obj.settingUNLSI.LLTnInterp = 10;
+            obj.settingUNLSI.nCluster = 50;%クラスターの目標数（達成できなければそこで打ち切り）
+            obj.settingUNLSI.edgeAngleThreshold = 50;%この角度以下であれば近隣パネルとして登録する（角度差が大きすぎるモノをはじくため）
+            obj.settingUNLSI.wingWakeLength = 100; %各wakeパネルの長さ(機体基準長基準）
+            obj.settingUNLSI.nCalcDivide = 5;%makeEquationは各パネル数×各パネル数サイズの行列を扱うため、莫大なメモリが必要となる。一度に計算する列をobj.settingUNLSI.nCalcDivide分割してメモリの消費量を抑えている。
+            obj.settingUNLSI.angularVelocity = [];
+            obj.settingUNLSI.propCalcFlag = 0;
+            obj.settingUNLSI.deflDerivFlag = 1;
+            obj.settingUNLSI.propWakeLength = 3;
+            obj.settingUNLSI.nPropWake = 101; %propWake円周上の点の数
+            obj.settingUNLSI.kCf = 1.015*(10^-5);
+            obj.settingUNLSI.laminarRatio = 0;
+            obj.settingUNLSI.coefCf = 1;
+            obj.settingUNLSI.newtoniantype = "OldTangentCone";
+            obj.settingUNLSI.resultSearchMethod = "and";
+            obj.settingUNLSI.Vinf = 15;
+            obj.settingUNLSI.rho = 1.225;
+            obj.settingUNLSI.kappa = 1.4;
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             obj.halfmesh = halfmesh;
             obj.flowNoTable = [];
@@ -95,12 +98,30 @@ classdef UNLSI
             obj.XYZREF = [0,0,0];
 
             obj = obj.setMesh(verts,connectivity,surfID,wakelineID);
-            
         end
+
+        function obj = setOptions(obj,varargin)
+           %%%%%%%%%設定を変更する%%%%%%%%%%%%
+           %varargin : 変数名と値のペアで入力
+           %obj.settingの構造体の内部を変更する
+           %構造体の内部変数の名前と一致していないとエラーが出るようになっている
+           %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            if mod(numel(varargin),1) == 1
+                error("input style not match");
+            end
+            for iter = 1:numel(varargin)/2
+                if isfield(obj.settingUNLSI,varargin{2*iter-1})
+                    obj.settingUNLSI = setfield(obj.settingUNLSI,varargin{2*iter-1},varargin{2*iter});
+                else
+                    error("Field name is not match");
+                end
+            end
+        end
+
        
 
         function obj = setREFS(obj,SREF,BREF,CREF)
-            %%%%%%%%%%%Referentials Setting%%%%%%%%%%%%%
+            %%%%%%%%%%%Referentials settingUNLSI%%%%%%%%%%%%%
             %SREF:基準面積
             %BREF:横方向基準長(eg.翼幅)
             %CREF:縦方向基準長(eg.MAC,機体全長
@@ -111,7 +132,7 @@ classdef UNLSI
         end
 
         function obj = setRotationCenter(obj,XYZREF)
-            %%%%%%%%%%%Rotation Center Setting%%%%%%%%%%%%%
+            %%%%%%%%%%%Rotation Center settingUNLSI%%%%%%%%%%%%%
             %回転中心を設定する。
             %回転中心：モーメント計算の基準位置,主流角速度の回転中心
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -125,7 +146,7 @@ classdef UNLSI
         end
 
         function obj = setDeflAngle(obj,ID,rotAxis,angle)
-            %%%%%%%%%%%Rotation Center Setting%%%%%%%%%%%%%
+            %%%%%%%%%%%Rotation Center settingUNLSI%%%%%%%%%%%%%
             %疑似的な舵角を設定する。
             %そのID上のパネルの法線ベクトルをロドリゲスの回転ベクトルによって回転する
             % 誤差については要検討。
@@ -226,9 +247,9 @@ classdef UNLSI
             obj.Cfe = {};
             obj.LHS = [];
             obj.RHS = [];
-            lltninterp = obj.setting.LLTnInterp;
+            lltninterp = obj.settingUNLSI.LLTnInterp;
             obj.LLT = [];
-            obj.setting.LLTnInterp = lltninterp;
+            obj.settingUNLSI.LLTnInterp = lltninterp;
             for i = 1:numel(obj.paneltype)
                 [obj.area(i,1),~ , obj.orgNormal(i,:)] = obj.vertex(verts(connectivity(i,1),:),verts(connectivity(i,2),:),verts(connectivity(i,3),:));
                 obj.center(i,:) = [mean(verts(obj.tri.ConnectivityList(i,:),1)),mean(verts(obj.tri.ConnectivityList(i,:),2)),mean(verts(obj.tri.ConnectivityList(i,:),3))];
@@ -288,7 +309,7 @@ classdef UNLSI
             for i = setdiff(unique(obj.surfID)',wakesurfID)
                 obj = obj.setCpCalcType(i,"linear");
             end
-            obj = obj.checkMesh(obj.setting.checkMeshTol,obj.setting.checkMeshMethod);
+            obj = obj.checkMesh(obj.settingUNLSI.checkMeshTol,obj.settingUNLSI.checkMeshMethod);
             warning('on','MATLAB:triangulation:PtsNotInTriWarnId');
         end
 
@@ -308,7 +329,7 @@ classdef UNLSI
                 obj.center(i,:) = [mean(verts(obj.tri.ConnectivityList(i,:),1)),mean(verts(obj.tri.ConnectivityList(i,:),2)),mean(verts(obj.tri.ConnectivityList(i,:),3))];
                 obj.modNormal(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])*obj.orgNormal(i,:)')';
             end
-            obj.checkMesh(obj.setting.checkMeshTol,obj.setting.checkMeshMethod);
+            obj.checkMesh(obj.settingUNLSI.checkMeshTol,obj.settingUNLSI.checkMeshMethod);
             warning('on','MATLAB:triangulation:PtsNotInTriWarnId');
         end
 
@@ -464,14 +485,14 @@ classdef UNLSI
                         deletelist = [];
                         for j = 1:numel(neighbor)
                             edgeAngle = acos(dot(obj.orgNormal(obj.cluster{i}(index),:),obj.orgNormal(neighbor(j),:)));
-                            if abs(edgeAngle)> obj.setting.edgeAngleThreshold*pi/180 || obj.paneltype(neighbor(j)) ~= 1
+                            if abs(edgeAngle)> obj.settingUNLSI.edgeAngleThreshold*pi/180 || obj.paneltype(neighbor(j)) ~= 1
                                 deletelist = [deletelist,j];
                             end
                         end
                         neighbor(deletelist) = [];
                         diffcluster = setdiff(neighbor,obj.cluster{i});
 
-                        if numel(obj.cluster{i})> obj.setting.nCluster
+                        if numel(obj.cluster{i})> obj.settingUNLSI.nCluster
                             break;
                         end
                         obj.cluster{i} = [obj.cluster{i},diffcluster];
@@ -520,12 +541,12 @@ classdef UNLSI
             %パネル方連立方程式行列の作成
             %機体パネル⇒機体パネルへの影響
             
-            si = floor(nbPanel/obj.setting.nCalcDivide).*(0:obj.setting.nCalcDivide-1)+1;
-            ei = [floor(nbPanel/obj.setting.nCalcDivide).*(1:obj.setting.nCalcDivide-1),nbPanel];
+            si = floor(nbPanel/obj.settingUNLSI.nCalcDivide).*(0:obj.settingUNLSI.nCalcDivide-1)+1;
+            ei = [floor(nbPanel/obj.settingUNLSI.nCalcDivide).*(1:obj.settingUNLSI.nCalcDivide-1),nbPanel];
             obj.LHS = zeros(nbPanel);
             obj.RHS = zeros(nbPanel);
 
-            for i= 1:obj.setting.nCalcDivide
+            for i= 1:obj.settingUNLSI.nCalcDivide
                 [~,~,VortexAc,VortexBc] = obj.influenceMatrix(obj,[],si(i):ei(i));
                 obj.LHS(:,si(i):ei(i)) = VortexAc; 
                 obj.RHS(:,si(i):ei(i)) = VortexBc;
@@ -536,7 +557,7 @@ classdef UNLSI
             %
             
             for wakeNo = 1:numel(obj.wakeline)
-                theta = linspace(pi,0,size(obj.wakeline{wakeNo}.validedge,2)*obj.setting.LLTnInterp+1);
+                theta = linspace(pi,0,size(obj.wakeline{wakeNo}.validedge,2)*obj.settingUNLSI.LLTnInterp+1);
                 iter = 1;
                 obj.LLT.sp{wakeNo} = [];
                 obj.LLT.calcMu{wakeNo} = zeros(1,nbPanel);
@@ -608,7 +629,7 @@ classdef UNLSI
             %とりあえずpaneltypeで計算しているが、IDで管理したい
             %muとsigma両方
             for propNo = 1:numel(obj.prop)
-                [VortexAi,VortexBi,VortexAo,VortexBo,propWakeA] = obj.propellerInfluenceMatrix(obj,propNo,obj.setting.propWakeLength);
+                [VortexAi,VortexBi,VortexAo,VortexBo,propWakeA] = obj.propellerInfluenceMatrix(obj,propNo,obj.settingUNLSI.propWakeLength);
                 obj.prop{propNo}.LHSi = VortexAi;
                 obj.prop{propNo}.RHSi = VortexBi;
                 obj.prop{propNo}.LHSo = VortexAo;
@@ -633,30 +654,29 @@ classdef UNLSI
             if Mach < 1
                 obj.flow{flowNo}.flowtype = "Souce-Doublet 1st-order Panel";
             else
-                obj.flow{flowNo}.flowtype = strcat(obj.setting.newtoniantype,"+Prandtl-Meyer");
+                obj.flow{flowNo}.flowtype = strcat(obj.settingUNLSI.newtoniantype,"+Prandtl-Meyer");
             end
-            kappa = 1.4;
 
             if obj.flow{flowNo}.Mach > 1
                 delta = linspace(-pi,pi,500);
                 Cpfc = zeros(size(delta));
                 for j =1:size(delta,2)
                     if delta(j) >= 0
-                        if strcmpi(obj.setting.newtoniantype,'TangentConeEdwards')
+                        if strcmpi(obj.settingUNLSI.newtoniantype,'TangentConeEdwards')
                             Mas = (0.87*Mach-0.554)*sin(delta(j))+0.53;
                             Cpfc(j) = (2 * sin(delta(j))^2)/(1 - 1/4*((Mas^2+5)/(6*Mas^2)));
-                        elseif strcmpi(obj.setting.newtoniantype,'OldTangentCone')
+                        elseif strcmpi(obj.settingUNLSI.newtoniantype,'OldTangentCone')
                             Mas = 1.090909*Mach*sin(delta(j))+exp(-1.090909*Mach*sin(delta(j)));
                             Cpfc(j) = (2 * sin(delta(j))^2)/(1 - 1/4*((Mas^2+5)/(6*Mas^2)));
-                        elseif strcmpi(obj.setting.newtoniantype,'TangentWedge')
+                        elseif strcmpi(obj.settingUNLSI.newtoniantype,'TangentWedge')
                             if delta(j)>45.585*pi/180
                                 Cpfc(j)=((1.2*Mach*sin(delta(j))+exp(-0.6*Mach*sin(delta(j))))^2-1.0)/(0.6*Mach^2);
-                                %R=1/Mach^2+(kappa+1)/2*delta(j)/sqrt(Mach^2-1);
+                                %R=1/Mach^2+(obj.settingUNLSI.kappa+1)/2*delta(j)/sqrt(Mach^2-1);
                             elseif delta(j)<0.035
-                                Cpfc(j)=kappa*Mach^2*delta(j)/sqrt(Mach^4-1.0);
+                                Cpfc(j)=obj.settingUNLSI.kappa*Mach^2*delta(j)/sqrt(Mach^4-1.0);
                             else
-                                b = -((Mach^2+2)/Mach^2)-kappa*sin(delta(j))^2;
-                                c = (2*Mach^2+1)/Mach^4+((kappa+1)^2/4+(kappa-1)/Mach^2)*sin(delta(j))^2;
+                                b = -((Mach^2+2)/Mach^2)-obj.settingUNLSI.kappa*sin(delta(j))^2;
+                                c = (2*Mach^2+1)/Mach^4+((obj.settingUNLSI.kappa+1)^2/4+(obj.settingUNLSI.kappa-1)/Mach^2)*sin(delta(j))^2;
                                 d = -cos(delta(j))^2/Mach^4;
                                 q = (b^2-3*c)/9;
                                 rr = (b*(2*b^2-9*c)+27*d)/54;
@@ -667,18 +687,18 @@ classdef UNLSI
                                     r = roots([1,b,c,d]);
                                     %ts = asin(sqrt(r(2)));
                                     R=r(2);
-                                    Cpfc(j) = 4*(Mach^2*R-1)/((kappa+1)*Mach^2);
+                                    Cpfc(j) = 4*(Mach^2*R-1)/((obj.settingUNLSI.kappa+1)*Mach^2);
                                 end
                             end
                         end
-                        Pe_Pinf= Cpfc(j)*(kappa*Mach^2)/2+1;
-                        Te_Tinf = Pe_Pinf^(1/(kappa/(kappa-1)));
-                        Me = sqrt((2+(kappa+1)*Mach^2)/((kappa+1)*Te_Tinf)-2/(kappa+1));
+                        Pe_Pinf= Cpfc(j)*(obj.settingUNLSI.kappa*Mach^2)/2+1;
+                        Te_Tinf = Pe_Pinf^(1/(obj.settingUNLSI.kappa/(obj.settingUNLSI.kappa-1)));
+                        Me = sqrt((2+(obj.settingUNLSI.kappa+1)*Mach^2)/((obj.settingUNLSI.kappa+1)*Te_Tinf)-2/(obj.settingUNLSI.kappa+1));
                     else
-                        Me = UNLSI.bisection(@(M2)UNLSI.pmsolve(Mach,M2,-delta(j),kappa),Mach,300);
-                        Te_Tinf = (2+(kappa+1)*Mach^2)/(2+(kappa+1)*Me^2);
-                        Pe_Pinf=(Te_Tinf)^(kappa/(kappa-1));
-                        Cpfc(j) = 2/(kappa*Mach^2)*(Pe_Pinf-1);
+                        Me = UNLSI.bisection(@(M2)UNLSI.pmsolve(Mach,M2,-delta(j),obj.settingUNLSI.kappa),Mach,300);
+                        Te_Tinf = (2+(obj.settingUNLSI.kappa+1)*Mach^2)/(2+(obj.settingUNLSI.kappa+1)*Me^2);
+                        Pe_Pinf=(Te_Tinf)^(obj.settingUNLSI.kappa/(obj.settingUNLSI.kappa-1));
+                        Cpfc(j) = 2/(obj.settingUNLSI.kappa*Mach^2)*(Pe_Pinf-1);
                     end
                 end
                 obj.flow{flowNo}.pp = griddedInterpolant(delta,Cpfc,'spline');
@@ -708,8 +728,8 @@ classdef UNLSI
                 %k = 0.152*(10^-5);
                 %Smooth molded composite
                 %k = 0.052*(10^-5);
-            %obj.setting.laminarRatio:層流の割合
-            %obj.setting.coefCf:調整用の係数(デフォルト:1)
+            %obj.settingUNLSI.laminarRatio:層流の割合
+            %obj.settingUNLSI.coefCf:調整用の係数(デフォルト:1)
 
             %TODO:パネルIDによってCfの値を切り替えられるようにする
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -720,9 +740,9 @@ classdef UNLSI
             Lch = obj.CREF;
             obj.flow{flowNo}.Re = Re;
             if(obj.flow{flowNo}.Mach<0.9)
-                Re_Cut = 38.21*((Lch/obj.setting.kCf)^1.053);
+                Re_Cut = 38.21*((Lch/obj.settingUNLSI.kCf)^1.053);
             else
-                Re_Cut = 44.62*((Lch/obj.setting.kCf)^1.053).*((obj.flow{flowNo}.Mach)^1.16);
+                Re_Cut = 44.62*((Lch/obj.settingUNLSI.kCf)^1.053).*((obj.flow{flowNo}.Mach)^1.16);
             end
             if Re>Re_Cut
                 Re = Re_Cut;
@@ -730,37 +750,21 @@ classdef UNLSI
             Cf_L = 1.328./sqrt(Re);
             Cf_T = 0.455/((log10(Re).^(2.58))*((1+0.144*obj.flow{flowNo}.Mach*obj.flow{flowNo}.Mach)^0.65));
             obj.Cfe{flowNo} = zeros(numel(obj.paneltype),1);
-            obj.Cfe{flowNo}(obj.paneltype==1,1) =(obj.setting.laminarRatio*Cf_L + (1-obj.setting.laminarRatio)*Cf_T)*obj.setting.coefCf;
+            obj.Cfe{flowNo}(obj.paneltype==1,1) =(obj.settingUNLSI.laminarRatio*Cf_L + (1-obj.settingUNLSI.laminarRatio)*Cf_T)*obj.settingUNLSI.coefCf;
         end
 
-        function [obj,thrust,power,Jref] = setPropState(obj,Vinf,rho,CT,CP,rpm)
-            if numel(Vinf)>1 || numel(rho)>1
-                error("numel(Vinf and rho) must be 1 ")
-            end
+        function [obj,thrust,power,Jref] = setPropState(obj,propNo,CT,CP,rpm)
 
-            if numel(CT) == 1 && numel(CP)==1 && numel(rpm)==1
-               CTbuff = CT;
-               CPbuff = CP;
-               rpmbuff = rpm;
-               for propNo = 1:numel(obj.prop)
-                    CT(propNo) = CTbuff;
-                    CP(propNo) = CPbuff;
-                    rpm(propNo) = rpmbuff;
-               end
-            end
-            for propNo = 1:numel(obj.prop)
-                obj.prop{propNo}.CT = CT(propNo);
-                obj.prop{propNo}.CP = CP(propNo);
-                obj.prop{propNo}.rpm = rpm(propNo);
-                obj.prop{propNo}.Vinf = Vinf;
-                obj.prop{propNo}.rho = rho;
-                thrust(propNo) = obj.prop{propNo}.CT * obj.prop{propNo}.rho * (obj.prop{propNo}.rpm/60)^2 * obj.prop{propNo}.diameter^4;
-                power(propNo) =  obj.prop{propNo}.CP * obj.prop{propNo}.rho * (obj.prop{propNo}.rpm/60)^3 * obj.prop{propNo}.diameter^5;
-                obj.prop{propNo}.thrust = thrust(propNo);
-                obj.prop{propNo}.power = power(propNo);
-                Jref(propNo) =  Vinf / ( 2*obj.prop{propNo}.rpm*obj.prop{propNo}.diameter/2/60);
-            end
+            obj.prop{propNo}.CT = CT;
+            obj.prop{propNo}.CP = CP;
+            obj.prop{propNo}.rpm = rpm;
+            thrust(propNo) = obj.prop{propNo}.CT * obj.settingUNLSI.rho * (obj.prop{propNo}.rpm/60)^2 * obj.prop{propNo}.diameter^4;
+            power(propNo) =  obj.prop{propNo}.CP * obj.settingUNLSI.rho * (obj.prop{propNo}.rpm/60)^3 * obj.prop{propNo}.diameter^5;
+            obj.prop{propNo}.thrust = thrust(propNo);
+            obj.prop{propNo}.power = power(propNo);
+            Jref(propNo) =  obj.settingUNLSI.Vinf / ( 2*obj.prop{propNo}.rpm*obj.prop{propNo}.diameter/2/60);
             if nargout>1
+                fprintf("Prop No %d (ID;%d)\n",propNo,obj.prop{propNo}.ID);
                 fprintf("Prop Thrust\n");
                 disp(thrust);
                 fprintf("Prop Power\n");
@@ -824,7 +828,7 @@ classdef UNLSI
                 T(3,2) = sind(alpha(iterflow))*sind(beta(iterflow));
                 T(3,3) = cosd(alpha(iterflow));
 
-                if isempty(obj.setting.angularVelocity)
+                if isempty(obj.settingUNLSI.angularVelocity)
                     Vinf = zeros(nPanel,3);
                     for i = 1:nPanel
                        Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0]))';
@@ -833,7 +837,7 @@ classdef UNLSI
                     Vinf = zeros(nPanel,3);
                     for i = 1:nPanel
                        rvec = obj.center(i,:)'-obj.XYZREF(:);
-                       Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0])-(cross(obj.setting.angularVelocity(iterflow,:)./180.*pi,rvec(:)')'))';
+                       Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0])-(cross(obj.settingUNLSI.angularVelocity(iterflow,:)./180.*pi,rvec(:)')'))';
                     end
                 end
                 
@@ -855,7 +859,7 @@ classdef UNLSI
                                                     
                     end
                     
-                    if obj.setting.propCalcFlag == 1
+                    if obj.settingUNLSI.propCalcFlag == 1
                         RHV = obj.RHS*sigmas;
                         RHVprop = obj.calcPropRHV(obj,T);
                         RHV = RHV + RHVprop;
@@ -988,7 +992,7 @@ classdef UNLSI
                 T(3,1) = sind(alpha(iterflow))*cosd(beta(iterflow));
                 T(3,2) = sind(alpha(iterflow))*sind(beta(iterflow));
                 T(3,3) = cosd(alpha(iterflow));
-                if isempty(obj.setting.angularVelocity)
+                if isempty(obj.settingUNLSI.angularVelocity)
                     Vinf = zeros(nPanel,3);
                     for i = 1:nPanel
                        Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0]))';
@@ -997,7 +1001,7 @@ classdef UNLSI
                     Vinf = zeros(nPanel,3);
                     for i = 1:nPanel
                        rvec = obj.center(i,:)'-obj.XYZREF(:);
-                       Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0])-(cross(obj.setting.angularVelocity(iterflow,:)./180.*pi,rvec(:)')'))';
+                       Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0])-(cross(obj.settingUNLSI.angularVelocity(iterflow,:)./180.*pi,rvec(:)')'))';
                     end
                 end
                 if obj.flow{flowNo}.Mach < 1
@@ -1010,7 +1014,7 @@ classdef UNLSI
                             iter = iter+1;
                         end
                     end
-                    if obj.setting.propCalcFlag == 1
+                    if obj.settingUNLSI.propCalcFlag == 1
                         RHV = obj.RHS*sigmas;
                         RHVprop = obj.calcPropRHV(obj,T);
                         RHV = RHV + RHVprop;
@@ -1070,7 +1074,7 @@ classdef UNLSI
                 T(3,1) = sind(alpha(iterflow))*cosd(beta(iterflow));
                 T(3,2) = sind(alpha(iterflow))*sind(beta(iterflow));
                 T(3,3) = cosd(alpha(iterflow));
-                if isempty(obj.setting.angularVelocity)
+                if isempty(obj.settingUNLSI.angularVelocity)
                     Vinf = zeros(nPanel,3);
                     for i = 1:nPanel
                        Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0]))';
@@ -1079,7 +1083,7 @@ classdef UNLSI
                     Vinf = zeros(nPanel,3);
                     for i = 1:nPanel
                        rvec = obj.center(i,:)'-obj.XYZREF(:);
-                       Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0])-(cross(obj.setting.angularVelocity(iterflow,:)./180.*pi,rvec(:)')'))';
+                       Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0])-(cross(obj.settingUNLSI.angularVelocity(iterflow,:)./180.*pi,rvec(:)')'))';
                     end
                 end
                 Tvec(:,1) = obj.modNormal(:,2).* Vinf(:,3)-obj.modNormal(:,3).* Vinf(:,2);
@@ -1098,7 +1102,7 @@ classdef UNLSI
                             iter = iter+1;
                         end
                     end
-                    if obj.setting.propCalcFlag == 1
+                    if obj.settingUNLSI.propCalcFlag == 1
                        RHVprop = obj.calcPropRHV(obj,T);
                     end
                     usolve = u(nbPanel*(iterflow-1)+1:nbPanel*iterflow,1);
@@ -1200,7 +1204,7 @@ classdef UNLSI
                 Cfe = obj.Cfe;
                 if obj.flow{flowNo}.Mach < 1
                     RHV = obj.RHS*sigmas;
-                    if obj.setting.propCalcFlag == 1
+                    if obj.settingUNLSI.propCalcFlag == 1
                         RHV = RHV+RHVprop;
                     end
                     R(nbPanel*(iterflow-1)+1:nbPanel*iterflow,1) = obj.LHS*usolve+RHV;
@@ -1217,7 +1221,7 @@ classdef UNLSI
             else
                 %結果を検索して引っかかったrowのものを出力
                 alldata = vertcat(obj.AERODATA{:});
-                if obj.setting.resultSearchMethod == "or"
+                if obj.settingUNLSI.resultSearchMethod == "or"
                     if nargin == 2
                         outindex = [find(alldata(:,3) == alpha)];
                     elseif nargin == 3
@@ -1229,7 +1233,7 @@ classdef UNLSI
                     end
                     outindex = unique(outindex);
                     AERODATA = alldata(outindex,:);
-                elseif obj.setting.resultSearchMethod == "and"
+                elseif obj.settingUNLSI.resultSearchMethod == "and"
                     if nargin == 2
                         outindex = [find(alldata(:,3) == alpha)];
                     elseif nargin == 3
@@ -1253,7 +1257,7 @@ classdef UNLSI
                 %結果を検索して引っかかったrowのものを出力
                 alldata = vertcat(obj.AERODATA{:});
                 allCp = horzcat(obj.Cp{:});
-                if obj.setting.resultSearchMethod == "or"
+                if obj.settingUNLSI.resultSearchMethod == "or"
                     if nargin == 2
                         outindex = [find(alldata(:,3) == alpha)];
                     elseif nargin == 3
@@ -1265,7 +1269,7 @@ classdef UNLSI
                     end
                     outindex = unique(outindex);
                     Cp = allCp(:,outindex);s
-                elseif obj.setting.resultSearchMethod == "and"
+                elseif obj.settingUNLSI.resultSearchMethod == "and"
                     if nargin == 2
                         outindex = [find(alldata(:,3) == alpha)];
                     elseif nargin == 3
@@ -1336,10 +1340,10 @@ classdef UNLSI
                     rhsdw = obj.RHS*vdw;
                     udw(1+nbPanel*(iterflow-1):nbPanel*iterflow,2) = -obj.LHS\rhsdw;
                     for jter = 1:3%p,q,rについて差分をとる
-                        if isempty(obj.setting.angularVelocity)
+                        if isempty(obj.settingUNLSI.angularVelocity)
                             omegadw = zeros(1,3);
                         else
-                            omegadw = obj.setting.angularVelocity(iterflow,:);
+                            omegadw = obj.settingUNLSI.angularVelocity(iterflow,:);
                         end
                         omegadw(jter) = omegadw(jter)+dw;
                         Vinfdw = zeros(nPanel,3);
@@ -1361,7 +1365,7 @@ classdef UNLSI
                 end
                 udwf = udw;
                 udwr = udw;
-                if obj.setting.deflDerivFlag == 1
+                if obj.settingUNLSI.deflDerivFlag == 1
                     orgDeflAngle = obj.deflAngle;
                     for iterflow = 1:numel(alpha)
                         u0 = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow));
@@ -1395,27 +1399,27 @@ classdef UNLSI
                     ur = obj.solvePertPotential(flowNo,alpha(iterflow)-dw/pi*180,beta(iterflow));
                     udwf(1+nbPanel*(iterflow-1):nbPanel*iterflow,2) = uf-u0;
                     udwr(1+nbPanel*(iterflow-1):nbPanel*iterflow,2) = u0-ur;
-                    avorg = obj.setting.angularVelocity;
+                    avorg = obj.settingUNLSI.angularVelocity;
                     for jter = 1:3%p,q,rについて差分をとる
-                        if isempty(obj.setting.angularVelocity)
+                        if isempty(obj.settingUNLSI.angularVelocity)
                             omegadwf = zeros(1,3);
                             omegadwr = zeros(1,3);
                         else
-                            omegadwf = obj.setting.angularVelocity(iterflow,:);
-                            omegadwr = obj.setting.angularVelocity(iterflow,:);
+                            omegadwf = obj.settingUNLSI.angularVelocity(iterflow,:);
+                            omegadwr = obj.settingUNLSI.angularVelocity(iterflow,:);
                         end
                         omegadwf(jter) = omegadwf(jter)+dw/pi*180;
                         omegadwr(jter) = omegadwr(jter)-dw/pi*180;
-                        obj.setting.angularVelocity = omegadwf;
+                        obj.settingUNLSI.angularVelocity = omegadwf;
                         uf = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow),omegadwf);
-                        obj.setting.angularVelocity = omegadwr;
+                        obj.settingUNLSI.angularVelocity = omegadwr;
                         ur = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow),omegadwr);
-                        obj.setting.angularVelocity = avorg;
+                        obj.settingUNLSI.angularVelocity = avorg;
                         udwf(1+nbPanel*(iterflow-1):nbPanel*iterflow,2+jter) = uf-u0;
                         udwr(1+nbPanel*(iterflow-1):nbPanel*iterflow,2+jter) = u0-ur;
                     end
                 end
-                if obj.setting.deflDerivFlag == 1
+                if obj.settingUNLSI.deflDerivFlag == 1
                     orgDeflAngle = obj.deflAngle;
                     for iterflow = 1:numel(alpha)
                         u0 = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow),0);
@@ -1479,22 +1483,22 @@ classdef UNLSI
                 for i = 1:size(AERODATAf{flowNo},1)
                     obj.DYNCOEF{flowNo,i}(2,:) = tmp(i,ind); % beta
                 end
-                avorg = obj.setting.angularVelocity;
+                avorg = obj.settingUNLSI.angularVelocity;
                 for jter = 1:3%p,q,rについて差分をとる
-                    if isempty(obj.setting.angularVelocity)
+                    if isempty(obj.settingUNLSI.angularVelocity)
                         omegadwf = zeros(1,3);
                         omegadwr = zeros(1,3);
                     else
-                        omegadwf = obj.setting.angularVelocity(iterflow,:);
-                        omegadwr = obj.setting.angularVelocity(iterflow,:);
+                        omegadwf = obj.settingUNLSI.angularVelocity(iterflow,:);
+                        omegadwr = obj.settingUNLSI.angularVelocity(iterflow,:);
                     end
                     omegadwf(jter) = omegadwf(jter)+dw.*180./pi;
                     omegadwr(jter) = omegadwr(jter)-dw.*180./pi;
-                    obj.setting.angularVelocity = repmat(omegadwf,[numel(alpha),1]);
+                    obj.settingUNLSI.angularVelocity = repmat(omegadwf,[numel(alpha),1]);
                     AERODATAf = obj.solveFlowForAdjoint(u0+udwf(:,2+jter),flowNo,alpha,beta);
-                    obj.setting.angularVelocity = repmat(omegadwr,[numel(alpha),1]);
+                    obj.settingUNLSI.angularVelocity = repmat(omegadwr,[numel(alpha),1]);
                     AERODATAr = obj.solveFlowForAdjoint(u0-udwr(:,2+jter),flowNo,alpha,beta);
-                    obj.setting.angularVelocity = avorg;
+                    obj.settingUNLSI.angularVelocity = avorg;
                     tmp = (AERODATAf{flowNo} - AERODATAr{flowNo})./(2*dw*nondim(jter));
                     for i = 1:size(AERODATAf{flowNo},1)
                         obj.DYNCOEF{flowNo,i}(2+jter,:) = tmp(i,ind); % pqr
@@ -1597,21 +1601,19 @@ classdef UNLSI
         function RHVprop = calcPropRHV(obj,T)
             nPanel = numel(obj.paneltype);
             nbPanel = sum(obj.paneltype == 1);
-            Vnprop =  zeros(nPanel,1);
             muprop =  zeros(nPanel,1);
             RHVprop = zeros(nbPanel,1);
-            %%%%プロペラ計算はまだまだ勉強不足
             for propNo = 1:numel(obj.prop)
-                VinfMag = dot(-obj.prop{propNo}.normal,obj.prop{propNo}.Vinf*(T*[1;0;0])');%角速度は後で
+                VinfMag = dot(-obj.prop{propNo}.normal,obj.settingUNLSI.Vinf*(T*[1;0;0])');%角速度は後で
                 Jratio = VinfMag / ( 2*obj.prop{propNo}.rpm*(obj.prop{propNo}.diameter/2)/60);
-                Vh = -0.5*VinfMag + sqrt((0.5*VinfMag)^2 + obj.prop{propNo}.thrust/(2*obj.prop{propNo}.rho*obj.prop{propNo}.area));
+                Vh = -0.5*VinfMag + sqrt((0.5*VinfMag)^2 + obj.prop{propNo}.thrust/(2*obj.settingUNLSI.rho*obj.prop{propNo}.area));
                 omegaProp = obj.prop{propNo}.rpm*2*pi/60;
-                CT_h = obj.prop{propNo}.thrust/ ( obj.prop{propNo}.rho * obj.prop{propNo}.area * (omegaProp*obj.prop{propNo}.diameter/2)^2 );
-                %CP_h = obj.prop{propNo}.power/ ( obj.prop{propNo}.rho * obj.prop{propNo}.area * (omegaProp*obj.prop{propNo}.diameter/2)^3 );
+                CT_h = obj.prop{propNo}.thrust/ ( obj.settingUNLSI.rho * obj.prop{propNo}.area * (omegaProp*obj.prop{propNo}.diameter/2)^2 );
                 Vo = Vh/sqrt(1+ CT_h*log(CT_h/2)+CT_h/2); 
                 eta_mom = 2/(1+sqrt(1+obj.prop{propNo}.CT));
                 eta_prop = Jratio*obj.prop{propNo}.CT/obj.prop{propNo}.CP;
-                dCpwakeval = (2*obj.prop{propNo}.rho*Vh^2*(omegaProp*(obj.prop{propNo}.diameter/2))^4/((omegaProp*(obj.prop{propNo}.diameter/2))^2+Vh^2)^2)/(0.5*obj.prop{propNo}.rho*VinfMag.^2)*eta_prop / eta_mom;
+                dCpwakeval = (2*obj.settingUNLSI.rho*Vh^2*(omegaProp*(obj.prop{propNo}.diameter/2))^4/((omegaProp*(obj.prop{propNo}.diameter/2))^2+Vh^2)^2)/(0.5*obj.settingUNLSI.rho*VinfMag.^2)*eta_prop / eta_mom;
+                Vnprop = Vo/obj.settingUNLSI.Vinf;
                 for i = 1:nPanel
                     if obj.surfID(i) == obj.prop{propNo}.ID 
                         %プロペラ軸との最短距離を求める
@@ -1619,11 +1621,10 @@ classdef UNLSI
                         dotCoef = dot(r,-obj.prop{propNo}.normal);
                         shortestPoint = obj.prop{propNo}.center - dotCoef.*obj.prop{propNo}.normal;
                         rs = norm(obj.center(i,:)-shortestPoint);
-                        muprop(i,1)= (2*obj.prop{propNo}.rho*Vh^2*(omegaProp*rs)^4/((omegaProp*rs)^2+Vh^2)^2)/(0.5*obj.prop{propNo}.rho*VinfMag.^2)*eta_prop / eta_mom;
-                        Vnprop(i,1) = Vo/obj.prop{propNo}.Vinf;
+                        muprop(i,1)= (2*obj.settingUNLSI.rho*Vh^2*(omegaProp*rs)^4/((omegaProp*rs)^2+Vh^2)^2)/(0.5*obj.settingUNLSI.rho*VinfMag.^2)*eta_prop / eta_mom;
                     end
                 end
-                RHVprop = RHVprop + (obj.prop{propNo}.LHSi-obj.prop{propNo}.LHSo)*muprop(obj.surfID == obj.prop{propNo}.ID,1) - 2*obj.prop{propNo}.wakeLHS*dCpwakeval - (obj.prop{propNo}.RHSi)*Vnprop(obj.surfID == obj.prop{propNo}.ID,1);
+                RHVprop = RHVprop + (obj.prop{propNo}.LHSi-obj.prop{propNo}.LHSo)*muprop(obj.surfID == obj.prop{propNo}.ID,1) - 2*obj.prop{propNo}.wakeLHS*dCpwakeval + (obj.prop{propNo}.RHSi)*(Vnprop*ones(size(obj.prop{propNo}.RHSi,2),1));
             end
         end
 
@@ -2083,10 +2084,10 @@ classdef UNLSI
             nrow = numel(rowIndex);
             VortexA = zeros(nrow,1);
             for i = 1:1
-                wakepos(1,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+[obj.setting.wingWakeLength*obj.CREF*(i-1),0,0];
-                wakepos(2,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+[obj.setting.wingWakeLength*obj.CREF*(i-1),0,0];
-                wakepos(3,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+[obj.setting.wingWakeLength*obj.CREF*i,0,0];
-                wakepos(4,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+[obj.setting.wingWakeLength*obj.CREF*i,0,0];
+                wakepos(1,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+[obj.settingUNLSI.wingWakeLength*obj.CREF*(i-1),0,0];
+                wakepos(2,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+[obj.settingUNLSI.wingWakeLength*obj.CREF*(i-1),0,0];
+                wakepos(3,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+[obj.settingUNLSI.wingWakeLength*obj.CREF*i,0,0];
+                wakepos(4,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+[obj.settingUNLSI.wingWakeLength*obj.CREF*i,0,0];
                 [~, ~, nbuff] = obj.vertex(wakepos(1,:),wakepos(2,:),wakepos(3,:));
                 
                 ulvec = obj.center(obj.wakeline{wakeNo}.lowerID(edgeNo),:)-obj.center(obj.wakeline{wakeNo}.upperID(edgeNo),:);
@@ -2688,11 +2689,11 @@ classdef UNLSI
             %プロペラwakeの計算
             % 円周上の点の座標を計算する
             if obj.prop{propNo}.XZsliced == 1
-                theta = linspace(pi, 0, obj.setting.nPropWake);
+                theta = linspace(pi, 0, obj.settingUNLSI.nPropWake);
             else
-                theta = linspace(2*pi, 0, obj.setting.nPropWake);
+                theta = linspace(2*pi, 0, obj.settingUNLSI.nPropWake);
             end
-            cirp = obj.prop{propNo}.diameter/2 * [cos(theta); sin(theta); zeros(1, obj.setting.nPropWake)];
+            cirp = obj.prop{propNo}.diameter/2 * [cos(theta); sin(theta); zeros(1, obj.settingUNLSI.nPropWake)];
             
             % 円周上の点を中心座標と法線ベクトルを使用して回転・平行移動する
             rotation_matrix = vrrotvec2mat(vrrotvec([0, 0, 1], obj.prop{propNo}.normal)); % 回転行列を計算

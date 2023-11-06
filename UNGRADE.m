@@ -380,8 +380,6 @@
             if obj.iteration == 0
                 obj.Hessian = obj.setting.H0;
             end
-
-
         end
 
         function [obj] = calcLagrangianGradient(obj,objandConsFun,cmin,cmax,varargin)

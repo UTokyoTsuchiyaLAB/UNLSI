@@ -1,4 +1,4 @@
-%{
+%
 %%%%%%%%ここから
 clear;
 [con, p, uv1, uv2, uv3, wedata, id] = readvspgeom( "wing.vspgeom", 0); %形状の読み込み

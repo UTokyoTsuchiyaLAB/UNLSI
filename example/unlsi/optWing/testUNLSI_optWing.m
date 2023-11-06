@@ -11,9 +11,6 @@ wing = wing.makePropEquation();
 wing = wing.makeEquation(); %パネル法行列の作成
 %%%%%%%%ここまでは一度計算すればスキップできる
 %}
-
-wing = wing.flowCondition(1,0.0001); %flowNoのマッハ数を指定 
-wing = wing.setCf(1,100000,4,0.052*(10^-5),0); %摩擦係数パラメータの指定
 wing = wing.setPropState(15,1.225,0.08,0.04,8000); %プロペラの回転状況を指定
 
 wing = wing.setDeflAngle(6,[0,1,0],0);%6番のIDを回転軸[0,1,0]、角度0degに設定（動翼として登録）
