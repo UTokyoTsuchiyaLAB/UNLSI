@@ -10,7 +10,6 @@ wing = wing.makeEquation(); %パネル法行列の作成
 %%%%%%%%ここまでは一度計算すればスキップできる
 %}
 
-
 wing = wing.solveFlow([0,5,10],[0,0,0],0.001,500000);%パネル法を解く
 AERODATA = wing.getAERODATA(5,0);
 wing.plotGeometry(1,wing.getCp(0,0,0.001,400000),[-2,1]);%圧力係数のプロット

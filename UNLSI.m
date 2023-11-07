@@ -13,7 +13,7 @@ classdef UNLSI
         paneltype %各パネルのタイプ 1:body 2:base 3:structure
         cpcalctype %Cpを計算する方法の選択 %1:1-V^2 2: -2u 3: -2u-v^2-w^2
         IndexPanel2Solver %パネルのインデックス⇒ソルバー上でのインデックス
-        VindWake
+        VindWakes
         settingUNLSI
         orgNormal %各パネルの法線ベクトル
         modNormal %舵角等によって変更した法線ベクトル
@@ -33,6 +33,8 @@ classdef UNLSI
         AERODATA %空力解析結果の格納
         DYNCOEF %同安定微係数結果の格納
         LLT
+        ppCoef
+        ppDyn
     end
 
     methods(Access = public)
@@ -87,6 +89,7 @@ classdef UNLSI
             obj.settingUNLSI.Vinf = 15;
             obj.settingUNLSI.rho = 1.225;
             obj.settingUNLSI.kappa = 1.4;
+            obj.settingUNLSI.nGriddedInterp = 90;
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             obj.halfmesh = halfmesh;
             obj.flowNoTable = [];
@@ -117,8 +120,6 @@ classdef UNLSI
                 end
             end
         end
-
-       
 
         function obj = setREFS(obj,SREF,BREF,CREF)
             %%%%%%%%%%%Referentials settingUNLSI%%%%%%%%%%%%%
@@ -449,7 +450,6 @@ classdef UNLSI
             end
         end
 
-
         function obj = setCpCalcType(obj,ID,typename)
             %%%%%%%%%%%%%%%%Cpの計算方法の指定関数%%%%%%%%%%%%%%%%
             %panelname : incompressible 1 一般的な圧力推算 1-V^2
@@ -623,6 +623,8 @@ classdef UNLSI
             obj.prop{propNo}.normal = mean(obj.orgNormal(obj.surfID == ID,:),1);
             obj.prop{propNo}.center = mom./propArea;
 
+            obj = obj.setPropState(propNo,0,0,0);
+
             obj = makePropEquation(obj,propNo);
 
 
@@ -638,7 +640,6 @@ classdef UNLSI
             obj.prop{propNo}.RHSo = VortexBo;
             obj.prop{propNo}.wakeLHS = propWakeA;
         end
-
 
         function obj = flowCondition(obj,flowNo,Mach,Re)
             %%%%%%%%%%%%%%%%主流の設定%%%%%%%%%%%%%%%%%%%%%%
@@ -1230,25 +1231,25 @@ classdef UNLSI
                 alldata = vertcat(obj.AERODATA{:});
                 if obj.settingUNLSI.resultSearchMethod == "or"
                     if nargin == 2
-                        outindex = [find(alldata(:,3) == alpha)];
+                        outindex = [find(any(alldata(:,3) == alpha,2))];
                     elseif nargin == 3
-                        outindex = [find(alldata(:,1) == beta);find(alldata(:,3) == alpha)];
+                        outindex = [find(any(alldata(:,1) == beta,2));find(any(alldata(:,3) == alpha,2))];
                     elseif nargin == 4
-                        outindex =[find(alldata(:,1) == beta);find(alldata(:,2) == Mach);find(alldata(:,3) == alpha)];
+                        outindex =[find(any(alldata(:,1) == beta,2));find(any(alldata(:,2) == Mach,2));find(any(alldata(:,3) == alpha,2))];
                     else
-                       outindex =[find(alldata(:,1) == beta);find(alldata(:,2) == Mach);find(alldata(:,3) == alpha);find(alldata(:,4) == Re/1000000)];
+                       outindex =[find(any(alldata(:,1) == beta,2));find(any(alldata(:,2) == Mach,2));find(any(alldata(:,3) == alpha,2));find(any(alldata(:,4) == Re/1000000,2))];
                     end
                     outindex = unique(outindex);
                     AERODATA = alldata(outindex,:);
                 elseif obj.settingUNLSI.resultSearchMethod == "and"
                     if nargin == 2
-                        outindex = [find(alldata(:,3) == alpha)];
+                        outindex = [find(any(alldata(:,3) == alpha,2))];
                     elseif nargin == 3
-                        outindex = intersect(find(alldata(:,1) == beta),find(alldata(:,3) == alpha));
+                        outindex = intersect(find(any(alldata(:,1) == beta,2)),find(any(alldata(:,3) == alpha,2)));
                     elseif nargin == 4
-                        outindex =intersect(intersect(find(alldata(:,1) == beta),find(alldata(:,2) == Mach)),find(alldata(:,3) == alpha));
+                        outindex =intersect(intersect(find(any(alldata(:,1) == beta,2)),find(any(alldata(:,2) == Mach,2))),find(any(alldata(:,3) == alpha,2)));
                     else
-                       outindex =intersect(intersect(intersect(find(alldata(:,1) == beta),find(alldata(:,2) == Mach)),find(alldata(:,3) == alpha)),find(alldata(:,4) == Re/1000000));
+                       outindex =intersect(intersect(intersect(find(any(alldata(:,1) == beta,2)),find(any(alldata(:,2) == Mach,2))),find(any(alldata(:,3) == alpha,2))),find(any(alldata(:,4) == Re/1000000,2)));
                     end
                     AERODATA = alldata(outindex,:);
                 else
@@ -1266,25 +1267,25 @@ classdef UNLSI
                 allCp = horzcat(obj.Cp{:});
                 if obj.settingUNLSI.resultSearchMethod == "or"
                     if nargin == 2
-                        outindex = [find(alldata(:,3) == alpha)];
+                        outindex = [find(any(alldata(:,3) == alpha,2))];
                     elseif nargin == 3
-                        outindex = [find(alldata(:,1) == beta);find(alldata(:,3) == alpha)];
+                        outindex = [find(any(alldata(:,1) == beta,2));find(any(alldata(:,3) == alpha,2))];
                     elseif nargin == 4
-                        outindex =[find(alldata(:,1) == beta);find(alldata(:,2) == Mach);find(alldata(:,3) == alpha)];
+                        outindex =[find(any(alldata(:,1) == beta,2));find(any(alldata(:,2) == Mach,2));find(any(alldata(:,3) == alpha,2))];
                     else
-                       outindex =[find(alldata(:,1) == beta);find(alldata(:,2) == Mach);find(alldata(:,3) == alpha);find(alldata(:,4) == Re/1000000)];
+                       outindex =[find(any(alldata(:,1) == beta,2));find(any(alldata(:,2) == Mach,2));find(any(alldata(:,3) == alpha,2));find(any(alldata(:,4) == Re/1000000,2))];
                     end
                     outindex = unique(outindex);
                     Cp = allCp(:,outindex);s
                 elseif obj.settingUNLSI.resultSearchMethod == "and"
                     if nargin == 2
-                        outindex = [find(alldata(:,3) == alpha)];
+                        outindex = [find(any(alldata(:,3) == alpha,2))];
                     elseif nargin == 3
-                        outindex = intersect(find(alldata(:,1) == beta),find(alldata(:,3) == alpha));
+                        outindex = intersect(find(any(alldata(:,1) == beta,2)),find(any(alldata(:,3) == alpha,2)));
                     elseif nargin == 4
-                        outindex =intersect(intersect(find(alldata(:,1) == beta),find(alldata(:,2) == Mach)),find(alldata(:,3) == alpha));
+                        outindex =intersect(intersect(find(any(alldata(:,1) == beta,2)),find(any(alldata(:,2) == Mach,2))),find(any(alldata(:,3) == alpha,2)));
                     else
-                       outindex =intersect(intersect(intersect(find(alldata(:,1) == beta),find(alldata(:,2) == Mach)),find(alldata(:,3) == alpha)),find(alldata(:,4) == Re/1000000));
+                       outindex =intersect(intersect(intersect(find(any(alldata(:,1) == beta,2)),find(any(alldata(:,2) == Mach,2))),find(any(alldata(:,3) == alpha,2))),find(any(alldata(:,4) == Re/1000000,2)));
                     end
                     Cp = allCp(:,outindex);
                 else
@@ -1292,7 +1293,102 @@ classdef UNLSI
                 end
             end
         end
-        function obj = calcDynCoef(obj,flowNo,alpha,beta)
+
+        function [DYNCOEF,dynCoefStruct] = getDYNCOEF(obj,alpha,beta,Mach,Re)
+            if obj.settingUNLSI.resultSearchMethod == "and"
+                outindex = [];
+                for i = 1:size(obj.DYNCOEF,1)
+                    for j = 1:size(obj.DYNCOEF,2)
+                        if not(isempty(obj.DYNCOEF{i,j}))
+                            if any(obj.DYNCOEF{i,j}(3,1) == alpha) && any(obj.DYNCOEF{i,j}(1,1) == beta) && any(obj.DYNCOEF{i,j}(2,1) == Mach) && any(obj.DYNCOEF{i,j}(4,1) == Re/1000000)
+                                outindex = [outindex;[i,j]];
+                            end
+                        end
+                    end
+                end
+            elseif obj.settingUNLSI.resultSearchMethod == "or"
+                outindex = [];
+                for i = 1:size(obj.DYNCOEF,1)
+                    for j = 1:size(obj.DYNCOEF,2)
+                        if not(isempty(obj.DYNCOEF{i,j}))
+                            if any(obj.DYNCOEF{i,j}(3,1) == alpha) || any(obj.DYNCOEF{i,j}(1,1) == beta) || any(obj.DYNCOEF{i,j}(2,1) == Mach) || any(obj.DYNCOEF{i,j}(4,1) == Re/1000000)
+                                outindex = [outindex;[i,j]];
+                            end
+                        end
+                    end
+                end
+            end
+            iter = 1;
+            for i = 1:size(outindex,1)
+               DYNCOEF{iter} = obj.DYNCOEF{outindex(iter,1),outindex(iter,2)};
+               if(nargout>1)
+                    dynCoefStruct{iter}.beta = DYNCOEF{iter}(1,1);
+                    dynCoefStruct{iter}.Mach = DYNCOEF{iter}(2,1);
+                    dynCoefStruct{iter}.alpha = DYNCOEF{iter}(3,1);
+                    dynCoefStruct{iter}.Re = DYNCOEF{iter}(4,1)*1000000;
+                    dynCoefStruct{iter}.Cyb = DYNCOEF{iter}(2,2);
+                    dynCoefStruct{iter}.Clb = DYNCOEF{iter}(4,2);
+                    dynCoefStruct{iter}.Cnb = DYNCOEF{iter}(6,2);
+                    dynCoefStruct{iter}.Cxa = DYNCOEF{iter}(1,3);
+                    dynCoefStruct{iter}.Cza = DYNCOEF{iter}(3,3);
+                    dynCoefStruct{iter}.Cma = DYNCOEF{iter}(5,3);
+                    dynCoefStruct{iter}.Cyp = DYNCOEF{iter}(2,4);
+                    dynCoefStruct{iter}.Clp = DYNCOEF{iter}(4,4);
+                    dynCoefStruct{iter}.Cnp = DYNCOEF{iter}(6,4);
+                    dynCoefStruct{iter}.Cxq = DYNCOEF{iter}(1,5);
+                    dynCoefStruct{iter}.Czq = DYNCOEF{iter}(3,5);
+                    dynCoefStruct{iter}.Cmq = DYNCOEF{iter}(5,5);
+                    dynCoefStruct{iter}.Cyr = DYNCOEF{iter}(2,6);
+                    dynCoefStruct{iter}.Clr = DYNCOEF{iter}(4,6);
+                    dynCoefStruct{iter}.Cnr = DYNCOEF{iter}(6,6);
+                end
+               iter = iter+1;
+            end 
+        end
+
+        function  [modal,DYNCOEF,dynCoefStruct] = getModal(obj,alpha,beta,Mach,Re,UREF,mass,Inatia)
+            [DYNCOEF,dynCoefStruct] = obj.getDYNCOEF(alpha,beta,Mach,Re);
+            for i = 1:numel(DYNCOEF)
+	            %Mq = obj.settingUNLSI.rho*UREF*SREF*CREF*CREF/(4*Inatia(2,2))*dynCoefStruct{i}.Cmq;
+	            Yb = obj.settingUNLSI.rho*UREF*UREF*obj.SREF/(2*mass)*dynCoefStruct{i}.Cyb;
+	            Lb = obj.settingUNLSI.rho*UREF*UREF*obj.SREF*obj.BREF/(2*Inatia(1,1))*dynCoefStruct{i}.Clb;
+	            Nb = obj.settingUNLSI.rho*UREF*UREF*obj.SREF*obj.BREF/(2*Inatia(3,3))*dynCoefStruct{i}.Cnb;
+	            %Yp = obj.settingUNLSI.rho*UREF*SREF*BREF/(4*mass)*dynCoefStruct{i}.Cyp;
+	            Lp = obj.settingUNLSI.rho*UREF*obj.SREF*obj.BREF*obj.BREF/(4*Inatia(1,1))*dynCoefStruct{i}.Clp;
+	            Np = obj.settingUNLSI.rho*UREF*obj.SREF*obj.BREF*obj.BREF/(4*Inatia(3,3))*dynCoefStruct{i}.Cnp;
+	            %Yr = obj.settingUNLSI.rho*UREF*SREF*BREF/(4*mass)*dynCoefStruct{i}.Cyr;
+	            Lr = obj.settingUNLSI.rho*UREF*obj.SREF*obj.BREF*obj.BREF/(4*Inatia(1,1))*dynCoefStruct{i}.Clr;
+	            Nr = obj.settingUNLSI.rho*UREF*obj.SREF*obj.BREF*obj.BREF/(4*Inatia(3,3))*dynCoefStruct{i}.Cnr;
+                %Xu = obj.settingUNLSI.rho*UREF*SREF/(2*mass)*(dynCoefStruct{i}.Cxu);
+                %Zu = obj.settingUNLSI.rho*UREF*SREF/(2*mass)*(dynCoefStruct{i}.CZu-2*dynCoefStruct{i}.CL);
+                %Xa = obj.settingUNLSI.rho*UREF^2*SREF/(2*mass)*dynCoefStruct{i}.Cxa;
+                Za = obj.settingUNLSI.rho*UREF^2*obj.SREF/(2*mass)*dynCoefStruct{i}.Cza;
+                %Zq = obj.settingUNLSI.rho*UREF*SREF*CREF/(4*mass)*(dynCoefStruct{i}.Czq);
+                %Mu = obj.settingUNLSI.rho*UREF*SREF*CREF/(2*Inatia(2,2))*dynCoefStruct{i}.Cmu;
+                Ma = obj.settingUNLSI.rho*UREF^2*obj.SREF*obj.CREF/(2*Inatia(2,2))*dynCoefStruct{i}.Cma;
+                Mq = obj.settingUNLSI.rho*UREF*obj.SREF*obj.CREF^2/(4*Inatia(2,2))*dynCoefStruct{i}.Cmq;
+        
+                
+                modal.shortPriod.omegan = sqrt(-Ma+Za/UREF*Mq);
+                modal.shortPriod.eta =(-Za/UREF-Mq)/2/modal.shortPriod.omegan;
+                
+                if not(Yb == 0 && Lp == 0)
+                    modal.roll.T = -1/(Lp);
+                    lambdas_u = (Lb*Nr-Nb*Lr);
+                    lambdas_l = (Lp*Nr-Np*Lr)*Yb+(Lb*Nr-Nb*Lr)*UREF-Lb*9.8;
+                    modal.spiral.T = lambdas_l/lambdas_u;
+            
+                    modal.datchRoll.omegan = sqrt(Nb-(Np/Lp)*Lb);
+                    modal.datchRoll.eta = -(Nr-(Np/Lp)*Lr+(Np/Lp^2)*Lb)/2/modal.datchRoll.omegan;
+                else
+                    modal.roll = [];
+                    modal.spiral = [];
+                    modal.datchRoll = [];
+                end
+            end
+        end
+
+        function obj = calcDynCoef(obj,alpha,beta,Mach,Re)
                 %%%動微係数の計算%%%%%%%%%%%%%%%%%%%%%%%%%%%%
                 %%%%%%%%%%%%%%%%TO DO alpha とbetaも
                 %結果はDyncoefに格納される
@@ -1309,6 +1405,29 @@ classdef UNLSI
                 %beta:横滑り角[deg]
                 %difference:有限差分の方法 "forward"(デフォルト)-前進差分 "central"-中心差分
                 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+                if isempty(obj.flowNoTable)
+                    if nargin == 5
+                        obj = obj.flowCondition(1,Mach,Re);
+                    else
+                        obj = obj.flowCondition(1,Mach);
+                    end
+                    flowNo = 1;
+                else
+                    flowNo = 0;
+                    for i = 1:size(obj.flowNoTable,1)
+                        if obj.flowNoTable(i,1) == Mach && obj.flowNoTable(i,2) == Re
+                            flowNo = i;
+                        end
+                    end
+                    if flowNo == 0
+                        if nargin == 5
+                            obj = obj.flowCondition(size(obj.flowNoTable,1)+1,Mach,Re);
+                        else
+                            obj = obj.flowCondition(size(obj.flowNoTable,1)+1,Mach);
+                        end
+                        flowNo = size(obj.flowNoTable,1);
+                    end
+                end
                 u0 = obj.solvePertPotential(flowNo,alpha,beta);
                 [udwf,udwr] = obj.calcDynCoefdu(flowNo,alpha,beta);
                 [~,obj] =  obj.calcDynCoefforAdjoint(u0,udwf,udwr,flowNo,alpha,beta);
@@ -1346,30 +1465,35 @@ classdef UNLSI
                     end
                     rhsdw = obj.RHS*vdw;
                     udw(1+nbPanel*(iterflow-1):nbPanel*iterflow,2) = -obj.LHS\rhsdw;
-                    for jter = 1:3%p,q,rについて差分をとる
-                        if isempty(obj.settingUNLSI.angularVelocity)
-                            omegadw = zeros(1,3);
-                        else
-                            omegadw = obj.settingUNLSI.angularVelocity(iterflow,:);
+                end
+
+                for jter = 1:3%p,q,rについて差分をとる
+                    if isempty(obj.settingUNLSI.angularVelocity)
+                        omegadw = zeros(1,3);
+                    else
+                        omegadw = obj.settingUNLSI.angularVelocity(iterflow,:);
+                    end
+                    omegadw(jter) = omegadw(jter)+dw;
+                    Vinfdw = zeros(nPanel,3);
+                    for i = 1:nPanel
+                       rvec = obj.center(i,:)'-obj.XYZREF(:);
+                       Vinfdw(i,:) = -(cross(omegadw,rvec(:)))';
+                    end
+                    vdw = zeros(nbPanel,1);
+                    iter = 1;
+                    for i = 1:nPanel
+                        if obj.paneltype(i) == 1
+                            vdw(iter,1) = dot(Vinfdw(i,:)',obj.orgNormal(i,:)');
+                            iter = iter+1;
                         end
-                        omegadw(jter) = omegadw(jter)+dw;
-                        Vinfdw = zeros(nPanel,3);
-                        for i = 1:nPanel
-                           rvec = obj.center(i,:)'-obj.XYZREF(:);
-                           Vinfdw(i,:) = -(cross(omegadw,rvec(:)))';
-                        end
-                        vdw = zeros(nbPanel,1);
-                        iter = 1;
-                        for i = 1:nPanel
-                            if obj.paneltype(i) == 1
-                                vdw(iter,1) = dot(Vinfdw(i,:)',obj.orgNormal(i,:)');
-                                iter = iter+1;
-                            end
-                        end
-                        rhsdw = obj.RHS*vdw;
-                        udw(1+nbPanel*(iterflow-1):nbPanel*iterflow,2+jter) = -obj.LHS\rhsdw;
+                    end
+                    rhsdw = obj.RHS*vdw;
+                    buff = -obj.LHS\rhsdw;
+                    for iterflow = 1:numel(alpha)
+                        udw(1+nbPanel*(iterflow-1):nbPanel*iterflow,2+jter) = buff;
                     end
                 end
+
                 udwf = udw;
                 udwr = udw;
                 if obj.settingUNLSI.deflDerivFlag == 1
@@ -1454,13 +1578,14 @@ classdef UNLSI
                 %%%動微係数の計算%%%%%%%%%%%%%%%%%%%%%%%%%%%%
                 %%%%%%%%%%%%%%%%TO DO alpha とbetaも
                 %結果はDyncoefに格納される
-                % 横軸    beta, alpha, p, q, r
+                % 横軸     flowdata  beta, alpha, p, q, r
                 %        --------------------
-                %    Cx  |
-                % 縦 Cz  |
-                % 軸 Cmx |
-                %    Cmy |
-                %    Cmz |
+                %    Cx  |beta
+                % 縦 Cy  |Mach
+                %    Cz  |alpha
+                % 軸 Cmx |Re/e6
+                %    Cmy | 0
+                %    Cmz | 0
                 %dynCoefStructは構造体で出力する。
                 %flowNo:解きたい流れのID
                 %alpha:迎角[deg]
@@ -1473,14 +1598,14 @@ classdef UNLSI
                 ind = 15:20;%AERODATA = [18:CMX, 19:CMY, 20: CMZ]
                 nondim = [obj.BREF/(2*1),obj.CREF/(2*1),obj.BREF/(2*1)];
                 for i = 1:numel(alpha)
-                    obj.DYNCOEF{flowNo,i} = zeros(5,6);
+                    obj.DYNCOEF{flowNo,i} = zeros(6,6);
                 end
                 %betaについて
                 AERODATAf = obj.solveFlowForAdjoint(u0+udwf(:,1),flowNo,alpha,beta+dw*180/pi);
                 AERODATAr = obj.solveFlowForAdjoint(u0-udwr(:,1),flowNo,alpha,beta-dw*180/pi);
                 tmp = (AERODATAf{flowNo} - AERODATAr{flowNo})./(dw*2);
                 for i = 1:size(AERODATAf{flowNo},1)
-                    obj.DYNCOEF{flowNo,i}(1,:) = tmp(i,ind); % beta
+                    obj.DYNCOEF{flowNo,i}(:,2) = tmp(i,ind)'; % beta
                 end
 
                 %alphaについて
@@ -1488,7 +1613,7 @@ classdef UNLSI
                 AERODATAr = obj.solveFlowForAdjoint(u0-udwr(:,2),flowNo,alpha-dw*180/pi,beta);
                 tmp = (AERODATAf{flowNo} - AERODATAr{flowNo})./(dw*2);
                 for i = 1:size(AERODATAf{flowNo},1)
-                    obj.DYNCOEF{flowNo,i}(2,:) = tmp(i,ind); % beta
+                    obj.DYNCOEF{flowNo,i}(:,3) = tmp(i,ind)'; % alpha
                 end
                 avorg = obj.settingUNLSI.angularVelocity;
                 for jter = 1:3%p,q,rについて差分をとる
@@ -1508,7 +1633,7 @@ classdef UNLSI
                     obj.settingUNLSI.angularVelocity = avorg;
                     tmp = (AERODATAf{flowNo} - AERODATAr{flowNo})./(2*dw*nondim(jter));
                     for i = 1:size(AERODATAf{flowNo},1)
-                        obj.DYNCOEF{flowNo,i}(2+jter,:) = tmp(i,ind); % pqr
+                        obj.DYNCOEF{flowNo,i}(:,3+jter) = tmp(i,ind)'; % pqr
                     end
                 end
                 if size(udwf,2)>5
@@ -1525,7 +1650,7 @@ classdef UNLSI
                         obj = obj.setDeflAngle(orgDeflAngle(deflID,1),orgDeflAngle(deflID,2:4),orgDeflAngle(deflID,5));
                         tmp = (AERODATAf{flowNo} - AERODATAr{flowNo})./(2*dw);
                         for i = 1:size(AERODATAf{flowNo},1)
-                            obj.DYNCOEF{flowNo,i}(5+jter,:) = tmp(i,ind); % defl
+                            obj.DYNCOEF{flowNo,i}(:,6+jter) = tmp(i,ind)'; % defl
                         end
                     end
                 end
@@ -1533,14 +1658,14 @@ classdef UNLSI
                 axisRot = [ 0, 1, 0,-1, 0,-1;
                            -1, 0,-1, 0, 1, 0;
                             0,-1, 0, 1, 0, 1;
-                            0, 0,-1, 0, 1, 0;
-                            0,-1, 0, 1, 0, 1];
+                           -1, 0,-1, 0, 1, 0;
+                            0,-1, 0, 1, 0, 1]';
 
                 for i = 1:numel(obj.deflGroup)
-                    axisRot(5+i,:) = [-1, 1, -1,-1, 1,-1];
+                    axisRot(:,5+i) = [-1, 1, -1,-1, 1,-1]';
                 end
                 for iterflow = 1:numel(alpha)
-                    obj.DYNCOEF{flowNo,iterflow} = (axisRot.*obj.DYNCOEF{flowNo,iterflow})';
+                    obj.DYNCOEF{flowNo,iterflow}(:,2:end) = (axisRot.*obj.DYNCOEF{flowNo,iterflow}(:,2:end));
                     %安定軸に変換
                     T(1,1) = cosd(alpha(iterflow))*cosd(beta(iterflow));
                     T(1,2) = cosd(alpha(iterflow))*sind(beta(iterflow));
@@ -1551,34 +1676,138 @@ classdef UNLSI
                     T(3,1) = sind(alpha(iterflow))*cosd(beta(iterflow));
                     T(3,2) = sind(alpha(iterflow))*sind(beta(iterflow));
                     T(3,3) = cosd(alpha(iterflow));
-                    for i = 1:size(obj.DYNCOEF{flowNo,iterflow},2)
-                        obj.DYNCOEF{flowNo,iterflow}(1:3,i) = T'*obj.DYNCOEF{flowNo,iterflow}(1:3,i);
+                    for i = 1:size(obj.DYNCOEF{flowNo,iterflow},2)-1
+                        obj.DYNCOEF{flowNo,iterflow}(1:3,i+1) = T'*obj.DYNCOEF{flowNo,iterflow}(1:3,i+1);
                     end
+                    %解析状況を付加
+                    obj.DYNCOEF{flowNo,iterflow}(1,1) = beta(iterflow);
+                    obj.DYNCOEF{flowNo,iterflow}(2,1) = obj.flow{flowNo}.Mach;
+                    obj.DYNCOEF{flowNo,iterflow}(3,1) = alpha(iterflow);
+                    if isfield(obj.flow{flowNo},"Re")
+                        ReOut = obj.flow{flowNo}.Re/1000000;
+                    else
+                        ReOut = 0;
+                    end
+                    obj.DYNCOEF{flowNo,iterflow}(4,1) = ReOut;
                 end
                 
 
                 DYNCOEF = obj.DYNCOEF;
-                %{
-                if(nargout>1)
-                    dynCoefStruct.Cyb = DYNCOEF(2,1);
-                    dynCoefStruct.Clb = DYNCOEF(4,1);
-                    dynCoefStruct.Cnb = DYNCOEF(6,1);
-                    dynCoefStruct.Cxa = DYNCOEF(1,2);
-                    dynCoefStruct.Cza = DYNCOEF(3,2);
-                    dynCoefStruct.Cma = DYNCOEF(5,2);
-                    dynCoefStruct.Cyp = DYNCOEF(2,3);
-                    dynCoefStruct.Clp = DYNCOEF(4,3);
-                    dynCoefStruct.Cnp = DYNCOEF(6,3);
-                    dynCoefStruct.Cxq = DYNCOEF(1,4);
-                    dynCoefStruct.Czq = DYNCOEF(3,4);
-                    dynCoefStruct.Cmq = DYNCOEF(5,4);
-                    dynCoefStruct.Cyr = DYNCOEF(2,5);
-                    dynCoefStruct.Clr = DYNCOEF(4,5);
-                    dynCoefStruct.Cnr = DYNCOEF(6,5);
+            end
+        
+        function obj = makeSurrogateModel(obj,alphaRange,betaRange,MachRange,Re)
+            index = [3,1,11,12,6,18:20];
+            sign = [1,1,1,1,1,-1,1,-1];
+            [x1,x2] = ndgrid(alphaRange,betaRange);
+            for iter = 1:numel(MachRange)
+                obj = obj.solveFlow(x1(:),x2(:),MachRange(iter),Re);
+                aerodata = obj.getAERODATA(alphaRange,betaRange,MachRange(iter),Re);
+                coefdata = aerodata(:,index).*repmat(sign,[size(aerodata,1),1]);
+                for i = 1:6
+                    coefrbf{iter,i} = obj.RbfppMake(obj,coefdata(:,1:2),coefdata(:,i+2),1,0.01);
                 end
-                %}
+                obj = obj.calcDynCoef(x1(:),x2(:),MachRange(iter),Re);
+                outDyn = obj.getDYNCOEF(x1(:),x2(:),MachRange(iter),Re);
+                dyndata = [];
+                for a = 1:numel(outDyn)
+                    dyndata = [dyndata;outDyn{a}(:)'];
+                end
+                for i = 1:size(dyndata(:,7:end),2)
+                    dynrbf{iter,i} = obj.RbfppMake(obj,[dyndata(:,3),dyndata(:,1)],dyndata(:,6+i),1,0.01);
+                end
+            end
+            alpharange2 = linspace(min(alphaRange),max(alphaRange),obj.settingUNLSI.nGriddedInterp);
+            betarange2 = linspace(min(betaRange),max(betaRange),obj.settingUNLSI.nGriddedInterp);
+            if numel(MachRange)>1
+                machrange2 = linspace(min(MachRange),max(MachRange),obj.settingUNLSI.nGriddedInterp);
+                [X1,X2,X3] = ndgrid(alpharange2,betarange2,machrange2);
+                for i = 1:6
+                    for a = 1:numel(alpharange2)
+                        for b = 1:numel(betarange2)
+                            for m = 1:numel(MachRange)
+                                coefInt(m) = obj.execRbfInterp(obj,coefrbf{m,i},[X1(a,b,1),X2(a,b,1)]);
+                            end
+                            for c = 1:numel(machrange2)
+                                data(a,b,c) = interp1(MachRange,coefInt,X3(a,b,c),'linear','extrap');
+                            end
+                        end
+                    end
+                    obj.ppCoef{i} = griddedInterpolant(X1,X2,X3,data,"linear","linear");
+                end
+                for a = 1:numel(alpharange2)
+                    for b = 1:numel(betarange2)
+                        for i = 1:size(dyndata(:,7:end),2)
+                            for m = 1:numel(MachRange)
+                                dyncoefInt(m,i) = obj.execRbfInterp(obj,dynrbf{m,i},[X1(a,b,1),X2(a,b,1)]);
+                            end
+                            for c = 1:numel(machrange2)
+                                dyndata2{i}(a,b,c) = interp1(MachRange,dyncoefInt(:,i),X3(a,b,c),'linear','extrap');
+                            end
+                        end
+                    end
+                end
+                for i = 1:size(dyncoefInt,2)
+                    obj.ppDyn{i} = griddedInterpolant(X1,X2,X3,dyndata2{i},"linear","linear");
+                end
+            else
+                [X1,X2] = ndgrid(alpharange2,betarange2);
+                for i = 1:6
+                    for a = 1:numel(alpharange2)
+                        for b = 1:numel(betarange2)
+                            data(a,b) = obj.execRbfInterp(obj,coefrbf{1,i},[X1(a,b),X2(a,b)]);
+                        end
+                    end
+                    obj.ppCoef{i} = griddedInterpolant(X1,X2,data,"linear","linear");
+                end
+                for a = 1:numel(alpharange2)
+                    for b = 1:numel(betarange2)
+                        for i = 1:size(dyndata(:,7:end),2)
+                            dyndata2{i}(a,b) = obj.execRbfInterp(obj,dynrbf{1,i},[X1(a,b),X2(a,b)]);
+                        end
+                    end
+                end
+                for i = 1:size(dyndata(:,7:end),2)
+                    obj.ppDyn{i} = griddedInterpolant(X1,X2,dyndata2{i},"linear","linear");
+                end
             end
         end
+        
+        function [ppCoef,ppDyn,testData] = getSurrogateModel(obj,alphaRange,betaRange,Mach,dispCoeforDyn,dispIndex,figureNo)
+            ppCoef = obj.ppCoef;
+            ppDyn = obj.ppDyn;
+            testData = [];
+            if nargin>1
+                if numel(obj.ppCoef{1}.GridVectors) == 2
+                    [x1,x2] = ndgrid(alphaRange,betaRange);
+                    for a = 1:numel(alphaRange)
+                        for b = 1:numel(betaRange)
+                            if strcmpi(dispCoeforDyn,"coef")
+                                testData(a,b) = ppCoef{dispIndex}(x1(a,b),x2(a,b));
+                            else
+                                testData(a,b) = ppDyn{dispIndex}(x1(a,b),x2(a,b));
+                            end
+                        end
+                    end
+                else
+                    [x1,x2] = ndgrid(alphaRange,betaRange);
+                    for a = 1:numel(alphaRange)
+                        for b = 1:numel(betaRange)
+                            if strcmpi(dispCoeforDyn,"coef")
+                                testData(a,b) = ppCoef{dispIndex}(x1(a,b),x2(a,b),Mach);
+                            else
+                                testData(a,b) = ppDyn{dispIndex}(x1(a,b),x2(a,b),Mach);
+                            end
+                        end
+                    end
+                end
+                figure(figureNo);clf;
+                mesh(x1,x2,testData);
+                xlabel("alpha(deg)");
+                ylabel("beta(deg)");
+                zlabel("dispCoeforDyn");
+            end
+        end
+    end         
     methods(Static)
 
         function res = softplus(x,beta)
@@ -2920,6 +3149,7 @@ classdef UNLSI
                 end
             end
         end
+        
         function Q_ij=Calc_Q(y,z,phi,dS,halfmesh)
             yd_ij = zeros(numel(y),numel(y));
             zd_ij = zeros(numel(y),numel(y));
@@ -3030,6 +3260,80 @@ classdef UNLSI
             mc.Y = A.Z.*B.X-A.X.*B.Z;
             mc.Z = A.X.*B.Y-A.Y.*B.X;
         end
+        
+        function [pp] = RbfppMake(obj,xd,fd,rbfMode,r0,colmax)
+            if rbfMode ==4
+                phi = @(r,r0)obj.phi4(r,r0);
+            elseif rbfMode == 1
+                phi = @(r,r0)obj.phi1(r,r0);
+            elseif rbfMode == 2
+                phi = @(r,r0)obj.phi2(r,r0);
+            else
+                error('未実装')
+            end
+        
+            if nargin > 5
+                colmax = colmax(:);
+                scaleShift = zeros(size(colmax,1),1);
+                scaleWeight = colmax-scaleShift;
+            else
+                for i = 1:size(xd,2)
+                    scaleShift(i,1) = min(xd(:,i));
+                    colmax(i,1) = max(xd(:,i));
+                    scaleWeight(i,1) = colmax(i,1)-scaleShift(i,1);
+                    if scaleWeight(i,1) == 0
+                        scaleWeight(i,1) = 1;
+                    end 
+                end
+            end
+            %xdのスケールの変更
+            for i = 1:size(xd,2)
+                xd(:,i) = (xd(:,i)-scaleShift(i,1))./scaleWeight(i,1);
+            end
+            
+            X = xd';
+            H = sum(xd.^2,2);
+            H = repmat(H,[1,size(X,2)]);
+            r = sqrt(H'-2.*X'*X+H);
+            a = phi(r,r0);
+            invR = pinv(a);
+            w = invR*fd;
+            pp.w = w;
+            pp.rbfMode = rbfMode;
+            pp.nSample = size(xd,1);
+            pp.nDesign = size(xd,2);
+            pp.val_samp = xd;
+            pp.res_samp = fd;
+            pp.R0 = r0;
+            pp.scaleShift = scaleShift;
+            pp.scaleWeight = scaleWeight;
+        end
+    
+        function  phi = phi1(r,r0)
+            phi = sqrt(r.*r+r0.*r0);
+        end
+        
+        function  phi = phi2(r,r0)
+            phi = 1./sqrt(r.*r+r0.*r0);
+        end
+        
+        function phi = phi4(r,r0)
+            phi = exp(-0.5.*r.^2/r0.^2);
+        end
+
+       function fi = execRbfInterp(obj,pp,val_interp)
+            nSamp = size(pp.val_samp,1);
+            nInterp = size(val_interp,1);
+            val_interp= (val_interp-repmat(pp.scaleShift(:)',[nInterp,1]))./repmat(pp.scaleWeight(:)',[nInterp,1]);
+            Xi = sum(val_interp.^2,2);
+            H1 = repmat(Xi,[1,nSamp]);
+            Xs = sum(pp.val_samp.^2,2);
+            H2 = repmat(Xs',[nInterp,1]);
+            M = val_interp*pp.val_samp';
+            r = sqrt(H1-2.*M+H2);
+            fi = obj.phi1(r,pp.R0)*pp.w(:);
+        end
+
     end
 
 end
