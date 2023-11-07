@@ -1,10 +1,12 @@
 %
 %%%%%%%%ここから
 clear;
+massPropName = "optWing2_MassProps.txt";
+[mass,cgPoint,Inatia] = readMassPropResult(massPropName);
 [con, p, uv1, uv2, uv3, wedata, id] = readvspgeom( "optWing2.vspgeom", 0); %形状の読み込み
 wing = UNLSI(p',con',id',wedata,0); %コンストラクタの実行 %動安定微係数用なので半裁にしない
 wing = wing.setREFS(0.379,1.204,0.357); %基準面積 基準長の設定
-wing = wing.setRotationCenter([0,0,0]); %回転中心の設定
+wing = wing.setRotationCenter(cgPoint); %回転中心の設定
 wing = wing.setProp(1,5,0.15,0);
 wing = wing.makeCluster(); %速度分布を求めるためのパネルクラスターを作成
 wing = wing.makeEquation(); %パネル法行列の作成
@@ -25,6 +27,9 @@ wing = wing.calcDynCoef(0,0,0.001,300000); %動安定微係数を計算（deflDe
 [modal,DYNCOEF,dynCeofStruct] = wing.getModal([0,5],0,0.001,[200000,300000],15,0.8,eye(3));
 
 %空力係数の補間曲面の作成
-%massPropName = "optWing2_MassProps.txt";
 wing = wing.makeSurrogateModel([-10,-5,0,5,10],[-10,-5,0,5,10],0.001,200000);
 [ppCoef,ppDyn,testData] = wing.getSurrogateModel(linspace(-10,10,100),linspace(-10,10,100),0.15,"coef",1,2);
+UREF = 15;
+Mach = 0.001;
+REFS = [wing.SREF,wing.BREF,wing.CREF];
+save aeroRBF.mat ppCoef ppDyn REFS mass Inatia UREF Mach -mat;

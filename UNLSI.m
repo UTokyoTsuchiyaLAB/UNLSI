@@ -1804,10 +1804,11 @@ classdef UNLSI
                 mesh(x1,x2,testData);
                 xlabel("alpha(deg)");
                 ylabel("beta(deg)");
-                zlabel("dispCoeforDyn");
+                zlabel(dispCoeforDyn);
             end
         end
-    end         
+    
+    end        
     methods(Static)
 
         function res = softplus(x,beta)
@@ -3309,11 +3310,11 @@ classdef UNLSI
             pp.scaleWeight = scaleWeight;
         end
     
-        function  phi = phi1(r,r0)
+        function phi = phi1(r,r0)
             phi = sqrt(r.*r+r0.*r0);
         end
         
-        function  phi = phi2(r,r0)
+        function phi = phi2(r,r0)
             phi = 1./sqrt(r.*r+r0.*r0);
         end
         
@@ -3321,7 +3322,7 @@ classdef UNLSI
             phi = exp(-0.5.*r.^2/r0.^2);
         end
 
-       function fi = execRbfInterp(obj,pp,val_interp)
+        function fi = execRbfInterp(obj,pp,val_interp)
             nSamp = size(pp.val_samp,1);
             nInterp = size(val_interp,1);
             val_interp= (val_interp-repmat(pp.scaleShift(:)',[nInterp,1]))./repmat(pp.scaleWeight(:)',[nInterp,1]);
