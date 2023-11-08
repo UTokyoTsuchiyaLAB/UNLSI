@@ -35,7 +35,7 @@
 
     methods(Access = public)
 
-        function obj = UNGRADE(meshGenFun,geomGenFun,unscaledVariables,lb,ub,halfmesh,Mach,alpha,beta)
+        function obj = UNGRADE(meshGenFun,geomGenFun,unscaledVariables,lb,ub,halfmesh)
             %%%%%%%%%%%%メッシュの登録と基準サーフェス生成関数の登録%%%%%%%%%%%%%%%
             %orgVerts,orgCon　実際に解析を行うメッシュ（openVSPのCFDツール等で生成した（基本的に）オーバーラップのない非構造メッシュ）
             %meshGenFun　設計変数（スケールされていない）から基準サーフェス（解析メッシュと同じ表面を持つ、トリムされていないメッシュ）
@@ -65,35 +65,16 @@
             % 
             obj.setting.nMemory = 6; %記憶制限準ニュートン法のさかのぼり回数（厳密な記憶制限法は実装していない）
             obj.setting.H0 = eye(numel(obj.lb)); %初期ヘッシアン
-            obj.setting.n_wake = 5;
             obj.setting.wakeLength = 20;
-            obj.setting.propWakeLength = 2;
-            obj.setting.n_divide = 10;
-            obj.setting.nCluster = 50;
-            obj.setting.edgeAngleThreshold = 50;
             obj.setting.meshGradientPerturbation = 0.01;%メッシュ勾配をとるときのスケールされてない設計変数の摂動量
-            obj.setting.Re = 500000;
-            obj.setting.Lch = 1;
-            obj.setting.k = 0.052*(10^-5);
-            obj.setting.LTratio = 0;
-            obj.setting.coefficient = 1; 
             obj.setting.gradientCalcMethod = "direct"; %設計変数偏微分の取得方法："direct", "chain", "nonlin"
             obj.setting.HessianUpdateMethod = "BFGS"; %ヘッシアン更新は "BFGS","DFP","Broyden","SR1"から選択
             obj.setting.updateMethod = "Levenberg–Marquardt";%解を更新する方法 Steepest-Descent,Levenberg–Marquardt,dogleg
             obj.setting.betaLM = 0.5; %レーベンバーグマッカートの重み係数
             obj.setting.alphaSD = 0.5; %最急降下法の重み 
             obj.setting.TrustRegion = 0.1; %設計更新を行う際のスケーリングされた設計変数更新量の最大値
-            obj.setting.propCalcFlag = 0;
-            obj.setting.checkMeshMethod = "delete";
-            obj.setting.checkMeshTol = 0.00001;
-            obj.setting.Mach = Mach;
-            obj.setting.alpha = alpha;
-            obj.setting.beta = beta;
             %%%%%%%%%%%%%
-            if numel(obj.setting.Mach) ~= numel(obj.setting.alpha) || numel(obj.setting.Mach) ~= numel(obj.setting.beta) || numel(obj.setting.beta) ~= numel(obj.setting.alpha)
-                error("No. of case is not match");
-            end
-            obj = obj.checkMesh(obj.setting.checkMeshTol,obj.setting.checkMeshMethod);
+            obj = obj.checkMesh(obj.settingUNLSI.checkMeshTol,obj.settingUNLSI.checkMeshMethod);
             warning('off','MATLAB:triangulation:PtsNotInTriWarnId');
             [orgGeomVerts,orgGeomCon,optSREF,optBREF,optCREF,optXYZREF,obj.argin_x,desOrg] = obj.geomGenFun(desOrg);
             obj.orgMesh = triangulation(obj.tri.ConnectivityList,obj.tri.Points);
@@ -111,14 +92,23 @@
             obj.LagrangianInfo.alin = [];
             obj.LagrangianInfo.blin = [];  
 
-
-
             obj.Hessian = obj.setting.H0;
 
+            warning('on','MATLAB:triangulation:PtsNotInTriWarnId');
+        end
+
+        function obj = setFlowCondition(obj,alpha,beta,Mach,Re)
+            obj.setting.Mach = Mach;
+            obj.setting.alpha = alpha;
+            obj.setting.beta = beta;
+            obj.setting.Re = Re;
+            if numel(obj.setting.Mach) ~= numel(obj.setting.alpha) || numel(obj.setting.Mach) ~= numel(obj.setting.beta) || numel(obj.setting.beta) ~= numel(obj.setting.alpha)
+                error("No. of case is not match");
+            end
             uniMach = unique(Mach);
             for i = 1:numel(uniMach)
                 obj = obj.flowCondition(i,uniMach(i));
-                obj = obj.setCf(i,obj.setting.Re,obj.setting.Lch,obj.setting.k,obj.setting.LTratio,obj.setting.coefficient);
+                obj = obj.setCf(i,obj.setting.Re);
             end
             for i = 1:numel(Mach)
                 obj.flowNoList(i,1) = find(uniMach == Mach(i));
@@ -126,9 +116,8 @@
                 obj.flowNoList(i,3) = obj.flowNoList(i,2)<1;
             end
             if any(obj.flowNoList(:,3) == 1)
-                obj = obj.makeCluster(obj.setting.nCluster,obj.setting.edgeAngleThreshold);
+                obj = obj.makeCluster();
             end
-            warning('on','MATLAB:triangulation:PtsNotInTriWarnId');
         end
 
         function obj = updateMeshGeomfromVariables(obj,unscaledVariables,meshDeformFlag)
@@ -147,13 +136,13 @@
                 wakelineID = obj.wakelineID;
                 fprintf("iteration No. %d set by Mesh Deformation ---> Variables:\n",obj.iteration)
                 disp(unscaledVariables);
-                obj = obj.setMesh(orgMeshVerts,orgMeshCon,surfID,wakelineID,obj.setting.checkMeshMethod,obj.setting.checkMeshTol);
+                obj = obj.setMesh(orgMeshVerts,orgMeshCon,surfID,wakelineID);
                 obj.history.setMeshbyDeform(obj.iteration) = 1;
             else
                 [orgMeshVerts, orgMeshCon,surfID,wakelineID, unscaledVariables] = obj.meshGenFun(unscaledVariables(:)');
                 fprintf("iteration No. %d set by Mesh Generation ---> Variables:\n",obj.iteration)
                 disp(unscaledVariables);
-                obj = obj.setMesh(orgMeshVerts,orgMeshCon,surfID,wakelineID,obj.setting.checkMeshMethod,obj.setting.checkMeshTol);
+                obj = obj.setMesh(orgMeshVerts,orgMeshCon,surfID,wakelineID);
                 [orgGeomVerts,orgGeomCon,optSREF,optBREF,optCREF,optXYZREF,obj.argin_x,desOrg] = obj.geomGenFun(unscaledVariables);
                 obj.history.setMeshbyDeform(obj.iteration) = 0;
             end
@@ -169,15 +158,15 @@
             obj.LagrangianInfo.alin = [];
             obj.LagrangianInfo.blin = [];  
             if any(obj.flowNoList(:,3) == 1)
-                obj = obj.makeCluster(obj.setting.nCluster,obj.setting.edgeAngleThreshold);
+                obj = obj.makeCluster();
             end
             for i = 1:numel(obj.flow)
-                obj = obj.setCf(i,obj.setting.Re,obj.setting.Lch,obj.setting.k,obj.setting.LTratio,obj.setting.coefficient);
+                obj = obj.setCf(i,obj.setting.Re);
             end
             warning('on','MATLAB:triangulation:PtsNotInTriWarnId');
         end
 
-        function obj = solveAnalysis(obj,flowNo,alpha,beta,omega)
+        function obj = solveAnalysis(obj,flowNo,alpha,beta)
             %%%%%%%%%%%現在の機体形状に対する解析の実行%%%%%
             %flowNo : UNLSIのflowNo
             %alpha : 解析する迎角
@@ -186,19 +175,13 @@
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%            
             if isempty(obj.LHS)
                 if any(obj.flowNoList(:,3) == 1)
-                    if obj.setting.propCalcFlag == 1
-                        obj = obj.makePropEquation(obj.setting.propWakeLength);
-                    end
-                    obj = obj.makeEquation(obj.setting.wakeLength,obj.setting.n_wake,obj.setting.n_divide);
+                    obj = obj.makeEquation();
                 end 
             end
-            if nargin<5
-                omega = [];
-            end
-            u0 = obj.solvePertPotential(flowNo,alpha,beta,omega,obj.setting.propCalcFlag);
-            [~,~,~,~,obj] = obj.solveFlowForAdjoint(u0,flowNo,alpha,beta,omega,obj.setting.propCalcFlag);
-            [udwf,udwr] = obj.calcDynCoefdu(flowNo,alpha,beta,omega,1);
-            [~,obj] =  obj.calcDynCoefforAdjoint(u0,udwf,udwr,flowNo,alpha,beta,omega,obj.setting.propCalcFlag);
+            u0 = obj.solvePertPotential(flowNo,alpha,beta);
+            [~,~,~,~,obj] = obj.solveFlowForAdjoint(u0,flowNo,alpha,beta);
+            [udwf,udwr] = obj.calcDynCoefdu(flowNo,alpha,beta);
+            [~,obj] =  obj.calcDynCoefforAdjoint(u0,udwf,udwr,flowNo,alpha,beta);
         end
 
         function [I,con,obj] = evaluateObjFun(obj,objandConsFun)
@@ -208,10 +191,7 @@
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%   
             if isempty(obj.LHS)
                 if any(obj.flowNoList(:,3) == 1)
-                    if obj.setting.propCalcFlag == 1
-                        obj = obj.makePropEquation(obj.setting.propWakeLength);
-                    end
-                    obj = obj.makeEquation(obj.setting.wakeLength,obj.setting.n_wake,obj.setting.n_divide);
+                    obj = obj.makeEquation();
                 end
             end
             obj.approximated = 0;
@@ -219,10 +199,10 @@
             for iter = 1:numel(obj.flow)
                 alphabuff = obj.setting.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                 betabuff = obj.setting.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
-                u0 = obj.solvePertPotential(iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);
-                [~,~,~,~,obj] = obj.solveFlowForAdjoint(u0,iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);
-                [udwf,udwr] = obj.calcDynCoefdu(iter,alphabuff,betabuff,[],1);
-                [~,obj] =  obj.calcDynCoefforAdjoint(u0,udwf,udwr,iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);
+                u0 = obj.solvePertPotential(iter,alphabuff,betabuff);
+                [~,~,~,~,obj] = obj.solveFlowForAdjoint(u0,iter,alphabuff,betabuff);
+                [udwf,udwr] = obj.calcDynCoefdu(iter,alphabuff,betabuff);
+                [~,obj] =  obj.calcDynCoefforAdjoint(u0,udwf,udwr,iter,alphabuff,betabuff);
             end
             [I,con] = objandConsFun(desOrg,obj.AERODATA,obj.DYNCOEF,obj.Cp,obj.Cfe,obj.SREF,obj.BREF,obj.CREF,obj.XYZREF,obj.argin_x);
         end
@@ -326,22 +306,8 @@
             obj.setting.rpm = rpm;
             [obj,thrust,power,Jref] = obj.setPropState(obj.setting.Vinf,obj.setting.rho,obj.setting.CT,obj.setting.CP,obj.setting.rpm);
         end
-
-        function obj = setCfParameter(obj,Re,Lch,k,LTratio,CfeCoefficient)
-           %%%%%%%%%UNLSIのCfパラメータを一括設定する%%%%%%%%%%%%
-            %変数についてはUNLSIのsetCfを参照
-           %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-            obj.setting.Re = Re;
-            obj.setting.Lch = Lch;
-            obj.setting.k = k;
-            obj.setting.LTratio = LTratio;
-            obj.setting.coefficient = CfeCoefficient;
-            for i = 1:numel(obj.flow)
-                obj = obj.setCf(i,obj.setting.Re,obj.setting.Lch,obj.setting.k,obj.setting.LTratio,obj.setting.coefficient);
-            end
-        end
         
-        function obj = setOptions(obj,varargin)
+        function obj = setUNGRADESettings(obj,varargin)
            %%%%%%%%%設定を変更する%%%%%%%%%%%%
            %varargin : 変数名と値のペアで入力
            %obj.settingの構造体の内部を変更する
@@ -353,11 +319,6 @@
             for iter = 1:numel(varargin)/2
                 if isfield(obj.setting,varargin{2*iter-1})
                     obj.setting = setfield(obj.setting,varargin{2*iter-1},varargin{2*iter});
-                    if strcmpi(varargin{2*iter-1},"nCluster")
-                        if any(obj.flowNoList(:,3) == 1)
-                            obj = obj.makeCluster(obj.setting.nCluster,obj.setting.edgeAngleThreshold);
-                        end
-                    end
                     if strcmpi(varargin{2*iter-1},"Mach")
                         if numel(obj.setting.Mach) ~= numel(obj.setting.alpha) || numel(obj.setting.Mach) ~= numel(obj.setting.beta) || numel(obj.setting.beta) ~= numel(obj.setting.alpha)
                             error("No. of case is not match");
@@ -392,7 +353,7 @@
                 error("check the cmin and cmax setting");
             end
             if nargin>4
-                obj = obj.setOptions(varargin{:});
+                obj = obj.setUNGRADESettings(varargin{:});
             end
             obj.iteration = obj.iteration + 1;
             fprintf("iteration No. %d : Gradient Caluculation Started\n -- GradientCalcMethod : %s\n",obj.iteration,obj.setting.gradientCalcMethod);
@@ -400,10 +361,7 @@
             nbPanel = sum(obj.paneltype == 1);
             if isempty(obj.LHS)
                 if any(obj.flowNoList(:,3) == 1)
-                    if obj.setting.propCalcFlag == 1
-                        obj = obj.makePropEquation(obj.setting.propWakeLength);
-                    end
-                    obj = obj.makeEquation(obj.setting.wakeLength,obj.setting.n_wake,obj.setting.n_divide);
+                    obj = obj.makeEquation();
                 end
             end
             obj.approximated = 0;
@@ -413,10 +371,10 @@
             for iter = 1:numel(obj.flow)
                 alphabuff = obj.setting.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                 betabuff = obj.setting.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
-                [u0solve,~] = obj.solvePertPotential(iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);%ポテンシャルを求める
-                [udwf{iter},udwr{iter}] = obj.calcDynCoefdu(iter,alphabuff,betabuff,[],1);
-                [AERODATA0,Cp0,Cfe0,R0solve,obj] = obj.solveFlowForAdjoint(u0solve,iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);%ポテンシャルから空力係数を計算
-                [DYNCOEF0,obj] =  obj.calcDynCoefforAdjoint(u0solve,udwf{iter},udwr{iter},iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);
+                [u0solve,~] = obj.solvePertPotential(iter,alphabuff,betabuff);%ポテンシャルを求める
+                [udwf{iter},udwr{iter}] = obj.calcDynCoefdu(iter,alphabuff,betabuff);
+                [AERODATA0,Cp0,Cfe0,R0solve,obj] = obj.solveFlowForAdjoint(u0solve,iter,alphabuff,betabuff);%ポテンシャルから空力係数を計算
+                [DYNCOEF0,obj] =  obj.calcDynCoefforAdjoint(u0solve,udwf{iter},udwr{iter},iter,alphabuff,betabuff);
                 %結果をマッピング
                 lktable = find(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                 for i = 1:numel(lktable)
@@ -448,8 +406,8 @@
                     end
                     alphabuff = obj.setting.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                     betabuff = obj.setting.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
-                    [AERODATA,Cp,Cfe,~,obj] = obj.solveFlowForAdjoint(usolve,iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);
-                    DYNCOEF =  obj.calcDynCoefforAdjoint(usolve,udwf{iter},udwr{iter},iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);
+                    [AERODATA,Cp,Cfe,~,obj] = obj.solveFlowForAdjoint(usolve,iter,alphabuff,betabuff);
+                    DYNCOEF =  obj.calcDynCoefforAdjoint(usolve,udwf{iter},udwr{iter},iter,alphabuff,betabuff);
                 end
                 [I,con] = objandConsFun(desOrg,AERODATA,DYNCOEF,Cp,Cfe,obj.SREF,obj.BREF,obj.CREF,obj.XYZREF,obj.argin_x);
                 dI_du(i) = (I-I0)/pert;%評価関数のポテンシャルに関する偏微分
@@ -491,19 +449,9 @@
                 if strcmpi(obj.setting.gradientCalcMethod,'direct')
                     %変数が少ないときは直接作成
                     obj2 = obj.setVerts(modMesh);
-                    if any(obj.flowNoList(:,3) == 1)
-                        if obj.setting.propCalcFlag == 1
-                            obj2 = obj2.makePropEquation(obj.setting.propWakeLength);
-                        end
-                        obj2 = obj2.makeEquation(obj.setting.wakeLength,obj.setting.n_wake,obj.setting.n_divide);
-                    end
-                    obj2.approximated = 0;
                 elseif strcmpi(obj.setting.gradientCalcMethod,'chain')
                     if any(obj.flowNoList(:,3) == 1)
                         obj2 = obj.makeApproximatedInstance(modMesh);
-                        if obj.setting.propCalcFlag == 1
-                            obj2 = obj2.makePropEquation(obj.setting.propWakeLength);
-                        end
                     else
                         obj2 = obj.setVerts(modMesh);
                     end
@@ -519,6 +467,13 @@
                 argin_x2 = obj.argin_x+obj.gradArginx*(x(:)-obj.scaledVar(:));
                 obj2 = obj2.setREFS(SREF2,BREF2,CREF2);
                 obj2 = obj2.setRotationCenter(XYZREF2);
+                if strcmpi(obj.setting.gradientCalcMethod,'direct')
+                    %変数が少ないときは直接作成
+                    if any(obj.flowNoList(:,3) == 1)
+                        obj2 = obj2.makeEquation();
+                    end
+                    obj2.approximated = 0;
+                end
                 R = zeros(nbPanel*size(obj.flowNoList,1),1);
                 for iter = 1:numel(obj.flow)
                     lktable = find(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
@@ -528,9 +483,9 @@
                     end
                     alphabuff = obj.setting.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                     betabuff = obj.setting.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
-                    [AERODATA,Cp,Cfe,Rsolve,obj2] = obj2.solveFlowForAdjoint(u0solve,iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);
-                    [udwfdx,udwrdx] = obj2.calcDynCoefdu(iter,alphabuff,betabuff,[],1);
-                    DYNCOEF =  obj2.calcDynCoefforAdjoint(u0solve,udwfdx,udwrdx,iter,alphabuff,betabuff,[],obj.setting.propCalcFlag);
+                    [AERODATA,Cp,Cfe,Rsolve,obj2] = obj2.solveFlowForAdjoint(u0solve,iter,alphabuff,betabuff);
+                    [udwfdx,udwrdx] = obj2.calcDynCoefdu(iter,alphabuff,betabuff);
+                    DYNCOEF =  obj2.calcDynCoefforAdjoint(u0solve,udwfdx,udwrdx,iter,alphabuff,betabuff);
                     for k = 1:numel(lktable)
                         R((lktable(k)-1)*nbPanel+1:lktable(k)*nbPanel,1) = Rsolve(nbPanel*(k-1)+1:nbPanel*k,1);
                     end
@@ -604,7 +559,7 @@
             %
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             if nargin>1
-                obj = obj.setOptions(varargin{:});
+                obj = obj.setUNGRADESettings(varargin{:});
             end
             fprintf("--updateMethod : %s\n",obj.setting.updateMethod)
 
@@ -654,7 +609,7 @@
             %
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             if nargin>1
-                obj = obj.setOptions(varargin{:});
+                obj = obj.setUNGRADESettings(varargin{:});
             end
             fprintf("-- HessianUpdateMethod : %s\n",obj.setting.HessianUpdateMethod);
             if strcmpi(obj.setting.HessianUpdateMethod,"SR1")
@@ -703,7 +658,7 @@
             %
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
                 if nargin>4
-                    obj = obj.setOptions(varargin{:});
+                    obj = obj.setUNGRADESettings(varargin{:});
                 end
                 obj = obj.calcLagrangianGradient(objandConsFun,cmin,cmax);%次の設計変数を計算する
                 obj = obj.updateHessian();%次の設計変数を計算する

@@ -103,7 +103,7 @@ classdef UNLSI
             obj = obj.setMesh(verts,connectivity,surfID,wakelineID);
         end
 
-        function obj = setOptions(obj,varargin)
+        function obj = setUNLSISettings(obj,varargin)
            %%%%%%%%%設定を変更する%%%%%%%%%%%%
            %varargin : 変数名と値のペアで入力
            %obj.settingの構造体の内部を変更する
@@ -303,7 +303,9 @@ classdef UNLSI
             end
             if numel(obj.prop)>0
                 for propNo = 1:numel(obj.prop)
+                    propstate = [obj.prop{propNo}.CT,obj.prop{propNo}.CP,obj.prop{propNo}.rpm];
                     obj = obj.setProp(propNo,obj.prop{propNo}.ID,obj.prop{propNo}.diameter,obj.prop{propNo}.XZsliced);
+                    obj = obj.setPropState(propNo,propstate(1),propstate(2),propstate(3));
                 end
             end
             %wakeSurfIDにあるもの以外はcpcalctypeをlinearに
@@ -354,7 +356,7 @@ classdef UNLSI
                     newCon = obj.tri.ConnectivityList;
                     newCon(deleteIndex,:) = [];
                     obj.surfID(deleteIndex,:) = [];
-                    obj = obj.setMesh(obj.tri.Points,newCon,obj.surfID,obj.wakelineID,"warning",0);
+                    obj = obj.setMesh(obj.tri.Points,newCon,obj.surfID,obj.wakelineID);
                 else
                     error("some panel areas are too small");
                 end

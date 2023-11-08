@@ -12,7 +12,7 @@ wing = wing.makeCluster(); %速度分布を求めるためのパネルクラス�
 wing = wing.makeEquation(); %パネル法行列の作成
 %%%%%%%%ここまでは一度計算すればスキップできる
 %}
-wing = wing.setOptions("propCalcFlag",1);
+wing = wing.setUNLSISettings("propCalcFlag",1);
 wing = wing.setPropState(1,0.4,0.6,8000); %プロペラの回転状況を指定
 wing = wing.setDeflAngle(6,[0,1,0],0);%6番のIDを回転軸[0,1,0]、角度0degに設定（動翼として登録）
 wing = wing.setDeflAngle(7,[0,1,0],0);%7番のIDを回転軸[0,1,0]、角度0degに設定（動翼として登録）

@@ -1,6 +1,6 @@
 # VSPGEOM Tag Key File
-C:\Users\Naoto\Dropbox\research\UNLSI\example\ungrade\wing\wing.vspgeom
+C:\Users\building13\Dropbox\UNLSI\example\ungrade\wing\wing.vspgeom
 1
 
 # tag#,geom#,surf#,gname,gid,ssname1,ssname2,...,ssid1,ssid2,...
-1,0,0,WingGeom,ZAXWQEUVZC
+1,0,0,WingGeom_S,ZAXWQEUVZC

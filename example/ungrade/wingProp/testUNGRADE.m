@@ -10,12 +10,15 @@
     cmin = []';%制約条件の下限値
     cmax = []';%制約条件の上限値
     
-    ungradetest = UNGRADE(@(x)vspMeshGen(x,"wing","org.des"),@(x)vspGeomGen(x,"wing","org.des"),orgVal,lb,ub,1,Machrange,alpharange,betarange);%コンストラクタの実行
+    ungradetest = UNGRADE(@(x)vspMeshGen(x,"wing","org.des"),@(x)vspGeomGen(x,"wing","org.des"),orgVal,lb,ub,1);%コンストラクタの実行
     ungradetest.checkGeomGenWork(0.5);%設計変数が動いているかチェックする
+    %%%%%%%%%%%%%%%%%%ここで種々の設定をする%%%%%%%%%%%%%%%%%%%
+    ungradetest = ungradetest.setUNLSISettings("propCalcFlag",1,"Vinf",50);
     ungradetest = ungradetest.setProp(1,2,2,0);
-    ungradetest = ungradetest.setCfParameter(500000,4,0.052*(10^-5),0,1); %摩擦係数関連のパラメータのセット
-    ungradetest = ungradetest.setPropParameter(50,1.225,0.4,0.6,2000);
-    ungradetest = ungradetest.setOptions('n_divide',3); %設定値の変更 n_divide:パネル法行列を計算するときの分割数
+    [ungradetest,thrust,power] = ungradetest.setPropState(1,0.04,0.02,5000);
+
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    ungradetest = ungradetest.setFlowCondition(alpharange,betarange,Machrange,500000);
     ungradetest = ungradetest.solveAnalysis(1,alpharange(1),betarange(1)); %現在の機体形状で解析を実行する。（この中でパネル法行列が作成される。この関数を実行しなくても必要とあらば作成される）
     ungradetest.plotGeometry(1,ungradetest.Cp{1}(:,1),[-2,1]); %機体形状と圧力係数をプロットする
     [Iorg,conorg,ungradetest] = ungradetest.evaluateObjFun(@objFun);%評価関数を計算する

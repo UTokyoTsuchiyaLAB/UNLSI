@@ -1,9 +1,9 @@
 clear;
 orgVal = [2,2,2,2,2,2]; %設計変数の初期値
 
-Machrange = [0.001,0.001]; %解析するマッハ数
-alpharange = [2,3]; %解析する迎角
-betarange = [0,0]; %解析する横滑り角
+Machrange = [0.001]; %解析するマッハ数
+alpharange = [2]; %解析する迎角
+betarange = [0]; %解析する横滑り角
 geomErr = 0.005;
 
 lb = [  1,   1,   1,   1,   1,   1]; %設計変数の下限値
@@ -11,10 +11,12 @@ ub = [  4,   4,   4,   4,   4,   4]; %設計変数の上限値
 cmin = [0.15]';%制約条件の下限値
 cmax = [0.17]';%制約条件の上限値
 
-ungradetest = UNGRADE(@(x)vspMeshGen(x,"wing","org.des"),@(x)vspGeomGen(x,"wing","org.des"),orgVal,lb,ub,1,Machrange,alpharange,betarange);%コンストラクタの実行
+ungradetest = UNGRADE(@(x)vspMeshGen(x,"wing","org.des"),@(x)vspGeomGen(x,"wing","org.des"),orgVal,lb,ub,1);%コンストラクタの実行
 ungradetest.checkGeomGenWork(0.5);%設計変数が動いているかチェックする
-ungradetest = ungradetest.setCfParameter(500000,4,0.052*(10^-5),0,1); %摩擦係数関連のパラメータのセット
-ungradetest = ungradetest.setOptions('n_divide',3); %設定値の変更 n_divide:パネル法行列を計算するときの分割数
+%%%%%%%%%%%%%%%%%%ここで種々の設定をする%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+ungradetest = ungradetest.setFlowCondition(alpharange,betarange,Machrange,500000);
 [Iorg,conorg,ungradetest] = ungradetest.evaluateObjFun(@objFun); %評価関数を計算する
 ungradetest.plotGeometry(1,ungradetest.Cp{1}(:,1),[-2,1]); %機体形状と圧力係数をプロットする
 
@@ -22,7 +24,7 @@ ungradetest.plotGeometry(1,ungradetest.Cp{1}(:,1),[-2,1]); %機体形状と圧�
 %%%%%%%%%%%%%%%%%初級者向け -- とりあえず実行%%%%%%%%%%%%%%%%%%%%%%%%%
 for i = 1:5
     [nextVar,ungradetest] = ungradetest.calcNextVariables(@objFun,cmin,cmax,"TrustRegion",0.2,"betaLM",0.5);%次の設計変数を計算する
-    ungradetest= ungradetest.updateMeshGeomfromVariables(nextVar);%次の設計変数を用いて機体形状を更新する
+    ungradetest= ungradetest.updateMeshGeomfromVariables(nextVar,1);%次の設計変数を用いて機体形状を更新する
     %%%%%%%%%ここから
         ungradetest = ungradetest.solveAnalysis(1,alpharange(1),0); %現在の形状に対し任意の迎角・横滑り角・各速度で解析を行う
         ungradetest.plotGeometry(1,ungradetest.Cp{1}(:,1),[-2,1]); %↑の結果をプロットする
