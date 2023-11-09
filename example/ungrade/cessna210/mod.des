@@ -1,10 +1,10 @@
 9
-MVXPFWMGVAD:NormalWing:XSecCurve_0:Camber: 0.039
+MVXPFWMGVAD:NormalWing:XSecCurve_0:Camber: 0.036
 TNAEYOSWYZV:NormalWing:XSecCurve_0:ThickChord: 0.120
-SXWUNLRSKJG:NormalWing:XSec_0:Twist: 0.132
-JMOAIUXWQMD:NormalWing:XSecCurve_1:Camber: 0.041
+SXWUNLRSKJG:NormalWing:XSec_0:Twist: 0.215
+JMOAIUXWQMD:NormalWing:XSecCurve_1:Camber: 0.042
 DIUGXSTTMNX:NormalWing:XSecCurve_1:ThickChord: 0.120
-YYZNXRESCJO:NormalWing:XSec_1:Root_Chord: 5.157
-VSSNSYUSBLL:NormalWing:XSec_1:Sweep: 5.600
-QLVLFGNCAEW:NormalWing:XSec_1:Tip_Chord: 3.669
-NORFJHWATJB:NormalWing:XSec_1:Twist: 2.172
+YYZNXRESCJO:NormalWing:XSec_1:Root_Chord: 5.490
+VSSNSYUSBLL:NormalWing:XSec_1:Sweep: 2.443
+QLVLFGNCAEW:NormalWing:XSec_1:Tip_Chord: 3.586
+NORFJHWATJB:NormalWing:XSec_1:Twist: 2.195

@@ -1623,8 +1623,8 @@ classdef UNLSI
                         omegadwf = zeros(1,3);
                         omegadwr = zeros(1,3);
                     else
-                        omegadwf = obj.settingUNLSI.angularVelocity(iterflow,:);
-                        omegadwr = obj.settingUNLSI.angularVelocity(iterflow,:);
+                        omegadwf = obj.settingUNLSI.angularVelocity;
+                        omegadwr = obj.settingUNLSI.angularVelocity;
                     end
                     omegadwf(jter) = omegadwf(jter)+dw.*180./pi;
                     omegadwr(jter) = omegadwr(jter)-dw.*180./pi;

@@ -7,10 +7,13 @@ cmin = [40]'; %制約条件の下限値
 cmax = [45]'; %制約条件の上限値
 geomErr = 0.15;
 
-ungradetest = UNGRADE(@(x)vspMeshGen(x,"Cessna-210","org.des"),@(x)vspGeomGen(x,"Cessna-210","org.des"),orgVal,lb,ub,1,[0.001],[0],[0]); %コンストラクタの実行
+ungradetest = UNGRADE(@(x)vspMeshGen(x,"Cessna-210","org.des"),@(x)vspGeomGen(x,"Cessna-210","org.des"),orgVal,lb,ub,1); %コンストラクタの実行
 ungradetest.checkGeomGenWork(0.5); %設計変数が動いているかチェックする
-ungradetest = ungradetest.setCfParameter(500000,4,0.052*(10^-5),0,1); %摩擦係数関連のパラメータのセット
-ungradetest = ungradetest.setOptions('updateMethod','Levenberg–Marquardt');
+%%%%%%%%%%%%%%%%%%ここで種々の設定をする%%%%%%%%%%%%%%%%%%%
+ungradetest = ungradetest.setUNGRADESettings('updateMethod','Levenberg–Marquardt');
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+ungradetest = ungradetest.setFlowCondition(0,0,0.262,1000000);
 [Iorg,conorg,ungradetest] = ungradetest.evaluateObjFun(@objFun);%評価関数を計算する
 ungradetest.plotGeometry(1,ungradetest.Cp{1}(:,1),[-2,1]); %機体形状と圧力係数をプロットする
 
