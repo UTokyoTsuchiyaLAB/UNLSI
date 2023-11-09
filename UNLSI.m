@@ -435,7 +435,7 @@ classdef UNLSI
             flowVec(2) = -sind(beta);
             flowVec(3) = sind(alpha)*cosd(beta);
             for i = 1:numel(obj.paneltype)
-                if obj.paneltype(i) == 1 && obj.surfID(i) == ID
+                if obj.paneltype(i) == 1 && any(obj.surfID(i) == ID(:)')
                     if(abs(acosd(dot(flowVec,obj.orgNormal(i,:))))<threshold)
                         obj.paneltype(i,1) = 2;
                     end
@@ -1544,9 +1544,9 @@ classdef UNLSI
                         omegadwf(jter) = omegadwf(jter)+dw/pi*180;
                         omegadwr(jter) = omegadwr(jter)-dw/pi*180;
                         obj.settingUNLSI.angularVelocity = omegadwf;
-                        uf = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow),omegadwf);
+                        uf = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow));
                         obj.settingUNLSI.angularVelocity = omegadwr;
-                        ur = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow),omegadwr);
+                        ur = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow));
                         obj.settingUNLSI.angularVelocity = avorg;
                         udwf(1+nbPanel*(iterflow-1):nbPanel*iterflow,2+jter) = uf-u0;
                         udwr(1+nbPanel*(iterflow-1):nbPanel*iterflow,2+jter) = u0-ur;
@@ -1555,18 +1555,18 @@ classdef UNLSI
                 if obj.settingUNLSI.deflDerivFlag == 1
                     orgDeflAngle = obj.deflAngle;
                     for iterflow = 1:numel(alpha)
-                        u0 = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow),0);
+                        u0 = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow));
                         for i = 1:numel(obj.deflGroup)
                             [deflID,~] = find(obj.deflGroup{i}.ID(:)'==orgDeflAngle(:,1));
                             if any(abs(vecnorm(orgDeflAngle(deflID,2:4),2,2)-1)>sqrt(eps))
                                 error("Defl Axis Not Set");
                             end
                             obj = obj.setDeflAngle(orgDeflAngle(deflID,1),orgDeflAngle(deflID,2:4),orgDeflAngle(deflID,5)+dw*180/pi*obj.deflGroup{i}.gain(:));
-                            uf = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow),0);
+                            uf = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow));
                             udwf(1+nbPanel*(iterflow-1):nbPanel*iterflow,5+i) = uf-u0;
                             [deflID,~] = find(obj.deflGroup{i}.ID==orgDeflAngle(:,1));
                             obj = obj.setDeflAngle(orgDeflAngle(deflID,1),orgDeflAngle(deflID,2:4),orgDeflAngle(deflID,5)-dw*180/pi*obj.deflGroup{i}.gain(:));
-                            ur = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow),0);
+                            ur = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow));
                             udwr(1+nbPanel*(iterflow-1):nbPanel*iterflow,5+i) = u0-ur;
                             [deflID,~] = find(obj.deflGroup{i}.ID==orgDeflAngle(:,1));
                             obj = obj.setDeflAngle(orgDeflAngle(deflID,1),orgDeflAngle(deflID,2:4),orgDeflAngle(deflID,5));
