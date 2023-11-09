@@ -77,7 +77,7 @@ classdef UNLSI
             obj.settingUNLSI.wingWakeLength = 100; %各wakeパネルの長さ(機体基準長基準）
             obj.settingUNLSI.nCalcDivide = 5;%makeEquationは各パネル数×各パネル数サイズの行列を扱うため、莫大なメモリが必要となる。一度に計算する列をobj.settingUNLSI.nCalcDivide分割してメモリの消費量を抑えている。
             obj.settingUNLSI.angularVelocity = [];
-            obj.settingUNLSI.propCalcFlag = 0;
+            obj.settingUNLSI.propCalcFlag = 1;
             obj.settingUNLSI.deflDerivFlag = 1;
             obj.settingUNLSI.propWakeLength = 3;
             obj.settingUNLSI.nPropWake = 101; %propWake円周上の点の数
@@ -625,7 +625,7 @@ classdef UNLSI
             obj.prop{propNo}.normal = mean(obj.orgNormal(obj.surfID == ID,:),1);
             obj.prop{propNo}.center = mom./propArea;
 
-            obj = obj.setPropState(propNo,0,0,0);
+            obj = obj.setPropState(propNo,sqrt(eps),sqrt(eps),sqrt(eps));
 
             obj = makePropEquation(obj,propNo);
 
@@ -1748,9 +1748,15 @@ classdef UNLSI
                         end
                     end
                 end
-                for i = 1:size(dyncoefInt,2)
-                    obj.ppDyn{i} = griddedInterpolant(X1,X2,X3,dyndata2{i},"linear","linear");
+                for i = 1:6
+                    for j = 1:size(dyndata(:,7:end),2)/6
+                        obj.ppDyn{i,j+1} = griddedInterpolant(X1,X2,X3,dyndata2{6*(j-1)+i},"linear","linear");
+                    end
                 end
+                obj.ppDyn{1,1} = betarange2;
+                obj.ppDyn{2,1} = machrange2;
+                obj.ppDyn{3,1} = alpharange2;
+                obj.ppDyn{4,1} = Re;
             else
                 [X1,X2] = ndgrid(alpharange2,betarange2);
                 for i = 1:6
@@ -1768,9 +1774,15 @@ classdef UNLSI
                         end
                     end
                 end
-                for i = 1:size(dyndata(:,7:end),2)
-                    obj.ppDyn{i} = griddedInterpolant(X1,X2,dyndata2{i},"linear","linear");
+                for i = 1:6
+                    for j = 1:size(dyndata(:,7:end),2)/6
+                        obj.ppDyn{i,j+1} = griddedInterpolant(X1,X2,dyndata2{6*(j-1)+i},"linear","linear");
+                    end
                 end
+                obj.ppDyn{1,1} = betarange2;
+                obj.ppDyn{2,1} = MachRange;
+                obj.ppDyn{3,1} = alpharange2;
+                obj.ppDyn{4,1} = Re;
             end
         end
         
@@ -1806,7 +1818,58 @@ classdef UNLSI
                 mesh(x1,x2,testData);
                 xlabel("alpha(deg)");
                 ylabel("beta(deg)");
-                zlabel(dispCoeforDyn);
+                if strcmpi(dispCoeforDyn,"coef")
+                    switch dispIndex
+                        case 1
+                            zlabel("CD");
+                        case 2
+                            zlabel("CY");
+                        case 3
+                            zlabel("CL");
+                        case 4
+                            zlabel("Cl");
+                        case 5
+                            zlabel("Cm");
+                        case 6
+                            zlabel("Cn");
+                        otherwise
+                            error("invalid INDEX");
+                    end
+                else
+                    if dispIndex<7
+                        error("invalid dispIndex");
+                    end
+                    switch floor(dispIndex/6)
+                        case 1
+                            derivstr = "b";
+                        case 2
+                            derivstr = "a";
+                        case 3
+                            derivstr = "p";
+                        case 4
+                            derivstr = "q";
+                        case 5
+                            derivstr = "r";
+                        otherwise
+                            derivstr = strcat("f",num2str(floor(dispIndex/6)-5));
+                    end
+                    switch mod(dispIndex,6)
+                        case 1
+                            coefstr = "CX";
+                        case 2
+                            coefstr = "CY";
+                        case 3
+                            coefstr = "CZ";
+                        case 4
+                            coefstr = "Cl";
+                        case 5
+                            coefstr = "Cm";
+                        case 0
+                            coefstr = "Cn";
+                    end
+                    zlabel(coefstr+derivstr);
+                end
+                
             end
         end
     

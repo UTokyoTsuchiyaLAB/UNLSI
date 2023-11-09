@@ -12,7 +12,7 @@ wing = wing.makeCluster(); %速度分布を求めるためのパネルクラス�
 wing = wing.makeEquation(); %パネル法行列の作成
 %%%%%%%%ここまでは一度計算すればスキップできる
 %}
-wing = wing.setUNLSISettings("propCalcFlag",1);
+wing = wing.setUNLSISettings("propCalcFlag",1,"nGriddedInterp",10);
 wing = wing.setPropState(1,0.4,0.6,8000); %プロペラの回転状況を指定
 wing = wing.setDeflAngle(6,[0,1,0],0);%6番のIDを回転軸[0,1,0]、角度0degに設定（動翼として登録）
 wing = wing.setDeflAngle(7,[0,1,0],0);%7番のIDを回転軸[0,1,0]、角度0degに設定（動翼として登録）
@@ -28,7 +28,7 @@ wing = wing.calcDynCoef(0,0,0.001,300000); %動安定微係数を計算（deflDe
 
 %空力係数の補間曲面の作成
 wing = wing.makeSurrogateModel([-10,-5,0,5,10],[-10,-5,0,5,10],0.001,200000);
-[ppCoef,ppDyn,testData] = wing.getSurrogateModel(linspace(-10,10,100),linspace(-10,10,100),0.15,"coef",1,2);
+[ppCoef,ppDyn,testData] = wing.getSurrogateModel(linspace(-10,10,100),linspace(-10,10,100),0.15,"dyn",48,2);
 UREF = 15;
 Mach = 0.001;
 REFS = [wing.SREF,wing.BREF,wing.CREF];

@@ -15,7 +15,7 @@
         meshGenFun %解析メッシュを作成する関数
         lb %設計変数の下限
         ub %設計変数の上限
-        setting %最適化・解析の設定値
+        settingUNGRADE %最適化・解析の設定値
         designScale %ub-lbのスケーリングパラメータ
         gradMesh %メッシュ節点の変化を設計変数で一次近似したもの
         approxMat %パネル法行列の近似行列を作成するためのセル
@@ -63,16 +63,16 @@
             % 'chain'-->各節点位置の変化に対する近似パネル法行列と、設計変数変化に対する節点位置の変化を用いてチェインルールで勾配計算する。
             % 'nonlin'-->approxmatによる近似パネル法行列を使った直接最適化
             % 
-            obj.setting.nMemory = 6; %記憶制限準ニュートン法のさかのぼり回数（厳密な記憶制限法は実装していない）
-            obj.setting.H0 = eye(numel(obj.lb)); %初期ヘッシアン
-            obj.setting.wakeLength = 20;
-            obj.setting.meshGradientPerturbation = 0.01;%メッシュ勾配をとるときのスケールされてない設計変数の摂動量
-            obj.setting.gradientCalcMethod = "direct"; %設計変数偏微分の取得方法："direct", "chain", "nonlin"
-            obj.setting.HessianUpdateMethod = "BFGS"; %ヘッシアン更新は "BFGS","DFP","Broyden","SR1"から選択
-            obj.setting.updateMethod = "Levenberg–Marquardt";%解を更新する方法 Steepest-Descent,Levenberg–Marquardt,dogleg
-            obj.setting.betaLM = 0.5; %レーベンバーグマッカートの重み係数
-            obj.setting.alphaSD = 0.5; %最急降下法の重み 
-            obj.setting.TrustRegion = 0.1; %設計更新を行う際のスケーリングされた設計変数更新量の最大値
+            obj.settingUNGRADE.nMemory = 6; %記憶制限準ニュートン法のさかのぼり回数（厳密な記憶制限法は実装していない）
+            obj.settingUNGRADE.H0 = eye(numel(obj.lb)); %初期ヘッシアン
+            obj.settingUNGRADE.wakeLength = 20;
+            obj.settingUNGRADE.meshGradientPerturbation = 0.01;%メッシュ勾配をとるときのスケールされてない設計変数の摂動量
+            obj.settingUNGRADE.gradientCalcMethod = "direct"; %設計変数偏微分の取得方法："direct", "chain", "nonlin"
+            obj.settingUNGRADE.HessianUpdateMethod = "BFGS"; %ヘッシアン更新は "BFGS","DFP","Broyden","SR1"から選択
+            obj.settingUNGRADE.updateMethod = "Levenberg–Marquardt";%解を更新する方法 Steepest-Descent,Levenberg–Marquardt,dogleg
+            obj.settingUNGRADE.betaLM = 0.5; %レーベンバーグマッカートの重み係数
+            obj.settingUNGRADE.alphaSD = 0.5; %最急降下法の重み 
+            obj.settingUNGRADE.TrustRegion = 0.1; %設計更新を行う際のスケーリングされた設計変数更新量の最大値
             %%%%%%%%%%%%%
             obj = obj.checkMesh(obj.settingUNLSI.checkMeshTol,obj.settingUNLSI.checkMeshMethod);
             warning('off','MATLAB:triangulation:PtsNotInTriWarnId');
@@ -92,23 +92,23 @@
             obj.LagrangianInfo.alin = [];
             obj.LagrangianInfo.blin = [];  
 
-            obj.Hessian = obj.setting.H0;
+            obj.Hessian = obj.settingUNGRADE.H0;
 
             warning('on','MATLAB:triangulation:PtsNotInTriWarnId');
         end
 
         function obj = setFlowCondition(obj,alpha,beta,Mach,Re)
-            obj.setting.Mach = Mach;
-            obj.setting.alpha = alpha;
-            obj.setting.beta = beta;
-            obj.setting.Re = Re;
-            if numel(obj.setting.Mach) ~= numel(obj.setting.alpha) || numel(obj.setting.Mach) ~= numel(obj.setting.beta) || numel(obj.setting.beta) ~= numel(obj.setting.alpha)
+            obj.settingUNGRADE.Mach = Mach;
+            obj.settingUNGRADE.alpha = alpha;
+            obj.settingUNGRADE.beta = beta;
+            obj.settingUNGRADE.Re = Re;
+            if numel(obj.settingUNGRADE.Mach) ~= numel(obj.settingUNGRADE.alpha) || numel(obj.settingUNGRADE.Mach) ~= numel(obj.settingUNGRADE.beta) || numel(obj.settingUNGRADE.beta) ~= numel(obj.settingUNGRADE.alpha)
                 error("No. of case is not match");
             end
             uniMach = unique(Mach);
             for i = 1:numel(uniMach)
                 obj = obj.flowCondition(i,uniMach(i));
-                obj = obj.setCf(i,obj.setting.Re);
+                obj = obj.setCf(i,obj.settingUNGRADE.Re);
             end
             for i = 1:numel(Mach)
                 obj.flowNoList(i,1) = find(uniMach == Mach(i));
@@ -161,7 +161,7 @@
                 obj = obj.makeCluster();
             end
             for i = 1:numel(obj.flow)
-                obj = obj.setCf(i,obj.setting.Re);
+                obj = obj.setCf(i,obj.settingUNGRADE.Re);
             end
             warning('on','MATLAB:triangulation:PtsNotInTriWarnId');
         end
@@ -197,8 +197,8 @@
             obj.approximated = 0;
             desOrg = obj.scaledVar.*obj.designScale+obj.lb;
             for iter = 1:numel(obj.flow)
-                alphabuff = obj.setting.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
-                betabuff = obj.setting.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
+                alphabuff = obj.settingUNGRADE.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
+                betabuff = obj.settingUNGRADE.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                 u0 = obj.solvePertPotential(iter,alphabuff,betabuff);
                 [~,~,~,~,obj] = obj.solveFlowForAdjoint(u0,iter,alphabuff,betabuff);
                 [udwf,udwr] = obj.calcDynCoefdu(iter,alphabuff,betabuff);
@@ -294,18 +294,6 @@
             end
         end
 
-        function [obj,thrust,power,Jref] = setPropParameter(obj,Vinf,rho,CT,CP,rpm)
-           %%%%%%%%%UNLSIのCfパラメータを一括設定する%%%%%%%%%%%%
-            %変数についてはUNLSIのsetPropStateを参照
-           %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-           obj.setting.propCalcFlag = 1;
-            obj.setting.Vinf = Vinf;
-            obj.setting.rho = rho;
-            obj.setting.CT = CT;
-            obj.setting.CP = CP;
-            obj.setting.rpm = rpm;
-            [obj,thrust,power,Jref] = obj.setPropState(obj.setting.Vinf,obj.setting.rho,obj.setting.CT,obj.setting.CP,obj.setting.rpm);
-        end
         
         function obj = setUNGRADESettings(obj,varargin)
            %%%%%%%%%設定を変更する%%%%%%%%%%%%
@@ -317,19 +305,19 @@
                 error("input style not match");
             end
             for iter = 1:numel(varargin)/2
-                if isfield(obj.setting,varargin{2*iter-1})
-                    obj.setting = setfield(obj.setting,varargin{2*iter-1},varargin{2*iter});
+                if isfield(obj.settingUNGRADE,varargin{2*iter-1})
+                    obj.settingUNGRADE = setfield(obj.settingUNGRADE,varargin{2*iter-1},varargin{2*iter});
                     if strcmpi(varargin{2*iter-1},"Mach")
-                        if numel(obj.setting.Mach) ~= numel(obj.setting.alpha) || numel(obj.setting.Mach) ~= numel(obj.setting.beta) || numel(obj.setting.beta) ~= numel(obj.setting.alpha)
+                        if numel(obj.settingUNGRADE.Mach) ~= numel(obj.settingUNGRADE.alpha) || numel(obj.settingUNGRADE.Mach) ~= numel(obj.settingUNGRADE.beta) || numel(obj.settingUNGRADE.beta) ~= numel(obj.settingUNGRADE.alpha)
                             error("No. of case is not match");
                         end
-                        uniMach = unique(obj.setting.Mach);
+                        uniMach = unique(obj.settingUNGRADE.Mach);
                         for i = 1:numel(uniMach)
                             obj = obj.flowCondition(i,uniMach(i));
-                            obj = obj.setCf(i,obj.setting.Re,obj.setting.Lch,obj.setting.k,obj.setting.LTratio,obj.setting.coefficient);
+                            obj = obj.setCf(i,obj.settingUNGRADE.Re,obj.settingUNGRADE.Lch,obj.settingUNGRADE.k,obj.settingUNGRADE.LTratio,obj.settingUNGRADE.coefficient);
                         end
-                        for i = 1:numel(obj.setting.Mach)
-                            obj.flowNoList(i,1) = find(uniMach == obj.setting.Mach(i));
+                        for i = 1:numel(obj.settingUNGRADE.Mach)
+                            obj.flowNoList(i,1) = find(uniMach == obj.settingUNGRADE.Mach(i));
                             obj.flowNoList(i,2) = uniMach(obj.flowNoList(i,1));
                             obj.flowNoList(i,3) = obj.flowNoList(i,2)<1;
                         end
@@ -339,7 +327,7 @@
                 end
             end
             if obj.iteration == 0
-                obj.Hessian = obj.setting.H0;
+                obj.Hessian = obj.settingUNGRADE.H0;
             end
         end
 
@@ -356,7 +344,7 @@
                 obj = obj.setUNGRADESettings(varargin{:});
             end
             obj.iteration = obj.iteration + 1;
-            fprintf("iteration No. %d : Gradient Caluculation Started\n -- GradientCalcMethod : %s\n",obj.iteration,obj.setting.gradientCalcMethod);
+            fprintf("iteration No. %d : Gradient Caluculation Started\n -- GradientCalcMethod : %s\n",obj.iteration,obj.settingUNGRADE.gradientCalcMethod);
             %初期点の解析
             nbPanel = sum(obj.paneltype == 1);
             if isempty(obj.LHS)
@@ -369,8 +357,8 @@
             u0 = zeros(nbPanel*size(obj.flowNoList,1),1);
             R0 = zeros(nbPanel*size(obj.flowNoList,1),1);
             for iter = 1:numel(obj.flow)
-                alphabuff = obj.setting.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
-                betabuff = obj.setting.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
+                alphabuff = obj.settingUNGRADE.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
+                betabuff = obj.settingUNGRADE.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                 [u0solve,~] = obj.solvePertPotential(iter,alphabuff,betabuff);%ポテンシャルを求める
                 [udwf{iter},udwr{iter}] = obj.calcDynCoefdu(iter,alphabuff,betabuff);
                 [AERODATA0,Cp0,Cfe0,R0solve,obj] = obj.solveFlowForAdjoint(u0solve,iter,alphabuff,betabuff);%ポテンシャルから空力係数を計算
@@ -404,8 +392,8 @@
                     for k = 1:numel(lktable)
                         usolve(nbPanel*(k-1)+1:nbPanel*k,1) = u((lktable(k)-1)*nbPanel+1:lktable(k)*nbPanel,1);
                     end
-                    alphabuff = obj.setting.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
-                    betabuff = obj.setting.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
+                    alphabuff = obj.settingUNGRADE.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
+                    betabuff = obj.settingUNGRADE.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                     [AERODATA,Cp,Cfe,~,obj] = obj.solveFlowForAdjoint(usolve,iter,alphabuff,betabuff);
                     DYNCOEF =  obj.calcDynCoefforAdjoint(usolve,udwf{iter},udwr{iter},iter,alphabuff,betabuff);
                 end
@@ -432,8 +420,8 @@
             end
             %x微分の計算
             %メッシュの節点勾配を作成
-            obj = obj.makeMeshGradient(obj,obj.setting.meshGradientPerturbation./obj.designScale);
-            if strcmpi(obj.setting.gradientCalcMethod,'chain')
+            obj = obj.makeMeshGradient(obj,obj.settingUNGRADE.meshGradientPerturbation./obj.designScale);
+            if strcmpi(obj.settingUNGRADE.gradientCalcMethod,'chain')
                 if any(obj.flowNoList(:,3) == 1)
                     obj = obj.calcApproximatedEquation(obj);
                 end
@@ -446,10 +434,10 @@
                 des = x.*obj.designScale+obj.lb;
                 %[~,modMesh] = obj.calcApproximatedMeshGeom(des);
                 modMesh = obj.orgMesh.Points + reshape(obj.gradMesh*(x(:)-obj.scaledVar(:)),size(obj.orgMesh.Points));
-                if strcmpi(obj.setting.gradientCalcMethod,'direct')
+                if strcmpi(obj.settingUNGRADE.gradientCalcMethod,'direct')
                     %変数が少ないときは直接作成
                     obj2 = obj.setVerts(modMesh);
-                elseif strcmpi(obj.setting.gradientCalcMethod,'chain')
+                elseif strcmpi(obj.settingUNGRADE.gradientCalcMethod,'chain')
                     if any(obj.flowNoList(:,3) == 1)
                         obj2 = obj.makeApproximatedInstance(modMesh);
                     else
@@ -467,7 +455,7 @@
                 argin_x2 = obj.argin_x+obj.gradArginx*(x(:)-obj.scaledVar(:));
                 obj2 = obj2.setREFS(SREF2,BREF2,CREF2);
                 obj2 = obj2.setRotationCenter(XYZREF2);
-                if strcmpi(obj.setting.gradientCalcMethod,'direct')
+                if strcmpi(obj.settingUNGRADE.gradientCalcMethod,'direct')
                     %変数が少ないときは直接作成
                     if any(obj.flowNoList(:,3) == 1)
                         obj2 = obj2.makeEquation();
@@ -481,8 +469,8 @@
                     for k = 1:numel(lktable)
                         u0solve(nbPanel*(k-1)+1:nbPanel*k,1) = u0((lktable(k)-1)*nbPanel+1:lktable(k)*nbPanel,1);
                     end
-                    alphabuff = obj.setting.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
-                    betabuff = obj.setting.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
+                    alphabuff = obj.settingUNGRADE.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
+                    betabuff = obj.settingUNGRADE.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                     [AERODATA,Cp,Cfe,Rsolve,obj2] = obj2.solveFlowForAdjoint(u0solve,iter,alphabuff,betabuff);
                     [udwfdx,udwrdx] = obj2.calcDynCoefdu(iter,alphabuff,betabuff);
                     DYNCOEF =  obj2.calcDynCoefforAdjoint(u0solve,udwfdx,udwrdx,iter,alphabuff,betabuff);
@@ -561,25 +549,25 @@
             if nargin>1
                 obj = obj.setUNGRADESettings(varargin{:});
             end
-            fprintf("--updateMethod : %s\n",obj.setting.updateMethod)
+            fprintf("--updateMethod : %s\n",obj.settingUNGRADE.updateMethod)
 
-            if strcmpi(obj.setting.updateMethod,"Levenberg–Marquardt")
-                fprintf("--TrustRegion : %f\n",obj.setting.TrustRegion)
-                fprintf("--Beta(Levenberg-Marquardt) : %f\n",obj.setting.betaLM)
-            elseif strcmpi(obj.setting.updateMethod,"dogleg")
-                fprintf("--TrustRegion : %f\n",obj.setting.TrustRegion)
-            elseif strcmpi(obj.setting.updateMethod,"Steepest-Descent")
-                fprintf("--Alpha(Steepest-Descent) : %f\n",obj.setting.alphaSD)
-                fprintf("--TrustRegion : %f\n",obj.setting.TrustRegion)
+            if strcmpi(obj.settingUNGRADE.updateMethod,"Levenberg–Marquardt")
+                fprintf("--TrustRegion : %f\n",obj.settingUNGRADE.TrustRegion)
+                fprintf("--Beta(Levenberg-Marquardt) : %f\n",obj.settingUNGRADE.betaLM)
+            elseif strcmpi(obj.settingUNGRADE.updateMethod,"dogleg")
+                fprintf("--TrustRegion : %f\n",obj.settingUNGRADE.TrustRegion)
+            elseif strcmpi(obj.settingUNGRADE.updateMethod,"Steepest-Descent")
+                fprintf("--Alpha(Steepest-Descent) : %f\n",obj.settingUNGRADE.alphaSD)
+                fprintf("--TrustRegion : %f\n",obj.settingUNGRADE.TrustRegion)
             end
             desOrg = obj.scaledVar.*obj.designScale+obj.lb;
             lbf = -obj.scaledVar;
             ubf = 1-obj.scaledVar;
             ndim = numel(lbf);
-            if strcmpi(obj.setting.updateMethod,"Levenberg–Marquardt")
+            if strcmpi(obj.settingUNGRADE.updateMethod,"Levenberg–Marquardt")
                 options = optimoptions(@fmincon,'Algorithm','interior-point','Display','final-detailed','EnableFeasibilityMode',true,"SubproblemAlgorithm","cg",'MaxFunctionEvaluations',10000);
-                dxscaled = fmincon(@(x)obj.fminconObj(x,obj.Hessian+obj.setting.betaLM*diag(diag(obj.Hessian)),obj.LagrangianInfo.dL_dx),zeros(numel(obj.scaledVar),1),obj.LagrangianInfo.alin,obj.LagrangianInfo.blin,[],[],lbf,ubf,@(x)obj.fminconNlc(x,obj.setting.TrustRegion),options);
-            elseif strcmpi(obj.setting.updateMethod,"dogleg")
+                dxscaled = fmincon(@(x)obj.fminconObj(x,obj.Hessian+obj.settingUNGRADE.betaLM*diag(diag(obj.Hessian)),obj.LagrangianInfo.dL_dx),zeros(numel(obj.scaledVar),1),obj.LagrangianInfo.alin,obj.LagrangianInfo.blin,[],[],lbf,ubf,@(x)obj.fminconNlc(x,obj.settingUNGRADE.TrustRegion),options);
+            elseif strcmpi(obj.settingUNGRADE.updateMethod,"dogleg")
                 %sd方向を求める行列
                 Aeq = [eye(ndim),obj.LagrangianInfo.dL_dx(:)];
                 beq = zeros(ndim,1);
@@ -587,17 +575,17 @@
                 xsd_t = fmincon(@(x)obj.fminconObj(x,obj.Hessian,obj.LagrangianInfo.dL_dx),zeros(numel(obj.scaledVar)+1,1),[obj.LagrangianInfo.alin,zeros(size(obj.LagrangianInfo.alin,1),1)],obj.LagrangianInfo.blin,Aeq,beq,[lbf,-100],[ubf,100],[],options);
                 xsd = xsd_t(1:ndim);
                 xqn = fmincon(@(x)obj.fminconObj(x,obj.Hessian,obj.LagrangianInfo.dL_dx),zeros(numel(obj.scaledVar),1),obj.LagrangianInfo.alin,obj.LagrangianInfo.blin,[],[],lbf,ubf,[],options);
-                if norm(xqn) <= obj.setting.TrustRegion
+                if norm(xqn) <= obj.settingUNGRADE.TrustRegion
                     dxscaled = xqn;
-                elseif norm(xqn) > obj.setting.TrustRegion && norm(xsd) > obj.setting.TrustRegion
-                    dxscaled = (obj.setting.TrustRegion / norm(xsd) ).* xsd;
+                elseif norm(xqn) > obj.settingUNGRADE.TrustRegion && norm(xsd) > obj.settingUNGRADE.TrustRegion
+                    dxscaled = (obj.settingUNGRADE.TrustRegion / norm(xsd) ).* xsd;
                 else
-                    sdl = fsolve(@(s)obj.doglegsearch(s,xsd,xqn,obj.setting.TrustRegion),1);
+                    sdl = fsolve(@(s)obj.doglegsearch(s,xsd,xqn,obj.settingUNGRADE.TrustRegion),1);
                     dxscaled = xsd + sdl .* (xqn-xsd);
                 end
-            elseif strcmpi(obj.setting.updateMethod,"Steepest-Descent")
+            elseif strcmpi(obj.settingUNGRADE.updateMethod,"Steepest-Descent")
                 options = optimoptions(@fmincon,'Algorithm','interior-point','Display','final-detailed','EnableFeasibilityMode',true,"SubproblemAlgorithm","cg",'MaxFunctionEvaluations',10000);
-                dxscaled = fmincon(@(x)obj.fminconObj(x,2.*eye(ndim),2.*obj.setting.alphaSD.*obj.LagrangianInfo.dL_dx),zeros(numel(obj.scaledVar),1),obj.LagrangianInfo.alin,obj.LagrangianInfo.blin,[],[],[],[],@(x)obj.fminconNlc(x,obj.setting.TrustRegion),options);
+                dxscaled = fmincon(@(x)obj.fminconObj(x,2.*eye(ndim),2.*obj.settingUNGRADE.alphaSD.*obj.LagrangianInfo.dL_dx),zeros(numel(obj.scaledVar),1),obj.LagrangianInfo.alin,obj.LagrangianInfo.blin,[],[],[],[],@(x)obj.fminconNlc(x,obj.settingUNGRADE.TrustRegion),options);
             end
             dx = dxscaled(:)'.*obj.designScale;
             nextUnscaledVar = desOrg + dx(:)';
@@ -611,23 +599,23 @@
             if nargin>1
                 obj = obj.setUNGRADESettings(varargin{:});
             end
-            fprintf("-- HessianUpdateMethod : %s\n",obj.setting.HessianUpdateMethod);
-            if strcmpi(obj.setting.HessianUpdateMethod,"SR1")
+            fprintf("-- HessianUpdateMethod : %s\n",obj.settingUNGRADE.HessianUpdateMethod);
+            if strcmpi(obj.settingUNGRADE.HessianUpdateMethod,"SR1")
                updateFunction = @obj.SR1;
-            elseif strcmpi(obj.setting.HessianUpdateMethod,"BFGS")
+            elseif strcmpi(obj.settingUNGRADE.HessianUpdateMethod,"BFGS")
                 updateFunction = @obj.BFGS;
-            elseif strcmpi(obj.setting.HessianUpdateMethod,"DFP")
+            elseif strcmpi(obj.settingUNGRADE.HessianUpdateMethod,"DFP")
                 updateFunction = @obj.DFP;
-            elseif strcmpi(obj.setting.HessianUpdateMethod,"Broyden")
+            elseif strcmpi(obj.settingUNGRADE.HessianUpdateMethod,"Broyden")
                 updateFunction = @obj.Broyden;
             end
             %Hessianの更新
             if size(obj.history.scaledVar,1) > 1
                 n_iter = size(obj.history.scaledVar,1)-1;
-                if n_iter > obj.setting.nMemory
-                    n_iter = obj.setting.nMemory;
+                if n_iter > obj.settingUNGRADE.nMemory
+                    n_iter = obj.settingUNGRADE.nMemory;
                 end
-                obj.Hessian = obj.setting.H0;
+                obj.Hessian = obj.settingUNGRADE.H0;
                 for i = n_iter:-1:1
                     s = obj.history.scaledVar(end-(i-1),:)-obj.history.scaledVar(end-i,:);
                     y = obj.history.dL_dx(end-(i-1),:)-obj.history.dL_dx(end-i,:);
