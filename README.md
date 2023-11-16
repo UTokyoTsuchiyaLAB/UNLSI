@@ -126,12 +126,19 @@ THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR I
 
 また、本ソフトウェアに付帯するソフトウェアとしてOpenVSPおよびdistanceVertex2Mesh.mを用いています。
 上記ソフトウェアのライセンス表記を以下に示します。
+
 openVSP
+
 Copyright (c) 2012 United States Government as represented by the Administrator for The National Aeronautics and Space Administration. All Rights Reserved.
 
+
 DISTANCEVERTEX2MESH - calculate the distance between vertices and a mesh
+
 Author: Christopher Haccius
+
 Telecommunications Lab, Saarland University, Germany
+
 email: haccius@nt.uni-saarland.de
+
 March 2015; Last revision: 26-March-2015
 
