@@ -23,7 +23,7 @@ wing = wing.setDeflGroup(2,"rud",[5],[1]); % ID6番7番をgain[1,1](軸が同じ
 alpha = [-3,0,3];
 beta = [0,0,0];
 wing = wing.solveFlow(alpha,beta,0.001,300000);
-wing.plotGeometry(1,wing.getCp(0,0,0.001,300000),[-2,1],"exact");%圧力係数のプロット
+wing.plotGeometry(1,wing.getCp(0,0,0.001,300000),[-2,1]);%圧力係数のプロット
 disp(wing.getAERODATA(alpha,beta,0.001,300000));
 %{
 %空力係数の補間曲面の作成
