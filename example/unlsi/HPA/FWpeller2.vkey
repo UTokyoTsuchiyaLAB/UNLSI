@@ -1,0 +1,15 @@
+# VSPGEOM Tag Key File
+C:\Users\building13\Dropbox\UNLSIworks\unlsi\HPA\FWpeller2.vspgeom
+10
+
+# tag#,geom#,surf#,gname,gid,ssname1,ssname2,...,ssid1,ssid2,...
+1,7,0,WingGeom_S,CTJVKSGXSC
+2,7,1,WingGeom_S,CTJVKSGXSC
+3,6,0,WingGeom_S,CZDKEBBZLI
+4,6,1,WingGeom_S,CZDKEBBZLI
+5,3,0,WingGeom_S,KIVBEZRVSU
+6,1,0,PropGeom_S,ULFXPCRPAW
+7,0,0,StackGeom_S,XCFRVIYJQB
+8,4,0,FuselageGeom_S,IJQRFMHKDG
+9,5,0,StackGeom_S,DISTXDMEGM
+10,2,0,StackGeom_S,RPUXNTJAUN

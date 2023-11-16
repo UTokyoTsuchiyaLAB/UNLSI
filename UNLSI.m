@@ -115,6 +115,11 @@ classdef UNLSI
             for iter = 1:numel(varargin)/2
                 if isfield(obj.settingUNLSI,varargin{2*iter-1})
                     obj.settingUNLSI = setfield(obj.settingUNLSI,varargin{2*iter-1},varargin{2*iter});
+                    if strcmp(varargin{2*iter-1}, "kCf") || strcmp(varargin{2*iter-1},"laminarRatio") || strcmp(varargin{2*iter-1},"coefCf") || strcmp(varargin{2*iter-1}, "newtoniantype") || strcmp(varargin{2*iter-1}, "kappa")
+                        for i = 1:size(obj.flowNoTable,1)
+                            obj = obj.flowCondition(i,obj.flowNoTable(i,1),obj.flowNoTable(i,2));
+                        end
+                    end
                 else
                     error("Field name is not match");
                 end
@@ -431,6 +436,9 @@ classdef UNLSI
             %alpha,beta : AoA Sideslip(deg)
             %threshold : deg 
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            if nargin == 4
+                ID = unique(obj.surfID);
+            end
             flowVec(1) = cosd(alpha)*cosd(beta);
             flowVec(2) = -sind(beta);
             flowVec(3) = sind(alpha)*cosd(beta);
@@ -1351,26 +1359,17 @@ classdef UNLSI
         function  [modal,DYNCOEF,dynCoefStruct] = getModal(obj,alpha,beta,Mach,Re,UREF,mass,Inatia)
             [DYNCOEF,dynCoefStruct] = obj.getDYNCOEF(alpha,beta,Mach,Re);
             for i = 1:numel(DYNCOEF)
-	            %Mq = obj.settingUNLSI.rho*UREF*SREF*CREF*CREF/(4*Inatia(2,2))*dynCoefStruct{i}.Cmq;
 	            Yb = obj.settingUNLSI.rho*UREF*UREF*obj.SREF/(2*mass)*dynCoefStruct{i}.Cyb;
 	            Lb = obj.settingUNLSI.rho*UREF*UREF*obj.SREF*obj.BREF/(2*Inatia(1,1))*dynCoefStruct{i}.Clb;
 	            Nb = obj.settingUNLSI.rho*UREF*UREF*obj.SREF*obj.BREF/(2*Inatia(3,3))*dynCoefStruct{i}.Cnb;
-	            %Yp = obj.settingUNLSI.rho*UREF*SREF*BREF/(4*mass)*dynCoefStruct{i}.Cyp;
 	            Lp = obj.settingUNLSI.rho*UREF*obj.SREF*obj.BREF*obj.BREF/(4*Inatia(1,1))*dynCoefStruct{i}.Clp;
 	            Np = obj.settingUNLSI.rho*UREF*obj.SREF*obj.BREF*obj.BREF/(4*Inatia(3,3))*dynCoefStruct{i}.Cnp;
-	            %Yr = obj.settingUNLSI.rho*UREF*SREF*BREF/(4*mass)*dynCoefStruct{i}.Cyr;
 	            Lr = obj.settingUNLSI.rho*UREF*obj.SREF*obj.BREF*obj.BREF/(4*Inatia(1,1))*dynCoefStruct{i}.Clr;
 	            Nr = obj.settingUNLSI.rho*UREF*obj.SREF*obj.BREF*obj.BREF/(4*Inatia(3,3))*dynCoefStruct{i}.Cnr;
-                %Xu = obj.settingUNLSI.rho*UREF*SREF/(2*mass)*(dynCoefStruct{i}.Cxu);
-                %Zu = obj.settingUNLSI.rho*UREF*SREF/(2*mass)*(dynCoefStruct{i}.CZu-2*dynCoefStruct{i}.CL);
-                %Xa = obj.settingUNLSI.rho*UREF^2*SREF/(2*mass)*dynCoefStruct{i}.Cxa;
                 Za = obj.settingUNLSI.rho*UREF^2*obj.SREF/(2*mass)*dynCoefStruct{i}.Cza;
-                %Zq = obj.settingUNLSI.rho*UREF*SREF*CREF/(4*mass)*(dynCoefStruct{i}.Czq);
-                %Mu = obj.settingUNLSI.rho*UREF*SREF*CREF/(2*Inatia(2,2))*dynCoefStruct{i}.Cmu;
                 Ma = obj.settingUNLSI.rho*UREF^2*obj.SREF*obj.CREF/(2*Inatia(2,2))*dynCoefStruct{i}.Cma;
                 Mq = obj.settingUNLSI.rho*UREF*obj.SREF*obj.CREF^2/(4*Inatia(2,2))*dynCoefStruct{i}.Cmq;
-        
-                
+       
                 modal.shortPriod.omegan = sqrt(-Ma+Za/UREF*Mq);
                 modal.shortPriod.eta =(-Za/UREF-Mq)/2/modal.shortPriod.omegan;
                 
@@ -1873,6 +1872,87 @@ classdef UNLSI
             end
         end
     
+        function plotSurrogateModel(obj,ppCoef,ppDyn,alphaRange,betaRange,Mach,figureNo)
+            for dispIndex = 1:numel(ppDyn)
+                testData = [];
+                if numel(ppCoef{1}.GridVectors) == 2
+                    [x1,x2] = ndgrid(alphaRange,betaRange);
+                    for a = 1:numel(alphaRange)
+                        for b = 1:numel(betaRange)
+                            if dispIndex<7
+                                testData(a,b) = ppCoef{dispIndex}(x1(a,b),x2(a,b));
+                            else
+                                testData(a,b) = ppDyn{dispIndex}(x1(a,b),x2(a,b));
+                            end
+                        end
+                    end
+                else
+                    [x1,x2] = ndgrid(alphaRange,betaRange);
+                    for a = 1:numel(alphaRange)
+                        for b = 1:numel(betaRange)
+                             if dispIndex<7
+                                testData(a,b) = ppCoef{dispIndex}(x1(a,b),x2(a,b),Mach);
+                            else
+                                testData(a,b) = ppDyn{dispIndex}(x1(a,b),x2(a,b),Mach);
+                            end
+                        end
+                    end
+                end
+                figure(figureNo+dispIndex-1);clf;
+                mesh(x1,x2,testData);
+                xlabel("alpha(deg)");
+                ylabel("beta(deg)");
+                if dispIndex < 7
+                    switch dispIndex
+                        case 1
+                            zlabel("CD");
+                        case 2
+                            zlabel("CY");
+                        case 3
+                            zlabel("CL");
+                        case 4
+                            zlabel("Cl");
+                        case 5
+                            zlabel("Cm");
+                        case 6
+                            zlabel("Cn");
+                        otherwise
+                            error("invalid INDEX");
+                    end
+                else
+                    switch floor((dispIndex-1)/6)
+                        case 1
+                            derivstr = "b";
+                        case 2
+                            derivstr = "a";
+                        case 3
+                            derivstr = "p";
+                        case 4
+                            derivstr = "q";
+                        case 5
+                            derivstr = "r";
+                        otherwise
+                            derivstr = strcat("f",num2str(floor((dispIndex-1)/6)-5));
+                    end
+                    switch mod(dispIndex,6)
+                        case 1
+                            coefstr = "CX";
+                        case 2
+                            coefstr = "CY";
+                        case 3
+                            coefstr = "CZ";
+                        case 4
+                            coefstr = "Cl";
+                        case 5
+                            coefstr = "Cm";
+                        case 0
+                            coefstr = "Cn";
+                    end
+                    zlabel(coefstr+derivstr);
+                end
+            end
+        end
+
     end        
     methods(Static)
 
