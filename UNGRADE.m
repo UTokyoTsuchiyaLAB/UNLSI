@@ -74,7 +74,7 @@
 
 
             %%%%%%%%%%%オプションのデフォルト設定
-            % gradientCalcMethod
+            % gradientCalcMethodex
             % 'direct'-->直接パネル法行列を計算し差分を作成
             % 'chain'-->各節点位置の変化に対する近似パネル法行列と、設計変数変化に対する節点位置の変化を用いてチェインルールで勾配計算する。
             % 'nonlin'-->approxmatによる近似パネル法行列を使った直接最適化
@@ -752,12 +752,19 @@
                     error("Surf connectivity is not match")
                 end
             end
-            md.x = scatteredInterpolant(obj.orgGeom.Points,modGeomVerts(:,1)-obj.orgGeom.Points(:,1),'linear','linear');
-            md.y = scatteredInterpolant(obj.orgGeom.Points,modGeomVerts(:,2)-obj.orgGeom.Points(:,2),'linear','linear');
-            md.z = scatteredInterpolant(obj.orgGeom.Points,modGeomVerts(:,3)-obj.orgGeom.Points(:,3),'linear','linear');
-            dVerts(:,1) = md.x(obj.tri.Points);
-            dVerts(:,2) = md.y(obj.tri.Points);
-            dVerts(:,3) = md.z(obj.tri.Points);
+
+            %md.x = scatteredInterpolant(obj.orgGeom.Points,modGeomVerts(:,1)-obj.orgGeom.Points(:,1),'linear','linear');
+            %md.y = scatteredInterpolant(obj.orgGeom.Points,modGeomVerts(:,2)-obj.orgGeom.Points(:,2),'linear','linear');
+            %md.z = scatteredInterpolant(obj.orgGeom.Points,modGeomVerts(:,3)-obj.orgGeom.Points(:,3),'linear','linear');
+            %dVerts(:,1) = md.x(obj.tri.Points);
+            %dVerts(:,2) = md.y(obj.tri.Points);
+            %dVerts(:,3) = md.z(obj.tri.Points);
+            md.x = obj.RbfppMake(obj,obj.orgGeom.Points,modGeomVerts(:,1)-obj.orgGeom.Points(:,1),1,0.001);
+            md.y = obj.RbfppMake(obj,obj.orgGeom.Points,modGeomVerts(:,2)-obj.orgGeom.Points(:,2),1,0.001);
+            md.z = obj.RbfppMake(obj,obj.orgGeom.Points,modGeomVerts(:,3)-obj.orgGeom.Points(:,3),1,0.001);
+            dVerts(:,1) = obj.execRbfInterp(obj,md.x,obj.tri.Points);
+            dVerts(:,2) = obj.execRbfInterp(obj,md.y,obj.tri.Points);
+            dVerts(:,3) = obj.execRbfInterp(obj,md.z,obj.tri.Points);
             modVerts = obj.tri.Points+dVerts;
             con = obj.tri.ConnectivityList;
         end
@@ -771,6 +778,7 @@
             obj.gradMesh = zeros(size(obj.orgMesh.Points(:),1),ndim);
             desOrg = obj.scaledVar.*obj.designScale+obj.lb;
             [surforg,~,~,~,~,~,~,desOrg] = obj.geomGenFun(desOrg);
+            meshrbf = obj.RbfinvRMake(obj,obj.orgGeom.Points,3,0.001);
             for i = 1:ndim
                 sampleDes = obj.scaledVar.*obj.designScale+obj.lb;
                 sampleDes(i) = (obj.scaledVar(i) + pert(i)).*obj.designScale(i)+obj.lb(i);
@@ -791,12 +799,18 @@
                 obj.gradXYZREF(:,i) = (XYZREFf(:)-XYZREFr(:))./(pertf-pertr);
                 obj.gradArginx(:,i) = (argin_xf(:)-argin_xr(:))./(pertf-pertr);
                 reshapeGrad = reshape(gradSurf,size(modSurf));
-                md.x = scatteredInterpolant(obj.orgGeom.Points,reshapeGrad(:,1),'linear','linear');
-                md.y = scatteredInterpolant(obj.orgGeom.Points,reshapeGrad(:,2),'linear','linear');
-                md.z = scatteredInterpolant(obj.orgGeom.Points,reshapeGrad(:,3),'linear','linear');
-                dVerts(:,1) = md.x(obj.orgMesh.Points);
-                dVerts(:,2) = md.y(obj.orgMesh.Points);
-                dVerts(:,3) = md.z(obj.orgMesh.Points);
+                %md.x = scatteredInterpolant(obj.orgGeom.Points,reshapeGrad(:,1),'linear','linear');
+                %md.y = scatteredInterpolant(obj.orgGeom.Points,reshapeGrad(:,2),'linear','linear');
+                %md.z = scatteredInterpolant(obj.orgGeom.Points,reshapeGrad(:,3),'linear','linear');
+                %dVerts(:,1) = md.x(obj.orgMesh.Points);
+                %dVerts(:,2) = md.y(obj.orgMesh.Points);
+                %dVerts(:,3) = md.z(obj.orgMesh.Points);
+                md.x = obj.invRppMake(meshrbf,reshapeGrad(:,1));
+                md.y = obj.invRppMake(meshrbf,reshapeGrad(:,2));
+                md.z = obj.invRppMake(meshrbf,reshapeGrad(:,3));
+                dVerts(:,1) = obj.execRbfInterp(obj,md.x,obj.orgMesh.Points);
+                dVerts(:,2) = obj.execRbfInterp(obj,md.y,obj.orgMesh.Points);
+                dVerts(:,3) = obj.execRbfInterp(obj,md.z,obj.orgMesh.Points);
                 obj.gradMesh(:,i) = dVerts(:);
             end
         end

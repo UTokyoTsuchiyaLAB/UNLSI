@@ -56,6 +56,16 @@ classdef UNLSI
         LLT
         ppCoef
         ppDyn
+        femutils
+        femLHS
+        femRHS
+        femtri
+        femID
+        femarea
+        femNormal
+        femcenter
+        femThn
+        femE
     end
 
     methods(Access = public)
@@ -110,6 +120,7 @@ classdef UNLSI
             obj.settingUNLSI.Vinf = 15;
             obj.settingUNLSI.rho = 1.225;
             obj.settingUNLSI.kappa = 1.4;
+            obj.settingUNLSI.g0 = 9.8;
             obj.settingUNLSI.nGriddedInterp = 90;
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             obj.halfmesh = halfmesh;
@@ -1325,6 +1336,7 @@ classdef UNLSI
             end
         end
 
+        %動安定微係数推算
         function [DYNCOEF,dynCoefStruct] = getDYNCOEF(obj,alpha,beta,Mach,Re)
             if obj.settingUNLSI.resultSearchMethod == "and"
                 outindex = [];
@@ -1972,6 +1984,246 @@ classdef UNLSI
                     zlabel(coefstr+derivstr);
                 end
             end
+        end
+
+
+
+        %FEM関連
+        function obj = setFemMesh(obj,verts,connectivity,femID)
+            obj.femtri = triangulation(connectivity,verts);
+            obj.femID = femID;
+            for i = 1:numel(obj.femID)
+                [obj.femarea(i,1),~ , obj.femNormal(i,:)] = obj.vertex(obj.femtri.Points(obj.femtri.ConnectivityList(i,1),:),obj.femtri.Points(obj.femtri.ConnectivityList(i,2),:),obj.femtri.Points(obj.femtri.ConnectivityList(i,3),:));
+                obj.femcenter(i,:) = [mean(obj.femtri.Points(obj.femtri.ConnectivityList(i,:),1)),mean(obj.femtri.Points(obj.femtri.ConnectivityList(i,:),2)),mean(obj.femtri.Points(obj.femtri.ConnectivityList(i,:),3))];
+            end
+            obj.femutils = [];
+
+            %取り急ぎ、解析用のメッシュと空力メッシュは同一。後でFEAメッシュ等からメッシュを入れられるようにする。
+            usedVertsbuff = unique(obj.femtri.ConnectivityList);
+            obj.femutils.usedVerts=usedVertsbuff(:)';
+            obj.femutils.nbVerts = numel(obj.femutils.usedVerts);
+            obj.femThn = ones(size(obj.femID)).*0.01;
+            obj.femE = ones(size(obj.femID)).*1000000000;
+            for iter = 1:size(obj.femtri.ConnectivityList,1)
+                obj.femutils.IndexRow{iter} = zeros(18,18);
+                obj.femutils.IndexCol{iter} = zeros(18,18);
+                for i = 1:6
+                    for j = 1:3
+                        [r,c] = find(obj.femutils.usedVerts==obj.femtri.ConnectivityList(iter,j));
+                        obj.femutils.IndexRow{iter}(3*(i-1)+j,:) = c+obj.femutils.nbVerts*(i-1);
+                        obj.femutils.IndexCol{iter}(:,3*(i-1)+j) = c+obj.femutils.nbVerts*(i-1);
+                    end
+                end
+            end
+            %境界条件設定
+            obj.femutils.InvMatIndex = [];
+            obj.femutils.MatIndex = zeros(6*obj.femutils.nbVerts,1);
+            for i = 1:numel(obj.femutils.usedVerts)
+               if  abs(obj.femtri.Points(obj.femutils.usedVerts(i),2))<=sqrt(eps)*100
+                   obj.femutils.MatIndex(i,1) = 0;
+                   obj.femutils.MatIndex(1*obj.femutils.nbVerts+i,1) = 0;
+                   obj.femutils.MatIndex(2*obj.femutils.nbVerts+i,1) = 0;
+                   obj.femutils.MatIndex(3*obj.femutils.nbVerts+i,1) = 0;
+                   obj.femutils.MatIndex(4*obj.femutils.nbVerts+i,1) = 0;
+                   obj.femutils.MatIndex(5*obj.femutils.nbVerts+i,1) = 0;
+               else
+                   obj.femutils.MatIndex(i,1) = 1;
+                   obj.femutils.MatIndex(1*obj.femutils.nbVerts+i,1) = 1;
+                   obj.femutils.MatIndex(2*obj.femutils.nbVerts+i,1) = 1;
+                   obj.femutils.MatIndex(3*obj.femutils.nbVerts+i,1) = 1;
+                   obj.femutils.MatIndex(4*obj.femutils.nbVerts+i,1) = 1;
+                   obj.femutils.MatIndex(5*obj.femutils.nbVerts+i,1) = 0;
+                   obj.femutils.InvMatIndex=[obj.femutils.InvMatIndex,i];
+               end
+            end
+            obj.femutils.InvMatIndex=[obj.femutils.InvMatIndex,1*obj.femutils.nbVerts+obj.femutils.InvMatIndex,2*obj.femutils.nbVerts+obj.femutils.InvMatIndex,3*obj.femutils.nbVerts+obj.femutils.InvMatIndex,4*obj.femutils.nbVerts+obj.femutils.InvMatIndex]';
+            
+        end
+
+        function obj = setFemMaterials(obj,femID,thickness,youngModulus)
+            for i = 1:numel(femID)
+                obj.femThn(obj.femID==femID(i),1) = thickness(i);
+                obj.femE(obj.femID==femID(i),1) = youngModulus(i);
+            end
+        end
+
+        function obj = makeFemEquation(obj)
+            nu = 0.34;
+            qps = [1/6,1/6;2/3,1/6;1/6,2/3];
+            obj.femLHS = sparse(6*numel(obj.femutils.usedVerts),6*numel(obj.femutils.usedVerts));
+            for iter = 1:size(obj.femtri.ConnectivityList,1)
+                Dp(1,1) = 1.0; Dp(1,2) = nu;
+                Dp(2,1) = nu;  Dp(2,2) = 1.0;
+                Dp(3,3) = (1.0-nu)/2.0;
+                Dm = Dp;
+                Dm = Dm.*obj.femE(iter,1)/(1.0-nu*nu);
+                Dp = Dp.*(obj.femE(iter,1)*obj.femThn(iter,1)^3/(12.0*(1.0-nu*nu)));
+                U = obj.femtri.Points(obj.femtri.ConnectivityList(iter,2),:)-obj.femtri.Points(obj.femtri.ConnectivityList(iter,1),:);
+                V = obj.femtri.Points(obj.femtri.ConnectivityList(iter,3),:)-obj.femtri.Points(obj.femtri.ConnectivityList(iter,1),:);
+                transUV(:,1) = U;
+                transUV(:,2) = V;
+                W = cross(U,V);
+                trafo(1,:) = U./norm(U);
+                trafo(3,:) = W./norm(W);
+                trafo(2,:) = cross(trafo(3,:),trafo(1,:));
+                transUV = trafo*transUV;
+                dphi(1,1) = -transUV(1,1); % x12 = x1-x2 = 0-x2 = -x2
+                dphi(2,1) =  transUV(1,2); % x31 = x3-x1 = x3-0 = x3
+                dphi(3,1) =  transUV(1,1)-transUV(1,2); % x23 = x2-x3
+                dphi(1,2) = -transUV(2,1); % y12 = y1-y2 = -y2 = 0 (stays zero, as node B and A lie on local x-axis and therefore)
+                dphi(2,2) =  transUV(2,2); % y31 = y3-y1 = y3-0 = y3
+                dphi(3,2) =  transUV(2,1)-transUV(2,2); % y23 = y2-y3 = 0-y3 = -y3
+                B_m(1,1) =  dphi(3,2); %  y23
+                B_m(1,3) =  dphi(2,2); %  y31
+                B_m(1,5) =  dphi(1,2); %  y12
+                B_m(2,2) = -dphi(3,1); % -x23
+                B_m(2,4) = -dphi(2,1); % -x31
+                B_m(2,6) = -dphi(1,1); % -x12
+                B_m(3,1) = -dphi(3,1); % -x23
+                B_m(3,2) =  dphi(3,2); %  y23
+                B_m(3,3) = -dphi(2,1); % -x31
+                B_m(3,4) =  dphi(2,2); %  y31
+                B_m(3,5) = -dphi(1,1); % -x12
+                B_m(3,6) =  dphi(1,2); %  y12
+                B_m = B_m.*1.0/(2.0*(obj.femarea(iter,1)));
+                Ke_m = B_m'*Dm*B_m.*obj.femThn(iter,1)*obj.femarea(iter,1);
+                
+                sidelen(1) = dphi(1,1)^2+dphi(1,2)^2;
+                sidelen(2) = dphi(2,1)^2+dphi(2,2)^2;
+                sidelen(3) = dphi(3,1)^2+dphi(3,2)^2;
+                Y(1,1) = dphi(3,2)^2.0;
+                Y(1,2) = dphi(2,2)^2.0;
+                Y(1,3) = dphi(3,2)*dphi(2,2);
+                Y(2,1) = dphi(3,1)^2.0;
+                Y(2,2) = dphi(2,1)^2.0;
+                Y(2,3) = dphi(2,1)*dphi(3,1);
+                Y(3,1) = -2.0*dphi(3,1)*dphi(3,2);
+                Y(3,2) = -2.0*dphi(2,1)*dphi(2,1);
+                Y(3,3) = -dphi(3,1)*dphi(2,2)-dphi(2,1)*dphi(3,2);
+                Y = Y.* 1.0/(4.0*obj.femarea(iter,1)^2.0);
+                Ke_p = zeros(9,9);
+                for j = 1:3
+                    B = obj.evalBTri(sidelen, qps(j,1), qps(j,2), dphi);
+                    temp = B'*Y'*Dp*Y*B./6;
+                    Ke_p = Ke_p+temp;
+                end
+                Ke_p = Ke_p.*2.*obj.femarea(iter,1);
+                
+                K_out = zeros(18,18);
+                for i=0:2
+                    for j = 0:2 
+                        K_out(  6*i+1,    6*j+1)   = Ke_m(2*i+1,  2*j+1);   % uu
+                        K_out(  6*i+1,    6*j+1+1) = Ke_m(2*i+1,  2*j+1+1); % uv
+                        K_out(  6*i+1+1,  6*j+1)   = Ke_m(2*i+1+1,2*j+1);   % vu
+                        K_out(  6*i+1+1,  6*j+1+1) = Ke_m(2*i+1+1,2*j+1+1); % vv
+                        K_out(2+6*i+1,  2+6*j+1)   = Ke_p(3*i+1,  3*j+1);   % ww
+                        K_out(2+6*i+1,  2+6*j+1+1) = Ke_p(3*i+1,  3*j+1+1); % wx
+                        K_out(2+6*i+1,  2+6*j+2+1) = Ke_p(3*i+1,  3*j+2+1); % wy
+                        K_out(2+6*i+1+1,2+6*j+1)   = Ke_p(3*i+1+1,3*j+1);   % xw
+                        K_out(2+6*i+1+1,2+6*j+1+1) = Ke_p(3*i+1+1,3*j+1+1); % xx
+                        K_out(2+6*i+1+1,2+6*j+2+1) = Ke_p(3*i+1+1,3*j+2+1); % xy
+                        K_out(2+6*i+2+1,2+6*j+1)   = Ke_p(3*i+2+1,3*j+1);   % yw
+                        K_out(2+6*i+2+1,2+6*j+1+1) = Ke_p(3*i+2+1,3*j+1+1); % yx
+                        K_out(2+6*i+2+1,2+6*j+2+1) = Ke_p(3*i+2+1,3*j+2+1); % yy
+                    end
+                end
+                TSub = [trafo,zeros(3,3);zeros(3,3),trafo];
+                KeSub = zeros(6,6);
+                KeNew = zeros(18,18);
+                %Kl = K_out;
+                Kg = zeros(18,18);
+                for i=0:2
+                    for j = 0:2
+                        % copy values into temporary sub-matrix for correct format to transformation
+                        for k=0:5
+                            for l=0:5
+                                KeSub(k+1,l+1) = K_out(i*6+k+1,j*6+l+1);
+                            end
+                        end
+                        % the actual transformation step
+                        KeSub=TSub'*KeSub*TSub;
+                        % copy transformed values into new global stiffness matrix
+                        for k=0:5
+                            for l=0:5
+                                KeNew(i*6+k+1,j*6+l+1) = KeSub(k+1,l+1);
+                            end
+                        end
+                    end
+                end
+        
+                for alpha = 0:5
+                    for beta=0:5
+                        for i=0:2
+                            for j=0:2
+                                Kg(3*alpha+i+1,3*beta+j+1) = KeNew(6*i+alpha+1,6*j+beta+1);
+                            end  
+                        end
+                    end
+                end
+                linearidx = zeros(1,size(obj.femutils.IndexRow{iter}(:),1));
+                for i = 1:size(obj.femutils.IndexRow{iter}(:),1)
+                    linearidx(i) = sub2ind(size(obj.femLHS),obj.femutils.IndexRow{iter}(i),obj.femutils.IndexCol{iter}(i));
+                    %obj.femLHS(obj.femutils.IndexRow{iter}(i),obj.femutils.IndexCol{iter}(i)) = obj.femLHS(obj.femutils.IndexRow{iter}(i),obj.femutils.IndexCol{iter}(i))+Kg(i);
+                end
+                obj.femLHS(linearidx) = obj.femLHS(linearidx)+Kg(:)';
+                if mod(iter,floor(size(obj.femtri.ConnectivityList,1)/10))==1
+                    fprintf("%d / %d \n",iter,size(obj.femtri.ConnectivityList,1));
+                end
+                
+            end
+            obj.femLHS(obj.femutils.MatIndex==0,:)=[];
+            obj.femLHS(:,obj.femutils.MatIndex==0)=[];
+
+        end
+
+        function obj = connectAeroIDandFemID(obj,aeroID,femID)
+                obj.femutils.IDConnection.aero = aeroID;
+                obj.femutils.IDConnection.fem = femID;
+        end
+
+        function delta = solveFem(obj,distLoad)
+            %distLoad:空力解析メッシュにかかる分布加重。圧力やパネル自重など
+            %空力解析メッシュから構造解析メッシュへ圧力分布を投影
+            for iter = 1:size(distLoad,2)
+                Fp = sparse(6*size(obj.femutils.usedVerts,2),1);
+                %F = scatteredInterpolant(obj.center(any(obj.surfID == obj.femutils.IDConnection.aero,2),:),distLoad(any(obj.surfID == obj.femutils.IDConnection.aero,2),iter));
+                %interpCp = F(obj.femcenter);
+                F = obj.RbfppMake(obj,obj.center(any(obj.surfID == obj.femutils.IDConnection.aero,2),:),distLoad(any(obj.surfID == obj.femutils.IDConnection.aero,2),iter),1,0.001);
+                interpCp = obj.execRbfInterp(obj,F,obj.femcenter);
+                for i = 1:size(obj.femtri.ConnectivityList,1)
+                    if any(obj.femID(i) == obj.femutils.IDConnection.fem)
+                        Fg{i}(1,1:3) = -1./3.*interpCp(i)*obj.femarea(i,1).*obj.femNormal(i,:);Fg{i}(1,4:6) = 0;
+                        Fg{i}(2,1:3) = -1./3.*interpCp(i)*obj.femarea(i,1).*obj.femNormal(i,:);Fg{i}(2,4:6) = 0;
+                        Fg{i}(3,1:3) = -1./3.*interpCp(i)*obj.femarea(i,1).*obj.femNormal(i,:);Fg{i}(3,4:6) = 0;  
+                        Fp(obj.femutils.IndexRow{i}(:,1),1) = Fp(obj.femutils.IndexRow{i}(:,1),1)+Fg{i}(:);
+                    end
+                end
+    
+                femRHSp = Fp(obj.femutils.MatIndex==1,1);
+                delta_p = lsqminnorm(obj.femLHS,femRHSp);
+                disp_buff(obj.femutils.InvMatIndex,1)=delta_p;
+                delta{iter} = zeros(size(obj.femtri.Points));
+                delta{iter}(obj.femutils.usedVerts,1)=disp_buff(1:obj.femutils.nbVerts,1);
+                delta{iter}(obj.femutils.usedVerts,2)=disp_buff(obj.femutils.nbVerts+1:2*obj.femutils.nbVerts,1);
+                delta{iter}(obj.femutils.usedVerts,3)=disp_buff(2*obj.femutils.nbVerts+1:3*obj.femutils.nbVerts,1);
+            end
+        end
+
+        function modVerts = calcModifiedVerts(obj,delta,orgVerts)
+            %メッシュ変形を使って変位後の解析メッシュを計算する
+            usedVertsbuff = unique(obj.tri.ConnectivityList(any(obj.surfID == obj.femutils.IDConnection.aero,2),:));
+            usedVerts=usedVertsbuff(:)';
+            if nargin < 3
+                orgVerts = obj.tri.Points;
+            end
+            md.x = obj.RbfppMake(obj,obj.femtri.Points,delta(:,1),3,0.001);
+            md.y = obj.RbfppMake(obj,obj.femtri.Points,delta(:,2),3,0.001);
+            md.z = obj.RbfppMake(obj,obj.femtri.Points,delta(:,3),3,0.001);
+            dVerts(:,1) = obj.execRbfInterp(obj,md.x,orgVerts(usedVerts,:));
+            dVerts(:,2) = obj.execRbfInterp(obj,md.y,orgVerts(usedVerts,:));
+            dVerts(:,3) = obj.execRbfInterp(obj,md.z,orgVerts(usedVerts,:));
+            modVerts = obj.tri.Points;
+            modVerts(usedVerts,:) = obj.tri.Points(usedVerts,:)+dVerts;
         end
 
     end        
@@ -3357,6 +3609,200 @@ classdef UNLSI
 	        end
         end
 
+        function out = evalBTri(C,L1,L2,dphi)
+
+            mu1 = (C(1)-C(2))/C(3);
+            mu2 = (C(3)-C(1))/C(2);
+            mu3 = (C(2)-C(3))/C(1);
+        
+	        % some abbreviations to shorten the following terms
+            L3 = 1-L1-L2;
+            f13mu1 = 1+3*mu1;
+            f13mu2 = 1+3*mu2;
+            f13mu3 = 1+3*mu3;
+            f1m3mu3 = 1-3*mu3;
+            fm13mu2 = -1+3*mu2;
+            fm1m3mu3 = -1-3*mu3;
+            f1mmu1 = 1-mu1;
+            f1mmu2 = 1-mu2;
+            f1mmu3 = 1-mu3;
+        
+            a = 3*f1mmu3*L1-f13mu3*L2+f13mu3*L3;
+            b = 3*f1mmu2*L3-f13mu2*L1+f13mu2*L2;
+            c = 3*f1mmu1*L2-f13mu1*L3+f13mu1*L1;
+        
+	        % see page 38f of the thesis:
+	        % the following terms contains second order derivatives of the 9 shape functions
+	        % wrt the triangle coordinates L1 and L2
+            out(1,1) = 6 + L2*(-4-2*a) + 4*f1m3mu3*(L2*L3-L1*L2) - 12*L1 + 2*L2*b + 8*(L2*L3-L1*L2);
+        
+            out(1,2) = -dphi(2,2)*(-2+6*L1+4*L2-L2*b-4*L2*L3+4*L1*L2) ...
+                       -dphi(1,2)*(2*L2-L2*a+L2*L3*2*f1m3mu3-L1*L2*2*f1m3mu3);
+        
+            out(1,3) =  dphi(2,1)*(-2+6*L1+4*L2-L2*b-4*L2*L3+4*L1*L2) ...
+                       +dphi(1,1)*(2*L2-L2*a+L2*L3*2*f1m3mu3-L1*L2*2*f1m3mu3);
+        
+            out(1,4) = -2*L2*c + 4*f13mu1*(L2*L3-L1*L2) - 4*L2 + 2*L2*a + 4*f1m3mu3*(-L2*L3+L1*L2);
+        
+            out(1,5) = -dphi(1,2)*(2*L2-L2*a+L2*L3*2*f1m3mu3-L1*L2*2*f1m3mu3) ...
+                       -dphi(3,2)*(-L2*c+L2*L3*2*f13mu1-L1*L2*2*f13mu1);
+        
+            out(1,6) = dphi(1,1)*(2*L2-L2*a+L2*L3*2*f1m3mu3-L1*L2*2*f1m3mu3) ...
+                      +dphi(3,1)*(-L2*c+L2*L3*2*f13mu1-L1*L2*2*f13mu1);
+        
+            out(1,7) = -6 + 12*L1 + 8*L2 - 2*L2*b + 8*(L1*L2-L2*L3) + 2*L2*c + 4*f13mu1*(L1*L2-L2*L3);
+        
+            out(1,8) = -dphi(3,2)*(-L2*c+L2*L3*2*f13mu1-L1*L2*2*f13mu1) ...
+                       -dphi(2,2)*(-4+6*L1+4*L2-L2*b-4*L2*L3+4*L1*L2);
+        
+            out(1,9) = dphi(3,1)*(-L2*c+L2*L3*2*f13mu1-L1*L2*2*f13mu1) ...
+                      +dphi(2,1)*(-4+6*L1+4*L2-L2*b-4*L2*L3+4*L1*L2);
+        
+            out(2,1) = -2*L1*a + 2*L1*L3*2*fm1m3mu3 - 2*L1*L2*2*fm1m3mu3 - 4*L1+2*L1*b - 2*L1*L3*2*fm13mu2 + 2*L1*L2*2*fm13mu2;
+        
+            out(2,2) = -dphi(2,2)*(2*L1-1*L1*b+1*L1*L3*2*fm13mu2-1*L1*L2*2*fm13mu2) ...
+                       -dphi(1,2)*(-1*L1*a+1*L1*L3*2*fm1m3mu3-1*L1*L2*2*fm1m3mu3);
+        
+            out(2,3) = dphi(2,1)*(2*L1-1*L1*b+1*L1*L3*2*fm13mu2-1*L1*L2*2*fm13mu2) ...
+                      +dphi(1,1)*(-1*L1*a+1*L1*L3*2*fm1m3mu3-1*L1*L2*2*fm1m3mu3);
+        
+            out(2,4) = 6 - 12*L2 - 4*L1-2*L1*c + 8*L3*L1 - 8*L1*L2 + 2*L1*a - 2*L1*L3*2*fm1m3mu3 + 2*L1*L2*2*fm1m3mu3;
+        
+            out(2,5) = -dphi(1,2)*(-1*L1*a+1*L1*L3*2*fm1m3mu3-1*L1*L2*2*fm1m3mu3) ...
+                       -dphi(3,2)*(-6*L2+2-2*L1-1*L1*c+4*L3*L1-4*L1*L2);
+        
+            out(2,6) = dphi(1,1)*(-1*L1*a+1*L1*L3*2*fm1m3mu3-1*L1*L2*2*fm1m3mu3) ...
+                      +dphi(3,1)*(-6*L2+2-2*L1-1*L1*c+4*L3*L1-4*L1*L2);
+        
+            out(2,7) = -6 + 8*L1 - 2*L1*b + 2*L1*L3*2*fm13mu2 - 2*L1*L2*2*fm13mu2 + 12*L2 + 2*L1*c - 8*L3*L1 +  8*L1*L2;
+        
+            out(2,8) = -dphi(3,2)*(-6*L2+4-2*L1-1*L1*c+4*L3*L1-4*L1*L2) ...
+                       -dphi(2,2)*(2*L1-1*L1*b+1*L1*L3*2*fm13mu2-1*L1*L2*2*fm13mu2);
+        
+            out(2,9) = dphi(3,1)*(-6*L2+4-2*L1-1*L1*c+4*L3*L1-4*L1*L2) ...
+                      +dphi(2,1)*(2*L1-1*L1*b+1*L1*L3*2*fm13mu2-1*L1*L2*2*fm13mu2);
+        
+            out(3,1) = 2 - 4*L1 + L3*a - L2*a + L2*L3*2*fm1m3mu3 - L1*a - L1*L2*2*fm1m3mu3 + L1*L3*2*f1m3mu3 - L1*L2*2*f1m3mu3 ...
+                         - 4*L2 - L3*b + L2*b - L2*L3*2*fm13mu2  + L1*b + L1*L2*2*fm13mu2  + 4*L3*L1         - 4*L1*L2;
+        
+            out(3,2) = -dphi(2,2)*(-1 + 4*L1 + 2*L2 + 0.5*L3*b - 0.5*L2*b + 0.5*L2*L3*2*fm13mu2 ...
+                                     - 0.5*L1*b - 0.5*L1*L2*2*fm13mu2 - 2*L3*L1 + 2*L1*L2) ...
+                       -dphi(1,2)*(2*L1 + 0.5*L3*a - 0.5*L2*a + 0.5*L2*L3*2*fm1m3mu3 - 0.5*L1*a ...
+                                     - 0.5*L1*L2*2*fm1m3mu3 + 0.5*L1*L3*2*f1m3mu3 - 0.5*L1*L2*2*f1m3mu3);
+        
+            out(3,3) =  dphi(2,1)*(-1 + 4*L1 + 2*L2 + 0.5*L3*b - 0.5*L2*b + 0.5*L2*L3*2*fm13mu2 ...
+                                     - 0.5*L1*b - 0.5*L1*L2*2*fm13mu2 - 2*L3*L1 + 2*L1*L2) ...
+                       +dphi(1,1)*(2*L1 + 0.5*L3*a - 0.5*L2*a + 0.5*L2*L3*2*fm1m3mu3 - 0.5*L1*a ...
+                                     - 0.5*L1*L2*2*fm1m3mu3 + 0.5*L1*L3*2*f1m3mu3 - 0.5*L1*L2*2*f1m3mu3);
+        
+            out(3,4) = 2 - 4*L2 + L3*c - L2*c + 4*L2*L3 - L1*c - 4*L1*L2 + L1*L3*2*f13mu1 - L1*L2*2*f13mu1 ...
+                         - 4*L1 - L3*a + L2*a + L1*a - L2*L3*2*fm1m3mu3 + L1*L2*2*fm1m3mu3 - L1*L3*2*f1m3mu3 ...
+                         + L1*L2*2*f1m3mu3;
+        
+            out(3,5) = -dphi(1,2)*(2*L1 ...
+                           +0.5*L3*a ...
+                           -0.5*L2*a ...
+                           +0.5*L2*L3*2*fm1m3mu3 ...
+                           -0.5*L1*a ...
+                           -0.5*L1*L2*2*fm1m3mu3 ...
+                           +0.5*L1*L3*2*f1m3mu3 ...
+                           -0.5*L1*L2*2*f1m3mu3 ...
+                           -1) ...
+                     -dphi(3,2)*(-2*L2 ...
+                           +0.5*L3*c ...
+                           -0.5*L2*c ...
+                           +2*L2*L3 ...
+                           -0.5*L1*c ...
+                           -2*L1*L2 ...
+                           +0.5*L1*L3*2*f13mu1 ...
+                           -0.5*L1*L2*2*f13mu1 ...
+                           );
+        
+            out(3,6) = dphi(1,1)*(2*L1 ...
+                          +0.5*L3*a ...
+                          -0.5*L2*a ...
+                          +0.5*L2*L3*2*fm1m3mu3 ...
+                          -0.5*L1*a ...
+                          -0.5*L1*L2*2*fm1m3mu3 ...
+                          +0.5*L1*L3*2*f1m3mu3 ...
+                          -0.5*L1*L2*2*f1m3mu3 ...
+                          -1) ...
+                     +dphi(3,1)*(-2*L2 ...
+                           +0.5*L3*c ...
+                           -0.5*L2*c ...
+                           +2*L2*L3 ...
+                           -0.5*L1*c ...
+                           -2*L1*L2 ...
+                           +0.5*L1*L3*2*f13mu1 ...
+                           -0.5*L1*L2*2*f13mu1 ...
+                           );
+        
+            out(3,7) = -4 ...
+                     +8*L1 ...
+                     +8*L2 ...
+                     +L3*b ...
+                     -L2*b ...
+                     +L2*L3*2*fm13mu2 ...
+                     -L1*b ...
+                     -L1*L2*2*fm13mu2 ...
+                     -4*L3*L1 ...
+                     +8*L1*L2 ...
+                     -L3*c ...
+                     +L2*c ...
+                     -4*L2*L3 ...
+                     +L1*c ...
+                     -L1*L3*2*f13mu1 ...
+                     +L1*L2*2*f13mu1;
+        
+            out(3,8) = -dphi(3,2)*(-2*L2 ...
+                           +0.5*L3*c ...
+                           -0.5*L2*c ...
+                           +2*L2*L3 ...
+                           -0.5*L1*c ...
+                           -2*L1*L2 ...
+                           +0.5*L1*L3*2*f13mu1 ...
+                           -0.5*L1*L2*2*f13mu1 ...
+                           +1) ...
+                     -dphi(2,2)*(-2  ...
+                           +4*L1 ...
+                           +2*L2 ...
+                           +0.5*L3*b ...
+                           -0.5*L2*b ...
+                           +0.5*L2*L3*2*fm13mu2 ...
+                           -0.5*L1*b ...
+                           -0.5*L1*L2*2*fm13mu2 ...
+                           -2*L3*L1 ...
+                           +2*L1*L2 ...
+                           );
+        
+            out(3,9) = dphi(3,1)*(-2*L2  ...
+                          +0.5*L3*c ...
+                          -0.5*L2*c ...
+                          +2*L2*L3 ...
+                          -0.5*L1*c ...
+                          -2*L1*L2 ...
+                          +0.5*L1*L3*2*f13mu1 ...
+                          -0.5*L1*L2*2*f13mu1 ...
+                          +1 ...
+                          ) ...
+                    +dphi(2,1)*(-2 ...
+                          +4*L1 ...
+                          +2*L2 ...
+                          +0.5*L3*b ...
+                          -0.5*L2*b ...
+                          +0.5*L2*L3*2*fm13mu2 ...
+                          -0.5*L1*b ...
+                          -0.5*L1*L2*2*fm13mu2 ...
+                          -2*L3*L1 ...
+                          +2*L1*L2 ...
+                         );
+	        % the last row of the matrix must be multipled by 2 (this way, the upper terms gets a bit shorter ...)
+            for i=1:9
+                out(3,i) = out(3,i)*2.0;
+            end
+
+end
+
         function res = pmsolve(M1,M2,nu,kappa)
             M1nu = sqrt((kappa+1)/(kappa-1))*atan(sqrt((kappa-1)/(kappa+1)*(M1^2-1)))-atan(sqrt(M1^2-1));
             M2nu = M1nu+nu;
@@ -3435,6 +3881,8 @@ classdef UNLSI
                 phi = @(r,r0)obj.phi1(r,r0);
             elseif rbfMode == 2
                 phi = @(r,r0)obj.phi2(r,r0);
+            elseif rbfMode == 3
+                phi = @(r,r0)obj.phi3(r,r0);
             else
                 error('未実装')
             end
@@ -3461,7 +3909,8 @@ classdef UNLSI
             X = xd';
             H = sum(xd.^2,2);
             H = repmat(H,[1,size(X,2)]);
-            r = sqrt(H'-2.*X'*X+H);
+            %%%%%%%%%%%%%%%%%%ここ大丈夫？
+            r = real(sqrt(H'-2.*X'*X+H));
             a = phi(r,r0);
             invR = pinv(a);
             w = invR*fd;
@@ -3475,6 +3924,51 @@ classdef UNLSI
             pp.scaleShift = scaleShift;
             pp.scaleWeight = scaleWeight;
         end
+        
+        function [pp] = RbfinvRMake(obj,xd,rbfMode,r0)
+            if rbfMode ==4
+                phi = @(r,r0)obj.phi4(r,r0);
+            elseif rbfMode == 1
+                phi = @(r,r0)obj.phi1(r,r0);
+            elseif rbfMode == 2
+                phi = @(r,r0)obj.phi2(r,r0);
+            elseif rbfMode == 3
+                phi = @(r,r0)obj.phi3(r,r0);
+            else
+                error('未実装')
+            end
+        
+            for i = 1:size(xd,2)
+                scaleShift(i,1) = min(xd(:,i));
+                colmax(i,1) = max(xd(:,i));
+                scaleWeight(i,1) = colmax(i,1)-scaleShift(i,1);
+                if scaleWeight(i,1) == 0
+                    scaleWeight(i,1) = 1;
+                end 
+            end
+            %xdのスケールの変更
+            for i = 1:size(xd,2)
+                xd(:,i) = (xd(:,i)-scaleShift(i,1))./scaleWeight(i,1);
+            end
+            
+            X = xd';
+            H = sum(xd.^2,2);
+            H = repmat(H,[1,size(X,2)]);
+            r = real(sqrt(H'-2.*X'*X+H));
+            a = phi(r,r0);
+            pp.invR = pinv(a);
+            pp.rbfMode = rbfMode;
+            pp.nSample = size(xd,1);
+            pp.nDesign = size(xd,2);
+            pp.val_samp = xd;
+            pp.R0 = r0;
+            pp.scaleShift = scaleShift;
+            pp.scaleWeight = scaleWeight;
+        end
+        function [pp] = invRppMake(pp,fd)
+            pp.w = pp.invR*fd;
+            pp.res_samp = fd;
+        end
     
         function phi = phi1(r,r0)
             phi = sqrt(r.*r+r0.*r0);
@@ -3483,12 +3977,27 @@ classdef UNLSI
         function phi = phi2(r,r0)
             phi = 1./sqrt(r.*r+r0.*r0);
         end
+        function phi = phi3(r,r0)
+            phi = r.^2.*log(r./r0);
+            phi(r<=0) = 0;
+        end
         
         function phi = phi4(r,r0)
             phi = exp(-0.5.*r.^2/r0.^2);
         end
 
         function fi = execRbfInterp(obj,pp,val_interp)
+            if pp.rbfMode ==4
+                phi = @(r,r0)obj.phi4(r,r0);
+            elseif pp.rbfMode == 1
+                phi = @(r,r0)obj.phi1(r,r0);
+            elseif pp.rbfMode == 2
+                phi = @(r,r0)obj.phi2(r,r0);
+            elseif pp.rbfMode == 3
+                phi = @(r,r0)obj.phi3(r,r0);
+            else
+                error('未実装')
+            end
             nSamp = size(pp.val_samp,1);
             nInterp = size(val_interp,1);
             val_interp= (val_interp-repmat(pp.scaleShift(:)',[nInterp,1]))./repmat(pp.scaleWeight(:)',[nInterp,1]);
@@ -3498,7 +4007,7 @@ classdef UNLSI
             H2 = repmat(Xs',[nInterp,1]);
             M = val_interp*pp.val_samp';
             r = sqrt(H1-2.*M+H2);
-            fi = obj.phi1(r,pp.R0)*pp.w(:);
+            fi = phi(r,pp.R0)*pp.w(:);
         end
 
     end
