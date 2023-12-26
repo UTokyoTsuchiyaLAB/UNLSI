@@ -1,6 +1,6 @@
 %
 %%%%%%%%ここから
-%
+%{
 clear;
 [con, p, uv1, uv2, uv3, wedata, id] = readvspgeom( "wing.vspgeom", 0); %形状の読み込み
 wing = UNLSI(p',con',id',wedata); %コンストラクタの実行
@@ -18,7 +18,7 @@ wing = wing.solveFlow(alpha,0,0.001,500000);%パネル法を解く
 disp(wing.getAERODATA(alpha,0));
 [srf,vtx,fc,bc,simp,edg,mat_ind,phys_names] = gmsh_read_mesh('wing_WingGeom_Struct0.msh');
 wing = wing.setFemMesh(vtx,srf,fc);
-wing = wing.setFemMaterials([1,2,3],[0.002,0.01,0.05],[5000000000,5000000000,5000000000]);
+wing = wing.setFemMaterials([1,2,3],[0.004,0.05,0.05],[5000000000,5000000000,5000000000]);
 wing = wing.connectAeroIDandFemID([1,2],1);
 wing = wing.makeFemEquation();
 %}

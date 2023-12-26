@@ -32,10 +32,9 @@
         lb %設計変数の下限
         ub %設計変数の上限
         settingUNGRADE %最適化・解析の設定値
+        geom2MeshMat %メッシュ変形行列
         designScale %ub-lbのスケーリングパラメータ
         gradMesh %メッシュ節点の変化を設計変数で一次近似したもの
-        approxMat %パネル法行列の近似行列を作成するためのセル
-        approximated %パネル法行列が近似されたものかどうか    
         gradSREF %基準面積の設計変数に対する一次近似
         gradBREF %横基準長の設計変数に対する一次近似
         gradCREF %縦基準長の設計変数に対する一次近似
@@ -89,6 +88,7 @@
             obj.settingUNGRADE.betaLM = 0.5; %レーベンバーグマッカートの重み係数
             obj.settingUNGRADE.alphaSD = 0.5; %最急降下法の重み 
             obj.settingUNGRADE.TrustRegion = 0.1; %設計更新を行う際のスケーリングされた設計変数更新量の最大値
+            obj.settingUNGRADE.dynCoefFlag = 0;
             %%%%%%%%%%%%%
             obj = obj.checkMesh(obj.settingUNLSI.checkMeshTol,obj.settingUNLSI.checkMeshMethod);
             warning('off','MATLAB:triangulation:PtsNotInTriWarnId');
@@ -99,6 +99,23 @@
             obj.unscaledVar = desOrg(:)';
             obj.scaledVar = (desOrg(:)'-obj.lb)./obj.designScale;
             obj.orgGeom =  triangulation(orgGeomCon,orgGeomVerts);
+
+            %Geom to Meshのメッシュ変形行列を作成
+            %{
+            Rgg = obj.calcRMat(obj.orgGeom.Points,obj.orgGeom.Points);
+            phi = @(r)obj.phi3(r,obj.settingUNLSI.r0RBF);
+            Mgg = phi(Rgg);
+            Pgg = [ones(size(obj.orgGeom.Points,1),1),obj.orgGeom.Points]';
+            Rmg = obj.calcRMat(obj.orgMesh.Points,obj.orgGeom.Points);
+            Amg = [ones(size(obj.orgMesh.Points,1),1),obj.orgMesh.Points,phi(Rmg)];
+            invM = pinv(Mgg);
+            Mp = pinv(Pgg*invM*Pgg');
+            obj.geom2MeshMat = Amg * [Mp*Pgg*invM;invM-invM*Pgg'*Mp*Pgg*invM];
+            %}
+            phi = @(r)obj.phi3(r,obj.settingUNLSI.r0RBF);
+            Agg = phi(obj.calcRMat(obj.orgGeom.Points,obj.orgGeom.Points));
+            Amg = phi(obj.calcRMat(obj.orgMesh.Points,obj.orgGeom.Points));
+            obj.geom2MeshMat = Amg*pinv(Agg);
             
             obj.iteration = 0;
             fprintf("iteration No. %d ---> Variables:\n",obj.iteration)
@@ -169,6 +186,24 @@
             obj.unscaledVar = desOrg(:)';
             obj.scaledVar = (desOrg(:)'-obj.lb)./obj.designScale;
             obj.orgGeom =  triangulation(orgGeomCon,orgGeomVerts);
+
+            %Geom to Meshのメッシュ変形行列を作成
+            %{
+            Rgg = obj.calcRMat(obj.orgGeom.Points,obj.orgGeom.Points);
+            phi = @(r)obj.phi3(r,obj.settingUNLSI.r0RBF);
+            Mgg = phi(Rgg);
+            Pgg = [ones(size(obj.orgGeom.Points,1),1),obj.orgGeom.Points]';
+            Rmg = obj.calcRMat(obj.orgMesh.Points,obj.orgGeom.Points);
+            Amg = [ones(size(obj.orgMesh.Points,1),1),obj.orgMesh.Points,phi(Rmg)];
+            invM = pinv(Mgg);
+            Mp = pinv(Pgg*invM*Pgg');
+            obj.geom2MeshMat = Amg * [Mp*Pgg*invM;invM-invM*Pgg'*Mp*Pgg*invM];
+             %}
+            phi = @(r)obj.phi3(r,obj.settingUNLSI.r0RBF);
+            Agg = phi(obj.calcRMat(obj.orgGeom.Points,obj.orgGeom.Points));
+            Amg = phi(obj.calcRMat(obj.orgMesh.Points,obj.orgGeom.Points));
+            obj.geom2MeshMat = Amg*pinv(Agg);
+
             obj.LagrangianInfo.Lorg = [];
             obj.LagrangianInfo.dL_dx = [];
             obj.LagrangianInfo.alin = [];
@@ -196,8 +231,10 @@
             end
             u0 = obj.solvePertPotential(flowNo,alpha,beta);
             [~,~,~,~,obj] = obj.solveFlowForAdjoint(u0,flowNo,alpha,beta);
-            [udwf,udwr] = obj.calcDynCoefdu(flowNo,alpha,beta);
-            [~,obj] =  obj.calcDynCoefforAdjoint(u0,udwf,udwr,flowNo,alpha,beta);
+            if obj.settingUNGRADE.dynCoefFlag == 1
+                [udwf,udwr] = obj.calcDynCoefdu(flowNo,alpha,beta);
+                [~,obj] =  obj.calcDynCoefforAdjoint(u0,udwf,udwr,flowNo,alpha,beta);
+            end
         end
 
         function [I,con,obj] = evaluateObjFun(obj,objandConsFun)
@@ -217,8 +254,10 @@
                 betabuff = obj.settingUNGRADE.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                 u0 = obj.solvePertPotential(iter,alphabuff,betabuff);
                 [~,~,~,~,obj] = obj.solveFlowForAdjoint(u0,iter,alphabuff,betabuff);
-                [udwf,udwr] = obj.calcDynCoefdu(iter,alphabuff,betabuff);
-                [~,obj] =  obj.calcDynCoefforAdjoint(u0,udwf,udwr,iter,alphabuff,betabuff);
+                if obj.settingUNGRADE.dynCoefFlag == 1
+                    [udwf,udwr] = obj.calcDynCoefdu(iter,alphabuff,betabuff);
+                    [~,obj] =  obj.calcDynCoefforAdjoint(u0,udwf,udwr,iter,alphabuff,betabuff);
+                end
             end
             [I,con] = objandConsFun(desOrg,obj.AERODATA,obj.DYNCOEF,obj.Cp,obj.Cfe,obj.SREF,obj.BREF,obj.CREF,obj.XYZREF,obj.argin_x);
         end
@@ -376,9 +415,15 @@
                 alphabuff = obj.settingUNGRADE.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                 betabuff = obj.settingUNGRADE.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                 [u0solve,~] = obj.solvePertPotential(iter,alphabuff,betabuff);%ポテンシャルを求める
-                [udwf{iter},udwr{iter}] = obj.calcDynCoefdu(iter,alphabuff,betabuff);
+                if obj.settingUNGRADE.dynCoefFlag == 1
+                    [udwf{iter},udwr{iter}] = obj.calcDynCoefdu(iter,alphabuff,betabuff);
+                end
                 [AERODATA0,Cp0,Cfe0,R0solve,obj] = obj.solveFlowForAdjoint(u0solve,iter,alphabuff,betabuff);%ポテンシャルから空力係数を計算
-                [DYNCOEF0,obj] =  obj.calcDynCoefforAdjoint(u0solve,udwf{iter},udwr{iter},iter,alphabuff,betabuff);
+                if obj.settingUNGRADE.dynCoefFlag == 1
+                    [DYNCOEF0,obj] =  obj.calcDynCoefforAdjoint(u0solve,udwf{iter},udwr{iter},iter,alphabuff,betabuff);
+                else
+                    DYNCOEF0 = [];
+                end
                 %結果をマッピング
                 lktable = find(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                 for i = 1:numel(lktable)
@@ -393,8 +438,10 @@
             obj.history.conVal(:,obj.iteration) = con0(:);
             fprintf("AERODATA of iteration No.%d ->\n",obj.iteration);
             disp(vertcat(AERODATA0{:}));
-            fprintf("DYNCOEF of iteration No.%d ->\n",obj.iteration);
-            disp(vertcat(DYNCOEF0{:}));
+            if obj.settingUNGRADE.dynCoefFlag == 1
+                fprintf("DYNCOEF of iteration No.%d ->\n",obj.iteration);
+                disp(vertcat(DYNCOEF0{:}));
+            end
             %%%
             %明示・非明示随伴方程式法の実装
             %u微分の計算
@@ -411,7 +458,11 @@
                     alphabuff = obj.settingUNGRADE.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                     betabuff = obj.settingUNGRADE.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                     [AERODATA,Cp,Cfe,~,obj] = obj.solveFlowForAdjoint(usolve,iter,alphabuff,betabuff);
-                    DYNCOEF =  obj.calcDynCoefforAdjoint(usolve,udwf{iter},udwr{iter},iter,alphabuff,betabuff);
+                    if obj.settingUNGRADE.dynCoefFlag == 1
+                        DYNCOEF =  obj.calcDynCoefforAdjoint(usolve,udwf{iter},udwr{iter},iter,alphabuff,betabuff);
+                    else
+                        DYNCOEF = [];
+                    end
                 end
                 [I,con] = objandConsFun(desOrg,AERODATA,DYNCOEF,Cp,Cfe,obj.SREF,obj.BREF,obj.CREF,obj.XYZREF,obj.argin_x);
                 dI_du(i) = (I-I0)/pert;%評価関数のポテンシャルに関する偏微分
@@ -488,8 +539,12 @@
                     alphabuff = obj.settingUNGRADE.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                     betabuff = obj.settingUNGRADE.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                     [AERODATA,Cp,Cfe,Rsolve,obj2] = obj2.solveFlowForAdjoint(u0solve,iter,alphabuff,betabuff);
-                    [udwfdx,udwrdx] = obj2.calcDynCoefdu(iter,alphabuff,betabuff);
-                    DYNCOEF =  obj2.calcDynCoefforAdjoint(u0solve,udwfdx,udwrdx,iter,alphabuff,betabuff);
+                    if obj.settingUNGRADE.dynCoefFlag == 1
+                        [udwfdx,udwrdx] = obj2.calcDynCoefdu(iter,alphabuff,betabuff);
+                        DYNCOEF =  obj2.calcDynCoefforAdjoint(u0solve,udwfdx,udwrdx,iter,alphabuff,betabuff);
+                    else
+                        DYNCOEF = [];
+                    end
                     for k = 1:numel(lktable)
                         R((lktable(k)-1)*nbPanel+1:lktable(k)*nbPanel,1) = Rsolve(nbPanel*(k-1)+1:nbPanel*k,1);
                     end
@@ -752,20 +807,25 @@
                     error("Surf connectivity is not match")
                 end
             end
-
+            
             %md.x = scatteredInterpolant(obj.orgGeom.Points,modGeomVerts(:,1)-obj.orgGeom.Points(:,1),'linear','linear');
             %md.y = scatteredInterpolant(obj.orgGeom.Points,modGeomVerts(:,2)-obj.orgGeom.Points(:,2),'linear','linear');
             %md.z = scatteredInterpolant(obj.orgGeom.Points,modGeomVerts(:,3)-obj.orgGeom.Points(:,3),'linear','linear');
             %dVerts(:,1) = md.x(obj.tri.Points);
             %dVerts(:,2) = md.y(obj.tri.Points);
             %dVerts(:,3) = md.z(obj.tri.Points);
+            %{
             md.x = obj.RbfppMake(obj,obj.orgGeom.Points,modGeomVerts(:,1)-obj.orgGeom.Points(:,1),1,0.001);
             md.y = obj.RbfppMake(obj,obj.orgGeom.Points,modGeomVerts(:,2)-obj.orgGeom.Points(:,2),1,0.001);
             md.z = obj.RbfppMake(obj,obj.orgGeom.Points,modGeomVerts(:,3)-obj.orgGeom.Points(:,3),1,0.001);
             dVerts(:,1) = obj.execRbfInterp(obj,md.x,obj.tri.Points);
             dVerts(:,2) = obj.execRbfInterp(obj,md.y,obj.tri.Points);
             dVerts(:,3) = obj.execRbfInterp(obj,md.z,obj.tri.Points);
-            modVerts = obj.tri.Points+dVerts;
+            %}
+            modVerts(:,1) = obj.geom2MeshMat*modGeomVerts(:,1);
+            modVerts(:,2) = obj.geom2MeshMat*modGeomVerts(:,2);
+            modVerts(:,3) = obj.geom2MeshMat*modGeomVerts(:,3);
+            %modVerts = obj.tri.Points+dVerts;
             con = obj.tri.ConnectivityList;
         end
         
@@ -778,162 +838,51 @@
             obj.gradMesh = zeros(size(obj.orgMesh.Points(:),1),ndim);
             desOrg = obj.scaledVar.*obj.designScale+obj.lb;
             [surforg,~,~,~,~,~,~,desOrg] = obj.geomGenFun(desOrg);
-            meshrbf = obj.RbfinvRMake(obj,obj.orgGeom.Points,3,0.001);
+           % meshrbf = obj.RbfinvRMake(obj,obj.orgGeom.Points,3,0.001);
             for i = 1:ndim
                 sampleDes = obj.scaledVar.*obj.designScale+obj.lb;
                 sampleDes(i) = (obj.scaledVar(i) + pert(i)).*obj.designScale(i)+obj.lb(i);
                 [modSurf,~,SREFf,BREFf,CREFf,XYZREFf,argin_xf,desBuff] = obj.geomGenFun(sampleDes);
                 pertf = (desBuff(i)-desOrg(i))/obj.designScale(i);
-                dmodSurf = modSurf-surforg;
-                sampleSurff = dmodSurf(:);
+                %dmodSurf = modSurf-surforg;
+                modMeshf(:,1) = obj.geom2MeshMat*modSurf(:,1);
+                modMeshf(:,2) = obj.geom2MeshMat*modSurf(:,2);
+                modMeshf(:,3) = obj.geom2MeshMat*modSurf(:,3);
+                %sampleSurff = dmodSurf(:);
                 sampleDes = obj.scaledVar.*obj.designScale+obj.lb;
                 sampleDes(i) = (obj.scaledVar(i) - pert(i)).*obj.designScale(i)+obj.lb(i);
                 [modSurf,~,SREFr,BREFr,CREFr,XYZREFr,argin_xr,desBuff] = obj.geomGenFun(sampleDes);
                 pertr = (desBuff(i)-desOrg(i))/obj.designScale(i);
-                dmodSurf = modSurf-surforg;
-                sampleSurfr = dmodSurf(:);
-                gradSurf = (sampleSurff-sampleSurfr)./(pertf-pertr);
+                %dmodSurf = modSurf-surforg;
+                modMeshr(:,1) = obj.geom2MeshMat*modSurf(:,1);
+                modMeshr(:,2) = obj.geom2MeshMat*modSurf(:,2);
+                modMeshr(:,3) = obj.geom2MeshMat*modSurf(:,3);
+                %sampleSurfr = dmodSurf(:);
+
+                %gradSurf = (sampleSurff-sampleSurfr)./(pertf-pertr);
                 obj.gradSREF(i) = (SREFf-SREFr)./(pertf-pertr);
                 obj.gradBREF(i) = (BREFf-BREFr)./(pertf-pertr);
                 obj.gradCREF(i) = (CREFf-CREFr)./(pertf-pertr);
                 obj.gradXYZREF(:,i) = (XYZREFf(:)-XYZREFr(:))./(pertf-pertr);
                 obj.gradArginx(:,i) = (argin_xf(:)-argin_xr(:))./(pertf-pertr);
-                reshapeGrad = reshape(gradSurf,size(modSurf));
+                %reshapeGrad = reshape(gradSurf,size(modSurf));
                 %md.x = scatteredInterpolant(obj.orgGeom.Points,reshapeGrad(:,1),'linear','linear');
                 %md.y = scatteredInterpolant(obj.orgGeom.Points,reshapeGrad(:,2),'linear','linear');
                 %md.z = scatteredInterpolant(obj.orgGeom.Points,reshapeGrad(:,3),'linear','linear');
                 %dVerts(:,1) = md.x(obj.orgMesh.Points);
                 %dVerts(:,2) = md.y(obj.orgMesh.Points);
                 %dVerts(:,3) = md.z(obj.orgMesh.Points);
-                md.x = obj.invRppMake(meshrbf,reshapeGrad(:,1));
-                md.y = obj.invRppMake(meshrbf,reshapeGrad(:,2));
-                md.z = obj.invRppMake(meshrbf,reshapeGrad(:,3));
-                dVerts(:,1) = obj.execRbfInterp(obj,md.x,obj.orgMesh.Points);
-                dVerts(:,2) = obj.execRbfInterp(obj,md.y,obj.orgMesh.Points);
-                dVerts(:,3) = obj.execRbfInterp(obj,md.z,obj.orgMesh.Points);
-                obj.gradMesh(:,i) = dVerts(:);
+                %md.x = obj.invRppMake(meshrbf,reshapeGrad(:,1));
+                %md.y = obj.invRppMake(meshrbf,reshapeGrad(:,2));
+                %md.z = obj.invRppMake(meshrbf,reshapeGrad(:,3));
+                %dVerts(:,1) = obj.execRbfInterp(obj,md.x,obj.orgMesh.Points);
+                %dVerts(:,2) = obj.execRbfInterp(obj,md.y,obj.orgMesh.Points);
+                %dVerts(:,3) = obj.execRbfInterp(obj,md.z,obj.orgMesh.Points);
+                %modVerts(:,1) = obj.geom2MeshMat*reshapeGrad(:,1);
+                %modVerts(:,2) = obj.geom2MeshMat*reshapeGrad(:,2);
+                %modVerts(:,3) = obj.geom2MeshMat*reshapeGrad(:,3);
+                obj.gradMesh(:,i) = (modMeshf(:)-modMeshr(:))./(pertf-pertr);
             end
-        end
-
-        function obj = calcApproximatedEquation(obj)
-            if obj.approximated == 1
-                error("This instance is approximated. Please execute obj.makeEquation()");
-            end
-            nbPanel = sum(obj.paneltype == 1);
-            %接点に繋がるIDを決定
-            vertAttach = obj.tri.vertexAttachments();
-            pert = sqrt(eps);
-            for i = 1:numel(vertAttach)
-                if mod(i,floor(numel(vertAttach)/10))==0 || i == 1
-                    fprintf("%d/%d ",i,numel(vertAttach));
-                end
-                %paneltype == 1以外を削除する
-                vertAttach{i}(obj.paneltype(vertAttach{i}) ~=1) = [];
-                obj.approxMat.calcIndex{i} = sort(obj.IndexPanel2Solver(vertAttach{i}));
-                %このvertsがwakeに含まれているか
-                for j = 1:3
-                    newVerts = obj.tri.Points;
-                    newVerts(i,j) = obj.tri.Points(i,j)+pert;
-                    obj2 = obj.setVerts(newVerts);
-                    [VortexAr,VortexBr,VortexAc,VortexBc] = obj2.influenceMatrix(obj2,obj.approxMat.calcIndex{i},obj.approxMat.calcIndex{i});
-                    %
-                    for wakeNo = 1:numel(obj.wakeline)
-                        for edgeNo = 1:size(obj.wakeline{wakeNo}.validedge,2)
-                            interpID(1) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.upperID(edgeNo));
-                            interpID(2) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.lowerID(edgeNo));
-                            if isempty(intersect(interpID,obj.approxMat.calcIndex{i}))
-                                influence = obj2.wakeInfluenceMatrix(obj2,wakeNo,edgeNo,obj.approxMat.calcIndex{i},obj.wakePanelLength,obj.nWake);
-                                VortexAr(:,interpID(1)) = VortexAr(:,interpID(1)) - influence;
-                                VortexAr(:,interpID(2)) = VortexAr(:,interpID(2)) + influence;
-                            else
-                                influence = obj2.wakeInfluenceMatrix(obj2,wakeNo,edgeNo,1:nbPanel,obj.wakePanelLength,obj.nWake);
-                                VortexAr(:,interpID(1)) = VortexAr(:,interpID(1)) - influence(obj.approxMat.calcIndex{i},:);
-                                VortexAr(:,interpID(2)) = VortexAr(:,interpID(2)) + influence(obj.approxMat.calcIndex{i},:);
-                                if not(isempty(intersect(interpID(1),obj.approxMat.calcIndex{i})))
-                                    [~,b] = find(obj.approxMat.calcIndex{i}==interpID(1));
-                                    VortexAc(:,b) = VortexAc(:,b) - influence;
-                                end
-                                if not(isempty(intersect(interpID(2),obj.approxMat.calcIndex{i})))
-                                    [~,b] = find(obj.approxMat.calcIndex{i}==interpID(2));
-                                    VortexAc(:,b) = VortexAc(:,b) + influence;
-                                end
-                            end
-                        end
-                    end
-                    obj.approxMat.dVAr{i,j} = (VortexAr-obj.LHS(obj.approxMat.calcIndex{i},:))./pert;
-                    obj.approxMat.dVBr{i,j} = (VortexBr-obj.RHS(obj.approxMat.calcIndex{i},:))./pert;
-                    obj.approxMat.dVAc{i,j} = (VortexAc-obj.LHS(:,obj.approxMat.calcIndex{i}))./pert;
-                    obj.approxMat.dVBc{i,j} = (VortexBc-obj.RHS(:,obj.approxMat.calcIndex{i}))./pert;
-                end
-            end
-            fprintf("\n");
-        end
-
-        function approxmatedObj = makeApproximatedInstance(obj,modifiedVerts)
-                nPanel = numel(obj.paneltype);
-                nbPanel = sum(obj.paneltype == 1);
-                approxmatedObj = obj.setVerts(modifiedVerts);
-                approxmatedObj.mu2v{1} = sparse(nPanel,nbPanel);
-                approxmatedObj.mu2v{2} = sparse(nPanel,nbPanel);
-                approxmatedObj.mu2v{3} = sparse(nPanel,nbPanel);
-            
-            for i = 1:nPanel
-                if obj.paneltype(i) == 1
-                    CPmat =obj.center(obj.cluster{i},1:3);
-                    pnt = obj.center(i,:);
-                    m = obj.tri.Points(obj.tri.ConnectivityList(i,1),:)'-pnt(:);
-                    m = m./norm(m);
-                    l = cross(m,obj.normal(i,:)');
-                    Minv = [l,m,obj.normal(i,:)'];
-                    lmnMat = (Minv\(CPmat-repmat(pnt,[size(CPmat,1),1]))')';
-                    bb = [lmnMat(1:end,1),lmnMat(1:end,2),lmnMat(1:end,3),ones(size(lmnMat,1),1)];
-                    Bmat=pinv(bb,sqrt(eps));
-                    %Vnmat = Minv(:,[1,2])*[1,0,0,0;0,1,0,0]*Bmat;
-                    Vnmat = Minv*[1,0,0,0;0,1,0,0;0,0,1,0;]*Bmat;
-                    for iter = 1:3
-                        approxmatedObj.mu2v{iter}(i,obj.IndexPanel2Solver(obj.cluster{i})) = Vnmat(iter,:);
-                    end
-                end
-            end
-            
-                
-            for wakeNo = 1:numel(obj.wakeline)
-                theta = linspace(pi,0,size(obj.wakeline{wakeNo}.validedge,2)*obj.LLT.n_interp+1);
-                obj.LLT.sp{wakeNo} = [];
-                obj.LLT.calcMu{wakeNo} = zeros(1,nbPanel);
-                s = zeros(1,numel(obj.wakeline{wakeNo}.edge));
-                jter = 1;
-                for edgeNo = 1:numel(obj.wakeline{wakeNo}.edge)-1
-                    s(edgeNo+1) = s(edgeNo) + norm(obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo),2:3)-obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo+1),2:3));
-                    if obj.wakeline{wakeNo}.valid(edgeNo) == 1
-                        obj.LLT.sp{wakeNo} =  [obj.LLT.sp{wakeNo},(s(edgeNo)+s(edgeNo+1))./2];
-                        jter = jter+1;
-                    end
-                end
-                sd = (s(end)-s(1))*(cos(theta)./2+0.5)+s(1);
-                obj.LLT.sinterp{wakeNo} = (sd(2:end)+sd(1:end-1))./2;
-                obj.LLT.yinterp{wakeNo} = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),2),obj.LLT.sinterp{wakeNo},'linear','extrap');
-                obj.LLT.zinterp{wakeNo} = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),3),obj.LLT.sinterp{wakeNo},'linear','extrap');
-                yd = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),2),sd,'linear','extrap');
-                zd = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),3),sd,'linear','extrap');
-                obj.LLT.phiinterp{wakeNo} = atan((zd(2:end)-zd(1:end-1))./(yd(2:end)-yd(1:end-1)));
-                obj.LLT.spanel{wakeNo} = (sd(2:end)-sd(1:end-1))./2;
-            end
-
-
-                approxmatedObj.approxMat = [];
-                approxmatedObj.approximated = 1;
-                for i = 1:size(modifiedVerts,1)
-                    for j = 1:3
-                        dv = (approxmatedObj.tri.Points(i,j)-obj.tri.Points(i,j));
-                        obj.approxMat.dVAc{i,j}(obj.approxMat.calcIndex{i},:) = 0; 
-                        obj.approxMat.dVBc{i,j}(obj.approxMat.calcIndex{i},:) = 0; 
-                        approxmatedObj.LHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.LHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVAr{i,j}.*dv;
-                        approxmatedObj.RHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.RHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVBr{i,j}.*dv;
-                        approxmatedObj.LHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.LHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVAc{i,j}.*dv;
-                        approxmatedObj.RHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.RHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVBc{i,j}.*dv;
-                    end
-                end
         end
         %{
 

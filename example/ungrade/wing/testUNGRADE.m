@@ -2,14 +2,14 @@ clear;
 orgVal = [2,2,2,2,2,2]; %設計変数の初期値
 
 Machrange = [0.001]; %解析するマッハ数
-alpharange = [2]; %解析する迎角
+alpharange = [10]; %解析する迎角
 betarange = [0]; %解析する横滑り角
 geomErr = 0.005;
 
 lb = [  1,   1,   1,   1,   1,   1]; %設計変数の下限値
 ub = [  4,   4,   4,   4,   4,   4]; %設計変数の上限値
-cmin = [0.15]';%制約条件の下限値
-cmax = [0.17]';%制約条件の上限値
+cmin = [0.8]';%制約条件の下限値
+cmax = [0.9]';%制約条件の上限値
 
 ungradetest = UNGRADE(@(x)vspMeshGen(x,"wing","org.des"),@(x)vspGeomGen(x,"wing","org.des"),orgVal,lb,ub,1);%コンストラクタの実行
 ungradetest.checkGeomGenWork(0.5);%設計変数が動いているかチェックする

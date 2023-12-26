@@ -15,7 +15,7 @@ wing = wing.makeEquation(); %パネル法行列の作成
 %}
 
 wing = wing.solveFlow(winddata.alpha,zeros(size(winddata.alpha)),0.001,2.3*10^6); %パネル法を解く
-wing.plotGeometry(1,wing.getCp(0,0,0.001,2.3*10^6),[-2,1],"exact"); %圧力係数のプロット
+wing.plotGeometry(1,wing.getCp(0,0,0.001,2.3*10^6),[-2,1]); %圧力係数のプロット
 
 %%%%%風洞試験結果との比較
 figure(2);clf,grid on;hold on;
