@@ -10,26 +10,12 @@ wing = wing.setUNLSISettings("nCalcDivide",2);
 wing = wing.makeCluster(); %速度分布を求めるためのパネルクラスターを作成
 wing = wing.makeEquation(); %パネル法行列の作成
 %}
-%}
 %%%%%%%%ここまでは一度計算すればスキップできる
 %
-alpha = 10;
-wing = wing.solveFlow(alpha,0,0.001,500000);%パネル法を解く
+alpha = 3;
+%wing = wing.solveFlow(alpha,0,0.001,500000);%パネル法を解く
+wing = wing.flowCondition(1,0.001,500000);
+u0 = wing.solvePertPotential(1,alpha,0);
+[~,~,~,~,wing] = wing.solveFlowForAdjoint(u0,1,alpha,0);
 disp(wing.getAERODATA(alpha,0));
-[srf,vtx,fc,bc,simp,edg,mat_ind,phys_names] = gmsh_read_mesh('wing_WingGeom_Struct0.msh');
-wing = wing.setFemMesh(vtx,srf,fc);
-wing = wing.setFemMaterials([1,2,3],[0.004,0.05,0.05],[5000000000,5000000000,5000000000]);
-wing = wing.connectAeroIDandFemID([1,2],1);
-wing = wing.makeFemEquation();
-%}
-wing2 = wing;
-for iter = 1:4
-    delta = wing.solveFem(wing2.getCp(alpha,0,0.001,500000).*30.^2.*1.225.*0.5);
-    modVerts = wing.calcModifiedVerts(delta{1});
-    wing2 = wing2.setVerts(modVerts);
-    wing2 = wing2.makeEquation(); %パネル法行列の作成
-    wing2 = wing2.solveFlow(alpha,0,0.001,500000);%パネル法を解く
-    disp(wing2.getAERODATA(alpha,0));
-    wing2.plotGeometry(1,wing2.getCp(alpha,0,0.001,500000),[-2,1]);%圧力係数のプロット
-end
-%}
+wing.plotGeometry(1,wing.getCp(alpha,0,0.001,500000),[-2,1]);%圧力係数のプロット

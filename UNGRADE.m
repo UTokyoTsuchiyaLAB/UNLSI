@@ -33,6 +33,8 @@
         ub %設計変数の上限
         settingUNGRADE %最適化・解析の設定値
         geom2MeshMat %メッシュ変形行列
+        meshScaling%メッシュ行列のスケーリング変数
+        phiRBF%メッシュ行列作成に使うRBF関数
         designScale %ub-lbのスケーリングパラメータ
         gradMesh %メッシュ節点の変化を設計変数で一次近似したもの
         gradSREF %基準面積の設計変数に対する一次近似
@@ -43,6 +45,7 @@
         argin_x %任意変数（重量やバッテリー搭載量などのユーザーで自由に設定する変数）
         iteration %設計更新を行った階数
         Hessian %準ニュートン法で近似されたヘッシアン
+        BBMatrix
         history %設計更新の履歴
         flowNoList %マッハ数とflowNoの関連付け行列
         LagrangianInfo
@@ -78,10 +81,9 @@
             % 'chain'-->各節点位置の変化に対する近似パネル法行列と、設計変数変化に対する節点位置の変化を用いてチェインルールで勾配計算する。
             % 'nonlin'-->approxmatによる近似パネル法行列を使った直接最適化
             % 
-            obj.settingUNGRADE.nMemory = 6; %記憶制限準ニュートン法のさかのぼり回数（厳密な記憶制限法は実装していない）
+            obj.settingUNGRADE.nMemory = 20; %記憶制限準ニュートン法のさかのぼり回数（厳密な記憶制限法は実装していない）
             obj.settingUNGRADE.H0 = eye(numel(obj.lb)); %初期ヘッシアン
-            obj.settingUNGRADE.wakeLength = 20;
-            obj.settingUNGRADE.meshGradientPerturbation = 0.01;%メッシュ勾配をとるときのスケールされてない設計変数の摂動量
+            obj.settingUNGRADE.meshGradientPerturbation = 0.001;%メッシュ勾配をとるときのスケールされてない設計変数の摂動量
             obj.settingUNGRADE.gradientCalcMethod = "direct"; %設計変数偏微分の取得方法："direct", "chain", "nonlin"
             obj.settingUNGRADE.HessianUpdateMethod = "BFGS"; %ヘッシアン更新は "BFGS","DFP","Broyden","SR1"から選択
             obj.settingUNGRADE.updateMethod = "Levenberg–Marquardt";%解を更新する方法 Steepest-Descent,Levenberg–Marquardt,dogleg
@@ -89,6 +91,7 @@
             obj.settingUNGRADE.alphaSD = 0.5; %最急降下法の重み 
             obj.settingUNGRADE.TrustRegion = 0.1; %設計更新を行う際のスケーリングされた設計変数更新量の最大値
             obj.settingUNGRADE.dynCoefFlag = 0;
+            obj.settingUNGRADE.r0RBF = 1;
             %%%%%%%%%%%%%
             obj = obj.checkMesh(obj.settingUNLSI.checkMeshTol,obj.settingUNLSI.checkMeshMethod);
             warning('off','MATLAB:triangulation:PtsNotInTriWarnId');
@@ -103,19 +106,22 @@
             %Geom to Meshのメッシュ変形行列を作成
             %{
             Rgg = obj.calcRMat(obj.orgGeom.Points,obj.orgGeom.Points);
-            phi = @(r)obj.phi3(r,obj.settingUNLSI.r0RBF);
-            Mgg = phi(Rgg);
+            obj.phiRBF = @(r)obj.phi3(r,obj.settingUNLSI.r0RBF);
+            Mgg = obj.phiRBF(Rgg);
             Pgg = [ones(size(obj.orgGeom.Points,1),1),obj.orgGeom.Points]';
             Rmg = obj.calcRMat(obj.orgMesh.Points,obj.orgGeom.Points);
-            Amg = [ones(size(obj.orgMesh.Points,1),1),obj.orgMesh.Points,phi(Rmg)];
+            Amg = [ones(size(obj.orgMesh.Points,1),1),obj.orgMesh.Points,obj.phiRBF(Rmg)];
             invM = pinv(Mgg);
             Mp = pinv(Pgg*invM*Pgg');
             obj.geom2MeshMat = Amg * [Mp*Pgg*invM;invM-invM*Pgg'*Mp*Pgg*invM];
             %}
-            phi = @(r)obj.phi3(r,obj.settingUNLSI.r0RBF);
-            Agg = phi(obj.calcRMat(obj.orgGeom.Points,obj.orgGeom.Points));
-            Amg = phi(obj.calcRMat(obj.orgMesh.Points,obj.orgGeom.Points));
+            obj.phiRBF = @(r)obj.phi3(r,obj.settingUNGRADE.r0RBF);
+            meshScaling = abs(max(obj.orgGeom.Points,[],1)-min(obj.orgGeom.Points,[],1));
+            meshScaling(meshScaling==0) = 1;
+            Agg = obj.phiRBF(obj.calcRMat(obj.orgGeom.Points./meshScaling,obj.orgGeom.Points./meshScaling));
+            Amg = obj.phiRBF(obj.calcRMat(obj.orgMesh.Points./meshScaling,obj.orgGeom.Points./meshScaling));
             obj.geom2MeshMat = Amg*pinv(Agg);
+            %}
             
             obj.iteration = 0;
             fprintf("iteration No. %d ---> Variables:\n",obj.iteration)
@@ -126,6 +132,7 @@
             obj.LagrangianInfo.blin = [];  
 
             obj.Hessian = obj.settingUNGRADE.H0;
+            obj.BBMatrix = eye(numel(obj.lb));
 
             warning('on','MATLAB:triangulation:PtsNotInTriWarnId');
         end
@@ -159,50 +166,53 @@
             %meshDeformFlag : 1:新しくメッシュを作らずにmeshdeformationによって変形したものを新しいメッシュとする
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             warning('off','MATLAB:triangulation:PtsNotInTriWarnId');
-            if nargin<3
-                meshDeformFlag = 0;
-            end
+            %if nargin<3
+            %    meshDeformFlag = 0;
+            %end
             if meshDeformFlag == 1
                 [orgGeomVerts,orgGeomCon,optSREF,optBREF,optCREF,optXYZREF,obj.argin_x,desOrg] = obj.geomGenFun(unscaledVariables);
                 [orgMeshVerts,orgMeshCon] = obj.meshDeformation(obj,orgGeomVerts,orgGeomCon);
+                unscaledVariables = desOrg(:)';
                 surfID = obj.surfID;
                 wakelineID = obj.wakelineID;
                 fprintf("iteration No. %d set by Mesh Deformation ---> Variables:\n",obj.iteration)
-                disp(unscaledVariables);
+                disp(desOrg);
                 obj = obj.setMesh(orgMeshVerts,orgMeshCon,surfID,wakelineID);
                 obj.history.setMeshbyDeform(obj.iteration) = 1;
             else
-                [orgMeshVerts, orgMeshCon,surfID,wakelineID, unscaledVariables] = obj.meshGenFun(unscaledVariables(:)');
-                fprintf("iteration No. %d set by Mesh Generation ---> Variables:\n",obj.iteration)
-                disp(unscaledVariables);
-                obj = obj.setMesh(orgMeshVerts,orgMeshCon,surfID,wakelineID);
                 [orgGeomVerts,orgGeomCon,optSREF,optBREF,optCREF,optXYZREF,obj.argin_x,desOrg] = obj.geomGenFun(unscaledVariables);
+                [orgMeshVerts, orgMeshCon,surfID,wakelineID, unscaledVariables] = obj.meshGenFun(desOrg(:)');
+                fprintf("iteration No. %d set by Mesh Generation ---> Variables:\n",obj.iteration)
+                obj = obj.setMesh(orgMeshVerts,orgMeshCon,surfID,wakelineID);
+                disp(unscaledVariables);
                 obj.history.setMeshbyDeform(obj.iteration) = 0;
             end
             warning('off','MATLAB:triangulation:PtsNotInTriWarnId');
             obj.orgMesh = triangulation(obj.tri.ConnectivityList,obj.tri.Points);
             obj = obj.setREFS(optSREF,optBREF,optCREF);
             obj = obj.setRotationCenter(optXYZREF);
-            obj.unscaledVar = desOrg(:)';
-            obj.scaledVar = (desOrg(:)'-obj.lb)./obj.designScale;
+            obj.unscaledVar = unscaledVariables(:)';
+            obj.scaledVar = (unscaledVariables(:)'-obj.lb)./obj.designScale;
             obj.orgGeom =  triangulation(orgGeomCon,orgGeomVerts);
 
             %Geom to Meshのメッシュ変形行列を作成
             %{
             Rgg = obj.calcRMat(obj.orgGeom.Points,obj.orgGeom.Points);
-            phi = @(r)obj.phi3(r,obj.settingUNLSI.r0RBF);
-            Mgg = phi(Rgg);
+            obj.phiRBF = @(r)obj.phi3(r,obj.settingUNLSI.r0RBF);
+            Mgg = obj.phiRBF(Rgg);
             Pgg = [ones(size(obj.orgGeom.Points,1),1),obj.orgGeom.Points]';
             Rmg = obj.calcRMat(obj.orgMesh.Points,obj.orgGeom.Points);
-            Amg = [ones(size(obj.orgMesh.Points,1),1),obj.orgMesh.Points,phi(Rmg)];
+            Amg = [ones(size(obj.orgMesh.Points,1),1),obj.orgMesh.Points,obj.phiRBF(Rmg)];
             invM = pinv(Mgg);
             Mp = pinv(Pgg*invM*Pgg');
             obj.geom2MeshMat = Amg * [Mp*Pgg*invM;invM-invM*Pgg'*Mp*Pgg*invM];
-             %}
-            phi = @(r)obj.phi3(r,obj.settingUNLSI.r0RBF);
-            Agg = phi(obj.calcRMat(obj.orgGeom.Points,obj.orgGeom.Points));
-            Amg = phi(obj.calcRMat(obj.orgMesh.Points,obj.orgGeom.Points));
+            %}
+            meshScaling = max(abs(obj.orgGeom.Points),[],1)-min(abs(obj.orgGeom.Points),[],1);
+            meshScaling(meshScaling==0) = 1;
+            Agg = obj.phiRBF(obj.calcRMat(obj.orgGeom.Points./meshScaling,obj.orgGeom.Points./meshScaling));
+            Amg = obj.phiRBF(obj.calcRMat(obj.orgMesh.Points./meshScaling,obj.orgGeom.Points./meshScaling));
             obj.geom2MeshMat = Amg*pinv(Agg);
+             %}
 
             obj.LagrangianInfo.Lorg = [];
             obj.LagrangianInfo.dL_dx = [];
@@ -473,13 +483,13 @@
             for i = 1:size(obj.flowNoList,1)
                 if i == 1
                     if obj.flowNoList(i,3) == 1
-                        dR_du = obj.LHS'; %亜音速
+                        dR_du = -obj.LHS; %亜音速
                     else
                         dR_du = eye(nbPanel);
                     end
                 else
                     if obj.flowNoList(i,3) == 1
-                        dR_du = blkdiag(dR_du,obj.LHS');
+                        dR_du = blkdiag(dR_du,-obj.LHS);
                     else
                         dR_du = blkdiag(dR_du,eye(nbPanel));
                     end
@@ -555,60 +565,62 @@
                 if not(isempty(con))
                     dcon_dx(:,i) = (con-con0)/pert;
                 end
-                dR_dx(:,i) = (R-R0)./pert;
+                dR_dx(:,i) = -(R-R0)./pert;
                 clear obj2;
             end
             %全微分でdxからduを求める行列
+            %invdR_du = pinv(dR_du);
             duMatVec = -(dR_du)\([R0,dR_dx]);
+            %duMatVec = -(dR_du)\([R0,dR_dx]);
             duMat = duMatVec(:,2:end);
-            duVec = duMatVec(:,1);
+            %dxMat = -dR_dx'*dR_du;
+            %duVec = duMatVec(:,1);
             objTotalGrad = dI_dx+dI_du*duMat;
+            obj.LagrangianInfo.objTotalGrad = objTotalGrad;
+            obj.LagrangianInfo.I0 = I0;
             if not(isempty(con))
                 conTotalGrad = dcon_dx+dcon_du*duMat;
             end
             %線形計画問題に変換
-            gradientCalcdx = 1e-5;
             lbf = -obj.scaledVar;
             ubf = 1-obj.scaledVar;
-            lactiveBound = obj.scaledVar'-gradientCalcdx<0;
-            uactiveBound = obj.scaledVar'+gradientCalcdx>1;
-            lbfGrad = -ones(size(lbf)).*gradientCalcdx;
-            ubfGrad =  ones(size(lbf)).*gradientCalcdx;
-            lbfGrad(lactiveBound) = lbf(lactiveBound);
-            ubfGrad(uactiveBound) = ubf(uactiveBound);
+            obj.LagrangianInfo.lactiveBound = obj.scaledVar'<=0;
+            obj.LagrangianInfo.uactiveBound = obj.scaledVar'>=1;
             if not(isempty(con))
-                obj.LagrangianInfo.alin = [-conTotalGrad;conTotalGrad;eye(numel(ubf));-eye(numel(lbf))];
-                obj.LagrangianInfo.blin = [con0(:)+dcon_du*duVec-cmin(:);cmax(:)-con0(:)-dcon_du*duVec;ubf';-lbf'];
-                blinGrad = [con0(:)+dcon_du*duVec-cmin(:);cmax(:)-con0(:)-dcon_du*duVec;ubfGrad';-lbfGrad'];
+                obj.LagrangianInfo.clactiveBound = con0 <= cmin;
+                obj.LagrangianInfo.cuactiveBound = con0 >= cmax;
             else
-                obj.LagrangianInfo.alin = [eye(numel(ubf));-eye(numel(lbf))];
-                obj.LagrangianInfo.blin = [ubf';-lbf'];
-                blinGrad = [ubfGrad';-lbfGrad'];
+                obj.LagrangianInfo.clactiveBound = [];
+                obj.LagrangianInfo.cuactiveBound = [];
+            end
+            if not(isempty(con))
+                obj.LagrangianInfo.alin = [-conTotalGrad;conTotalGrad];
+                obj.LagrangianInfo.blin = [con0(:)-cmin(:);cmax(:)-con0(:)];
+            else
+                obj.LagrangianInfo.alin = [];
+                obj.LagrangianInfo.blin = [];
             end
 
             options = optimoptions(@linprog,'Algorithm','interior-point','Display','final','MaxIter',10000);
-            [~,~,exitFlag,~,lambda] = linprog(objTotalGrad,obj.LagrangianInfo.alin,blinGrad,[],[],[],[],options);
-            if exitFlag < 1
+            [~,~,exitFlag,~,obj.LagrangianInfo.lambda] = linprog(objTotalGrad,obj.LagrangianInfo.alin,obj.LagrangianInfo.blin,[],[],lbf,ubf,options);
+            if exitFlag<1
                 options = optimoptions(@fmincon,'Algorithm','interior-point','Display','final-detailed',"EnableFeasibilityMode",true,"SubproblemAlgorithm","cg",'MaxFunctionEvaluations',10000);
-                [~,~,~,~,lambda] = fmincon(@(x)obj.fminconObj(x,zeros(numel(ubf),numel(ubf)),objTotalGrad),zeros(numel(obj.scaledVar),1),obj.LagrangianInfo.alin,blinGrad,[],[],[],[],[],options);
+                [~,~,~,~,obj.LagrangianInfo.lambda] = fmincon(@(x)obj.fminconObj(x,obj.Hessian,objTotalGrad),zeros(numel(obj.scaledVar),1),obj.LagrangianInfo.alin,obj.LagrangianInfo.blin,[],[],lbf,ubf,[],options);
             end
-            rho = 1000;
-            if not(isempty(con0))
-                lambdaR = -(dR_du)\(dI_du+lambda.ineqlin(1:size(con,1)*2,1)'*[-dcon_du;dcon_du])';
-                obj.LagrangianInfo.Lorg = I0 + lambda.ineqlin'*[-con0;con0;obj.scaledVar'.*uactiveBound;-obj.scaledVar'.*lactiveBound];
-                penaltyorg = rho*sum(max(max(0,cmin-con0),max(con0-cmax)));
-                obj.LagrangianInfo.dL_dx = dI_dx+lambdaR'*dR_dx+lambda.ineqlin'*[-dcon_dx;dcon_dx;diag(uactiveBound);-diag(lactiveBound)];
+      
+            if not(isempty(con))
+                lambdaR = -(dR_du')\(dI_du+(obj.LagrangianInfo.lambda.ineqlin'*diag([obj.LagrangianInfo.clactiveBound;obj.LagrangianInfo.cuactiveBound]))*[-dcon_du;dcon_du])';
+                obj.LagrangianInfo.Lorg = I0 + (obj.LagrangianInfo.lambda.ineqlin'*diag([obj.LagrangianInfo.clactiveBound;obj.LagrangianInfo.cuactiveBound]))*[cmin-con0;con0-cmax;]+((obj.LagrangianInfo.lambda.upper.*obj.LagrangianInfo.uactiveBound)'*(obj.scaledVar'-1))'+((obj.LagrangianInfo.lambda.lower.*obj.LagrangianInfo.lactiveBound)'*(-obj.scaledVar'))';
+                obj.LagrangianInfo.dL_dx = dI_dx+lambdaR'*dR_dx+(obj.LagrangianInfo.lambda.ineqlin'*diag([obj.LagrangianInfo.clactiveBound;obj.LagrangianInfo.cuactiveBound]))*[-dcon_dx;dcon_dx]+(obj.LagrangianInfo.lambda.upper.*obj.LagrangianInfo.uactiveBound)'-(obj.LagrangianInfo.lambda.lower.*obj.LagrangianInfo.lactiveBound)';
             else
-                lambdaR = -(dR_du)\(dI_du)';
-                obj.LagrangianInfo.Lorg = I0 + lambda.ineqlin'*[obj.scaledVar'.*uactiveBound;-obj.scaledVar'.*lactiveBound];
-                penaltyorg = 0;
-                obj.LagrangianInfo.dL_dx = dI_dx+lambdaR'*dR_dx+lambda.ineqlin'*[diag(uactiveBound);-diag(lactiveBound)];
+                lambdaR = -(dR_du')\dI_du';
+                obj.LagrangianInfo.Lorg = I0+((obj.LagrangianInfo.lambda.upper.*obj.LagrangianInfo.uactiveBound)'*(obj.scaledVar'-1))'+((obj.LagrangianInfo.lambda.lower.*obj.LagrangianInfo.lactiveBound)'*(-obj.scaledVar'))';
+                obj.LagrangianInfo.dL_dx = dI_dx+lambdaR'*dR_dx+(obj.LagrangianInfo.lambda.upper.*obj.LagrangianInfo.uactiveBound)'-(obj.LagrangianInfo.lambda.lower.*obj.LagrangianInfo.lactiveBound)';
             end
             obj.history.LagrangianVal(obj.iteration) = obj.LagrangianInfo.Lorg;
-            obj.history.penaltyVal(obj.iteration) = penaltyorg;
             obj.history.scaledVar(obj.iteration,:) = obj.scaledVar;
             obj.history.dL_dx(obj.iteration,:) = obj.LagrangianInfo.dL_dx;
-            fprintf("Lagrangian Value : %f \nPenalty Value : %f\nGradient of Lagrangian : \n",obj.LagrangianInfo.Lorg,penaltyorg);
+            fprintf("Lagrangian Value : %f \nGradient of Lagrangian : \n",obj.LagrangianInfo.Lorg);
             disp(obj.LagrangianInfo.dL_dx);
             fprintf("iteration No. %d : Gradient Caluculation Completed\n",obj.iteration);
         end
@@ -616,6 +628,7 @@
         function [nextUnscaledVar,scaleddxNorm] = descentLagrangian(obj,varargin)
             %%%%%%%%%%%%%Lagrangianの降下方向に向かう設計変数を計算する%%%%%%%%%
             %
+            %dog-legとsteepest-descentはアルゴリズム対応が途中
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             if nargin>1
                 obj = obj.setUNGRADESettings(varargin{:});
@@ -634,18 +647,30 @@
             desOrg = obj.scaledVar.*obj.designScale+obj.lb;
             lbf = -obj.scaledVar;
             ubf = 1-obj.scaledVar;
+            lbf(lbf<-obj.settingUNGRADE.TrustRegion) = -obj.settingUNGRADE.TrustRegion;
+            ubf(ubf>obj.settingUNGRADE.TrustRegion) = obj.settingUNGRADE.TrustRegion;
             ndim = numel(lbf);
+            ncon = numel(obj.LagrangianInfo.blin);
             if strcmpi(obj.settingUNGRADE.updateMethod,"Levenberg–Marquardt")
-                options = optimoptions(@fmincon,'Algorithm','interior-point','Display','final-detailed','EnableFeasibilityMode',true,"SubproblemAlgorithm","cg",'MaxFunctionEvaluations',10000);
-                dxscaled = fmincon(@(x)obj.fminconObj(x,obj.Hessian+obj.settingUNGRADE.betaLM*diag(diag(obj.Hessian)),obj.LagrangianInfo.dL_dx),zeros(numel(obj.scaledVar),1),obj.LagrangianInfo.alin,obj.LagrangianInfo.blin,[],[],lbf,ubf,@(x)obj.fminconNlc(x,obj.settingUNGRADE.TrustRegion),options);
+                options = optimoptions(@fmincon,'Algorithm','interior-point','Display','final-detailed','EnableFeasibilityMode',true,"SubproblemAlgorithm","cg",'MaxFunctionEvaluations',10000);     
+                if any([obj.LagrangianInfo.cuactiveBound;obj.LagrangianInfo.clactiveBound]==1)
+                    H = blkdiag(obj.Hessian+obj.settingUNGRADE.betaLM*diag(diag(obj.Hessian)),eye(ncon).*10);
+                    dxscaled = fmincon(@(x)obj.fminconObj(x,H,[obj.LagrangianInfo.dL_dx,ones(1,ncon).*10]),zeros(numel(obj.scaledVar)+numel(obj.LagrangianInfo.blin),1),[obj.LagrangianInfo.alin,-eye(ncon)],obj.LagrangianInfo.blin,[],[],[lbf,ones(1,ncon).*0],[ubf,ones(1,ncon).*Inf],[],options);
+                else
+                    dxscaled = fmincon(@(x)obj.fminconObj(x,obj.Hessian+obj.settingUNGRADE.betaLM*diag(diag(obj.Hessian)),obj.LagrangianInfo.dL_dx),zeros(numel(obj.scaledVar),1),[],[],[],[],lbf,ubf,[],options);
+                end
+                dxscaled = dxscaled(1:ndim,1);
             elseif strcmpi(obj.settingUNGRADE.updateMethod,"dogleg")
+
+                %%%%%%%%%%%%%%%%%%%%%%%%%%%dog-legとsteepest-descentはアルゴリズム対応が途中
+
                 %sd方向を求める行列
                 Aeq = [eye(ndim),obj.LagrangianInfo.dL_dx(:)];
                 beq = zeros(ndim,1);
                 options = optimoptions(@fmincon,'Algorithm','interior-point','Display','final-detailed','EnableFeasibilityMode',true,"SubproblemAlgorithm","cg",'MaxFunctionEvaluations',10000);
-                xsd_t = fmincon(@(x)obj.fminconObj(x,obj.Hessian,obj.LagrangianInfo.dL_dx),zeros(numel(obj.scaledVar)+1,1),[obj.LagrangianInfo.alin,zeros(size(obj.LagrangianInfo.alin,1),1)],obj.LagrangianInfo.blin,Aeq,beq,[lbf,-100],[ubf,100],[],options);
+                xsd_t = fmincon(@(x)obj.fminconObj(x,obj.Hessian,obj.LagrangianInfo.dL_dx),zeros(numel(obj.scaledVar)+1,1),[],[],Aeq,beq,[lbf,-100],[ubf,100],[],options);
                 xsd = xsd_t(1:ndim);
-                xqn = fmincon(@(x)obj.fminconObj(x,obj.Hessian,obj.LagrangianInfo.dL_dx),zeros(numel(obj.scaledVar),1),obj.LagrangianInfo.alin,obj.LagrangianInfo.blin,[],[],lbf,ubf,[],options);
+                xqn = fmincon(@(x)obj.fminconObj(x,obj.Hessian,obj.LagrangianInfo.dL_dx),zeros(numel(obj.scaledVar),1),[],[],[],[],lbf,ubf,[],options);
                 if norm(xqn) <= obj.settingUNGRADE.TrustRegion
                     dxscaled = xqn;
                 elseif norm(xqn) > obj.settingUNGRADE.TrustRegion && norm(xsd) > obj.settingUNGRADE.TrustRegion
@@ -656,11 +681,21 @@
                 end
             elseif strcmpi(obj.settingUNGRADE.updateMethod,"Steepest-Descent")
                 options = optimoptions(@fmincon,'Algorithm','interior-point','Display','final-detailed','EnableFeasibilityMode',true,"SubproblemAlgorithm","cg",'MaxFunctionEvaluations',10000);
-                dxscaled = fmincon(@(x)obj.fminconObj(x,2.*eye(ndim),2.*obj.settingUNGRADE.alphaSD.*obj.LagrangianInfo.dL_dx),zeros(numel(obj.scaledVar),1),obj.LagrangianInfo.alin,obj.LagrangianInfo.blin,[],[],[],[],@(x)obj.fminconNlc(x,obj.settingUNGRADE.TrustRegion),options);
+                dxscaled = fmincon(@(x)obj.fminconObj(x,2.*eye(ndim),2.*obj.settingUNGRADE.alphaSD.*obj.LagrangianInfo.dL_dx),zeros(numel(obj.scaledVar),1),[],[],[],[],[],[],@(x)obj.fminconNlc(x,obj.settingUNGRADE.TrustRegion),options);
+                %dxscaled = -obj.settingUNGRADE.alphaSD.*obj.LagrangianInfo.dL_dx';
             end
             dx = dxscaled(:)'.*obj.designScale;
             nextUnscaledVar = desOrg + dx(:)';
             scaleddxNorm = norm(dxscaled);
+        end
+
+        function [Lval,I,con,obj] = calcLagrangian(obj,objandConsFun,cmin,cmax)
+            [I,con,obj] = evaluateObjFun(obj,objandConsFun);
+            if not(isempty(con))
+                Lval = I + (obj.LagrangianInfo.lambda.ineqlin'*diag([obj.LagrangianInfo.clactiveBound;obj.LagrangianInfo.cuactiveBound]))*[cmin-con;con-cmax;]+((obj.LagrangianInfo.lambda.upper.*obj.LagrangianInfo.uactiveBound)'*(obj.scaledVar'-1))'+((obj.LagrangianInfo.lambda.lower.*obj.LagrangianInfo.lactiveBound)'*(-obj.scaledVar'))';
+            else
+                Lval = I+((obj.LagrangianInfo.lambda.upper.*obj.LagrangianInfo.uactiveBound)'*(obj.scaledVar'-1))'+((obj.LagrangianInfo.lambda.lower.*obj.LagrangianInfo.lactiveBound)'*(-obj.scaledVar'))';
+            end
         end
 
         function obj = updateHessian(obj,varargin)  
@@ -694,6 +729,11 @@
                         obj.Hessian = updateFunction(s,y,obj.Hessian);
                     end
                 end
+            end
+            if size(obj.history.scaledVar,1) > 1
+                s = obj.history.scaledVar(end,:)-obj.history.scaledVar(end-1,:);
+                y = obj.history.dL_dx(end,:)-obj.history.dL_dx(end-1,:);
+                obj.BBMatrix = obj.Barzilai_Borwein(s,y);
             end
             if issymmetric(obj.Hessian)
                 fprintf("Hessian is symmetric ");
@@ -790,9 +830,9 @@
             res = 0.5 * dx(1:ndim)'*H*dx(1:ndim) + g*dx(1:ndim);
         end
 
-        function [c,ceq] = fminconNlc(dx,TR)
+        function [c,ceq] = fminconNlc(dx,TR,nvar)
             ceq = [];
-            c = sum(dx.^2)-(TR)^2;
+            c = sum(dx(1:nvar).^2)/TR^2-1;
         end
 
         function [modVerts,con] = meshDeformation(obj,modGeomVerts,modGeomCon)
@@ -807,25 +847,12 @@
                     error("Surf connectivity is not match")
                 end
             end
-            
-            %md.x = scatteredInterpolant(obj.orgGeom.Points,modGeomVerts(:,1)-obj.orgGeom.Points(:,1),'linear','linear');
-            %md.y = scatteredInterpolant(obj.orgGeom.Points,modGeomVerts(:,2)-obj.orgGeom.Points(:,2),'linear','linear');
-            %md.z = scatteredInterpolant(obj.orgGeom.Points,modGeomVerts(:,3)-obj.orgGeom.Points(:,3),'linear','linear');
-            %dVerts(:,1) = md.x(obj.tri.Points);
-            %dVerts(:,2) = md.y(obj.tri.Points);
-            %dVerts(:,3) = md.z(obj.tri.Points);
-            %{
-            md.x = obj.RbfppMake(obj,obj.orgGeom.Points,modGeomVerts(:,1)-obj.orgGeom.Points(:,1),1,0.001);
-            md.y = obj.RbfppMake(obj,obj.orgGeom.Points,modGeomVerts(:,2)-obj.orgGeom.Points(:,2),1,0.001);
-            md.z = obj.RbfppMake(obj,obj.orgGeom.Points,modGeomVerts(:,3)-obj.orgGeom.Points(:,3),1,0.001);
-            dVerts(:,1) = obj.execRbfInterp(obj,md.x,obj.tri.Points);
-            dVerts(:,2) = obj.execRbfInterp(obj,md.y,obj.tri.Points);
-            dVerts(:,3) = obj.execRbfInterp(obj,md.z,obj.tri.Points);
-            %}
-            modVerts(:,1) = obj.geom2MeshMat*modGeomVerts(:,1);
-            modVerts(:,2) = obj.geom2MeshMat*modGeomVerts(:,2);
-            modVerts(:,3) = obj.geom2MeshMat*modGeomVerts(:,3);
-            %modVerts = obj.tri.Points+dVerts;
+
+            modGeomVerts = modGeomVerts-obj.orgGeom.Points;
+            dVerts(:,1) = obj.geom2MeshMat*modGeomVerts(:,1);
+            dVerts(:,2) = obj.geom2MeshMat*modGeomVerts(:,2);
+            dVerts(:,3) = obj.geom2MeshMat*modGeomVerts(:,3);
+            modVerts = obj.tri.Points+dVerts;
             con = obj.tri.ConnectivityList;
         end
         
@@ -838,153 +865,33 @@
             obj.gradMesh = zeros(size(obj.orgMesh.Points(:),1),ndim);
             desOrg = obj.scaledVar.*obj.designScale+obj.lb;
             [surforg,~,~,~,~,~,~,desOrg] = obj.geomGenFun(desOrg);
-           % meshrbf = obj.RbfinvRMake(obj,obj.orgGeom.Points,3,0.001);
             for i = 1:ndim
                 sampleDes = obj.scaledVar.*obj.designScale+obj.lb;
                 sampleDes(i) = (obj.scaledVar(i) + pert(i)).*obj.designScale(i)+obj.lb(i);
                 [modSurf,~,SREFf,BREFf,CREFf,XYZREFf,argin_xf,desBuff] = obj.geomGenFun(sampleDes);
                 pertf = (desBuff(i)-desOrg(i))/obj.designScale(i);
-                %dmodSurf = modSurf-surforg;
-                modMeshf(:,1) = obj.geom2MeshMat*modSurf(:,1);
-                modMeshf(:,2) = obj.geom2MeshMat*modSurf(:,2);
-                modMeshf(:,3) = obj.geom2MeshMat*modSurf(:,3);
-                %sampleSurff = dmodSurf(:);
+                dmodSurf = modSurf-surforg;
+                modMeshf(:,1) = obj.geom2MeshMat*dmodSurf(:,1);
+                modMeshf(:,2) = obj.geom2MeshMat*dmodSurf(:,2);
+                modMeshf(:,3) = obj.geom2MeshMat*dmodSurf(:,3);
                 sampleDes = obj.scaledVar.*obj.designScale+obj.lb;
                 sampleDes(i) = (obj.scaledVar(i) - pert(i)).*obj.designScale(i)+obj.lb(i);
                 [modSurf,~,SREFr,BREFr,CREFr,XYZREFr,argin_xr,desBuff] = obj.geomGenFun(sampleDes);
                 pertr = (desBuff(i)-desOrg(i))/obj.designScale(i);
-                %dmodSurf = modSurf-surforg;
-                modMeshr(:,1) = obj.geom2MeshMat*modSurf(:,1);
-                modMeshr(:,2) = obj.geom2MeshMat*modSurf(:,2);
-                modMeshr(:,3) = obj.geom2MeshMat*modSurf(:,3);
-                %sampleSurfr = dmodSurf(:);
+                dmodSurf = modSurf-surforg;
+                modMeshr(:,1) = obj.geom2MeshMat*dmodSurf(:,1);
+                modMeshr(:,2) = obj.geom2MeshMat*dmodSurf(:,2);
+                modMeshr(:,3) = obj.geom2MeshMat*dmodSurf(:,3);
 
-                %gradSurf = (sampleSurff-sampleSurfr)./(pertf-pertr);
                 obj.gradSREF(i) = (SREFf-SREFr)./(pertf-pertr);
                 obj.gradBREF(i) = (BREFf-BREFr)./(pertf-pertr);
                 obj.gradCREF(i) = (CREFf-CREFr)./(pertf-pertr);
                 obj.gradXYZREF(:,i) = (XYZREFf(:)-XYZREFr(:))./(pertf-pertr);
                 obj.gradArginx(:,i) = (argin_xf(:)-argin_xr(:))./(pertf-pertr);
-                %reshapeGrad = reshape(gradSurf,size(modSurf));
-                %md.x = scatteredInterpolant(obj.orgGeom.Points,reshapeGrad(:,1),'linear','linear');
-                %md.y = scatteredInterpolant(obj.orgGeom.Points,reshapeGrad(:,2),'linear','linear');
-                %md.z = scatteredInterpolant(obj.orgGeom.Points,reshapeGrad(:,3),'linear','linear');
-                %dVerts(:,1) = md.x(obj.orgMesh.Points);
-                %dVerts(:,2) = md.y(obj.orgMesh.Points);
-                %dVerts(:,3) = md.z(obj.orgMesh.Points);
-                %md.x = obj.invRppMake(meshrbf,reshapeGrad(:,1));
-                %md.y = obj.invRppMake(meshrbf,reshapeGrad(:,2));
-                %md.z = obj.invRppMake(meshrbf,reshapeGrad(:,3));
-                %dVerts(:,1) = obj.execRbfInterp(obj,md.x,obj.orgMesh.Points);
-                %dVerts(:,2) = obj.execRbfInterp(obj,md.y,obj.orgMesh.Points);
-                %dVerts(:,3) = obj.execRbfInterp(obj,md.z,obj.orgMesh.Points);
-                %modVerts(:,1) = obj.geom2MeshMat*reshapeGrad(:,1);
-                %modVerts(:,2) = obj.geom2MeshMat*reshapeGrad(:,2);
-                %modVerts(:,3) = obj.geom2MeshMat*reshapeGrad(:,3);
                 obj.gradMesh(:,i) = (modMeshf(:)-modMeshr(:))./(pertf-pertr);
             end
         end
-        %{
-
-        function [errMax,errMean] = dist2geom(geom,mesh)
-            numV = size(geom.Points,1);
-            numF = size(geom.ConnectivityList,1);
-            tV = size(mesh.Points,1);
-            dMin = Inf(tV,1);
-            for c1 = 1:tV 
-                nn = geom.nearestNeighbor(mesh.Points(c1,:));
-                dMin(c1) = norm(geom.Points(nn,:)-mesh.Points(c1,:));
-
-                ne = geom.vertexAttachments(nn);
-                for c2 = ne{1}
-                    for c3 = 1:2 
-                        for c4 = c3+1:3
-                            v1 = mesh.Points(c1,:);
-                            v2 = geom.Points(geom.ConnectivityList(c2,c3),:);
-                            v3 = geom.Points(geom.ConnectivityList(c2,c4),:);
-                            if ( all(min(v2,v3) < (v1 + dMin(c1))) && all(max(v2,v3) > (v1 - dMin(c1))) )
-                                d = norm(cross((v3-v2),(v2-v1)))/norm(v3 - v2);
-                                s = - (v2-v1)*(v3-v2)' / (norm(v3-v2))^2;
-                                if (s>=0 && s<=1)
-                                    if d < dMin(c1) 
-                                        dMin(c1) = d;
-                                    end
-                                end
-                            end
-                        end
-                    end
-                end
-
-                for c2 = ne{1}
-                    v1 = mesh.Points(c1,:);
-                    v2 = geom.Points(geom.ConnectivityList(c2,1),:);
-                    v3 = geom.Points(geom.ConnectivityList(c2,2),:);
-                    v4 = geom.Points(geom.ConnectivityList(c2,3),:);
-                    if ( all(min([v2;v3;v4]) < (v1 + dMin(c1))) && all(max([v2;v3;v4]) > (v1 - dMin(c1))) )
-                        n = cross((v4-v2),(v3-v2)) / norm(cross((v4-v2),(v3-v2)));
-                        d = abs(n * (v1 - v2)');
-                        n = cross((v4-v2),(v3-v2)) / norm(cross((v4-v2),(v3-v2)));
-                        f1 = v1 + d * n;
-                        f2 = v1 - d * n;
-                        m = [v3-v2;v4-v2]';
-                        if(abs(f1-v2)>0)
-                            r1 = m\(f1-v2)';
-                        else
-                            r1 = [inf;inf];
-                        end
-                        if(abs(f2-v2)>0)
-                            r2 = m\(f2-v2)';
-                        else
-                            r2 = [inf;inf];
-                        end
-                        if ((sum(r1)<=1 && sum(r1)>=0 && all(r1 >=0) && all(r1 <=1)) || (sum(r2)<=1 && sum(r2)>=0 && all(r2 >=0) && all(r2 <=1)))
-                            if d < dMin(c1)
-                                dMin(c1) = d;
-                            end
-                        end
-                    end
-                end
-            end
-            
-            pVError = dMin; 
-            errMean = mean(pVError);
-            errMax = max(pVError);
-        end
-
-        function dist = edgeDist(v1,v2,v3)
-            d = norm(cross((v3-v2),(v2-v1)))/norm(v3 - v2);
-            s = - (v2-v1)*(v3-v2)' / (norm(v3-v2))^2;
-            if (s>=0 && s<=1)
-                dist = d;
-            else
-                dist = inf;
-            end
-        end
-
-        function dist = faceDist(v1,v2,v3,v4)
-            n = cross((v4-v2),(v3-v2)) / norm(cross((v4-v2),(v3-v2)));
-            d = abs(n * (v1 - v2)');
-            n = cross((v4-v2),(v3-v2)) / norm(cross((v4-v2),(v3-v2)));
-            f1 = v1 + d * n;
-            f2 = v1 - d * n;
-            m = [v3-v2;v4-v2]';
-            if(abs(f1-v2)>0)
-                r1 = m\(f1-v2)';
-            else
-                r1 = [inf;inf];
-            end
-            if(abs(f2-v2)>0)
-                r2 = m\(f2-v2)';
-            else
-                r2 = [inf;inf];
-            end
-            if ((sum(r1)<=1 && sum(r1)>=0 && all(r1 >=0) && all(r1 <=1)) || (sum(r2)<=1 && sum(r2)>=0 && all(r2 >=0) && all(r2 <=1)))
-                dist = d;
-            else
-                dist = inf;
-            end
-        end
-        %}
+       
         %%%%%%%%%%%%%%%%%%%%%%%%
         %準ニュートン法のアップデートの手実装
         %s 設計変数の変化量
@@ -1039,6 +946,18 @@
             else
                 Bkp1 = Bk+(y-Bk*s)*(y-Bk*s)'/((y-Bk*s)'*s);
             end
+        end
+        function Bkp1 = Barzilai_Borwein(s,y)
+            s = s(:);
+            y=y(:);
+            delta = 100.0;
+            alpha = (s'*y)/(s'*s);
+            if alpha <= 0
+                alpha = norm(s)/norm(y);
+            end
+            alphak = min(alpha, delta / norm(y));
+            Bk = eye(numel(s));
+            Bkp1 = alphak * Bk;
         end
 
     end

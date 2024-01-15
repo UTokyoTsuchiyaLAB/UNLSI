@@ -126,7 +126,6 @@ classdef UNLSI
             obj.settingUNLSI.kappa = 1.4;
             obj.settingUNLSI.g0 = 9.8;
             obj.settingUNLSI.nGriddedInterp = 90;
-            obj.settingUNLSI.r0RBF = 1;
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             obj.halfmesh = halfmesh;
             obj.flowNoTable = [];
@@ -357,7 +356,7 @@ classdef UNLSI
             warning('on','MATLAB:triangulation:PtsNotInTriWarnId');
 
             %空力のパネル中心座標からメッシュノードへ投影する変換行列の作成
-            phi = @(r)obj.phi3(r,obj.settingUNLSI.r0RBF);
+            phi = @(r)obj.phi3(r,1);
             Avv = phi(obj.calcRMat(obj.tri.Points,obj.tri.Points));
             Acv = phi(obj.calcRMat(obj.center,obj.tri.Points));
             obj.verts2centerMat = Acv*pinv(Avv);
@@ -404,6 +403,33 @@ classdef UNLSI
                     newCon(deleteIndex,:) = [];
                     obj.surfID(deleteIndex,:) = [];
                     obj = obj.setMesh(obj.tri.Points,newCon,obj.surfID,obj.wakelineID);
+                else
+                    error("some panel areas are too small");
+                end
+            end
+        end
+   
+        function obj = checkFemMesh(obj,tol,outType)
+            %%%%%%%%%%%%%%%%パネル面積の確認%%%%%%%%%%%%%%%
+            %tol:最小許容面積
+            %outType:"warning"を指定するとエラーの代わりに警告を表示する
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            if nargin == 2
+                outType = "error";
+            end
+            if any(obj.femarea<tol)
+                if strcmpi(outType,'warning')
+                    warning("some panel areas are too small");
+                elseif strcmpi(outType,'delete')
+                    
+                    deleteIndex = obj.femarea<tol;
+                    if any(deleteIndex)
+                        warning("some panel areas are too small and deleted");
+                    end
+                    newCon = obj.femtri.ConnectivityList;
+                    newCon(deleteIndex,:) = [];
+                    obj.femID(deleteIndex,:) = [];
+                    obj = obj.setFemMesh(obj.femtri.Points,newCon,obj.femID);
                 else
                     error("some panel areas are too small");
                 end
@@ -2121,7 +2147,10 @@ classdef UNLSI
 
 
         %FEM関連
-        function obj = setFemMesh(obj,verts,connectivity,femID)
+        function obj = setFemMesh(obj,verts,connectivity,femID,aeroIDLink)
+            if nargin<5
+                aeroIDLink = unique(obj.surfID);
+            end
             obj.femtri = triangulation(connectivity,verts);
             obj.femID = femID;
             for i = 1:numel(obj.femID)
@@ -2129,7 +2158,8 @@ classdef UNLSI
                 obj.femcenter(i,:) = [mean(obj.femtri.Points(obj.femtri.ConnectivityList(i,:),1)),mean(obj.femtri.Points(obj.femtri.ConnectivityList(i,:),2)),mean(obj.femtri.Points(obj.femtri.ConnectivityList(i,:),3))];
             end
             obj.femutils = [];
-
+            obj = obj.checkFemMesh(obj.settingUNLSI.checkMeshTol,obj.settingUNLSI.checkMeshMethod);
+                
             %取り急ぎ、解析用のメッシュと空力メッシュは同一。後でFEAメッシュ等からメッシュを入れられるようにする。
             usedVertsbuff = unique(obj.femtri.ConnectivityList);
             obj.femutils.usedVerts=usedVertsbuff(:)';
@@ -2172,12 +2202,19 @@ classdef UNLSI
             
             %構造メッシュと空力メッシュの変換行列の作成
             %Rstrを計算
-            Rss = obj.calcRMat(obj.femtri.Points(obj.femutils.usedVerts,:),obj.femtri.Points(obj.femutils.usedVerts,:));
-            phi = @(r)obj.phi3(r,obj.settingUNLSI.r0RBF);
+            
+            
+            usedAerobuff = unique(obj.tri.ConnectivityList(any(obj.surfID == aeroIDLink(:)',2),:));
+            obj.femutils.usedAeroVerts =  usedAerobuff(:);
+            femMeshScaling = abs(max(obj.tri.Points(obj.femutils.usedAeroVerts,:),[],1)-min(obj.tri.Points(obj.femutils.usedAeroVerts,:),[],1));
+            %femMeshScaling = [1,1,1];
+            femMeshScaling(femMeshScaling==0) = 1;
+            Rss = obj.calcRMat(obj.femtri.Points(obj.femutils.usedVerts,:)./femMeshScaling,obj.femtri.Points(obj.femutils.usedVerts,:)./femMeshScaling);
+            phi = @(r)obj.phi1(r,0.001);%変位計算の場合はphi1の方がうまくいく
             Mss = phi(Rss);
-            Pss = [ones(size(obj.femtri.Points(obj.femutils.usedVerts,:),1),1),obj.femtri.Points(obj.femutils.usedVerts,:)]';
-            Ras = obj.calcRMat(obj.tri.Points,obj.femtri.Points(obj.femutils.usedVerts,:));
-            Aas = [ones(size(obj.tri.Points,1),1),obj.tri.Points,phi(Ras)];
+            Pss = [ones(size(obj.femtri.Points(obj.femutils.usedVerts,:),1),1),obj.femtri.Points(obj.femutils.usedVerts,:)./femMeshScaling ]';
+            Ras = obj.calcRMat(obj.tri.Points(obj.femutils.usedAeroVerts,:)./femMeshScaling,obj.femtri.Points(obj.femutils.usedVerts,:)./femMeshScaling);
+            Aas = [ones(size(obj.tri.Points(obj.femutils.usedAeroVerts,:),1),1),obj.tri.Points(obj.femutils.usedAeroVerts,:)./femMeshScaling,phi(Ras)];
             invM = pinv(Mss);
             Mp = pinv(Pss*invM*Pss');
             obj.fem2aeroMat = Aas * [Mp*Pss*invM;invM-invM*Pss'*Mp*Pss*invM];
@@ -2326,13 +2363,18 @@ classdef UNLSI
             %空力解析メッシュから構造解析メッシュへ圧力分布を投影
             for iter = 1:size(distLoad,2)
                 Fp = sparse(6*size(obj.femutils.usedVerts,2),1);
-                interpLoad = obj.verts2centerMat'*(distLoad.*obj.area);
-                femPointLoad = obj.fem2aeroMat'*interpLoad;
-                vfemNormal = vertexNormal(obj.femtri);
+                interpLoad = obj.verts2centerMat'*(distLoad(:,iter).*obj.area);
+                vNormal = vertexNormal(obj.tri);
+                %femPointLoad = obj.fem2aeroMat'*interpLoad;
+                vertsLoad = vNormal.*interpLoad;
+
+                femPointLoad(:,1) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,1);
+                femPointLoad(:,2) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,2);
+                femPointLoad(:,3) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,3);
                 for i = 1:size(obj.femtri.Points,1)  
-                    Fp(i,1) = -femPointLoad(i)*vfemNormal(i,1);
-                    Fp(i+size(obj.femtri.Points,1),1) = -femPointLoad(i)*vfemNormal(i,2);
-                    Fp(i+2*size(obj.femtri.Points,1),1) = -femPointLoad(i)*vfemNormal(i,3);
+                    Fp(i,1) = -femPointLoad(i,1);
+                    Fp(i+size(obj.femtri.Points,1),1) = -femPointLoad(i,2);
+                    Fp(i+2*size(obj.femtri.Points,1),1) = -femPointLoad(i,3);
                 end
     
                 femRHSp = Fp(obj.femutils.MatIndex==1,1);
@@ -2347,9 +2389,10 @@ classdef UNLSI
 
         function modVerts = calcModifiedVerts(obj,delta)
             %メッシュ変形を使って変位後の解析メッシュを計算する
-            modVerts(:,1) = obj.fem2aeroMat*(obj.femtri.Points(obj.femutils.usedVerts,1)+delta(:,1));
-            modVerts(:,2) = obj.fem2aeroMat*(obj.femtri.Points(obj.femutils.usedVerts,2)+delta(:,2));
-            modVerts(:,3) = obj.fem2aeroMat*(obj.femtri.Points(obj.femutils.usedVerts,3)+delta(:,3));
+            modVerts = obj.tri.Points;
+            modVerts(obj.femutils.usedAeroVerts,1) = obj.tri.Points(obj.femutils.usedAeroVerts,1) + obj.fem2aeroMat*delta(:,1);
+            modVerts(obj.femutils.usedAeroVerts,2) = obj.tri.Points(obj.femutils.usedAeroVerts,2) + obj.fem2aeroMat*delta(:,2);
+            modVerts(obj.femutils.usedAeroVerts,3) = obj.tri.Points(obj.femutils.usedAeroVerts,3) + obj.fem2aeroMat*delta(:,3);
         end
 
     end        
