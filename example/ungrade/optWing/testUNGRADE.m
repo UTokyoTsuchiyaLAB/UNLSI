@@ -14,8 +14,6 @@ ungradetest = ungradetest.setUNLSISettings("propCalcFlag",1,"Vinf",15);
 ungradetest = ungradetest.setUNGRADESettings("dynCoefFlag",1);
 ungradetest = ungradetest.setProp(1,3,0.15,1);
 [ungradetest,thrust,power] = ungradetest.setPropState(1,0.4,0.6,8000);
-ungradetest = ungradetest.setDeflAngle(4,[0,1,0],0);
-ungradetest = ungradetest.setDeflGroup(1,"elev",4,1);
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 ungradetest = ungradetest.setFlowCondition(0,0,0.001,500000);
@@ -24,7 +22,7 @@ ungradetest.plotGeometry(1,ungradetest.Cp{1}(:,1),[-2,1]); %機体形状と圧�
 
 
 for i = 1:60
-    [nextVar,ungradetest] = ungradetest.calcNextVariables(@objFun,cmin,cmax,"TrustRegion",0.02,"betaLM",0.1);%次の設計変数を計算する
+    [nextVar,ungradetest] = ungradetest.calcNextVariables(@objFun,cmin,cmax,"TrustRegion",0.1,"betaLM",0.1);%次の設計変数を計算する
     ungradetest= ungradetest.updateMeshGeomfromVariables(nextVar,0);%次の設計変数を用いて機体形状を更新する
     %%%%%%%%%ここから
         [Lorg,Iorg,conorg,ungradetest] = ungradetest.calcLagrangian(@objFun,cmin,cmax); 
