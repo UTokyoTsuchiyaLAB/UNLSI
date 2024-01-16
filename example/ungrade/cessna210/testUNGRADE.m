@@ -26,32 +26,3 @@ for i = 1:60
         ungradetest.plotOptimizationState(2); %最適化の状況をプロットする
     %%%%%%%%%ここはなくてもよい
 end
-%{
-for i = 1:60
-    ungradetest = ungradetest.calcLagrangianGradient(@objFun,cmin,cmax,"TrustRegion",0.05);%次の設計変数を計算する
-    ungradetest = ungradetest.updateHessian();%準ニュートン法のヘッシアン更新
-    [nextVar,dxNorm] = ungradetest.descentLagrangian();%次の設計変数を計算する
-    ungradetestdx= ungradetest.updateMeshGeomfromVariables(nextVar,1);%次の設計変数を用いて機体形状を更新する
-    if max(distanceVertex2Mesh(ungradetest.orgGeom, ungradetest.orgMesh.Points))>geomErr
-        ungradetestdx= ungradetest.updateMeshGeomfromVariables(nextVar);%次の設計変数を用いて機体形状を更新する
-    end
-    [Idx,condx,ungradetestdx] = ungradetestdx.evaluateObjFun(@objFun);
-    penartyorg = 100 * sum(max(max(0,cmin-conorg),max(conorg-cmax)));
-    penartydx = 100 * sum(max(max(0,cmin-condx),max(condx-cmax)));
-    if Idx + penartydx<Iorg + penartyorg
-        ungradetest = ungradetestdx;
-        Iorg = Idx;
-        conorg = condx;
-    else
-        nextVar = ungradetest.descentLagrangian("TrustRegion",dxNorm*0.5);%次の設計変数を計算する。ここでのsettingの変更は残らない
-        ungradetestdx= ungradetest.updateMeshGeomfromVariables(nextVar,1);%次の設計変数を用いて機体形状を更新する
-        if max(distanceVertex2Mesh(ungradetest.orgGeom, ungradetest.orgMesh.Points))>geomErr
-            ungradetestdx= ungradetest.updateMeshGeomfromVariables(nextVar);%次の設計変数を用いて機体形状を更新する
-        end
-        ungradetest = ungradetestdx;
-        [Iorg,conorg,ungradetest] = ungradetest.evaluateObjFun(@objFun);
-    end
-    ungradetest.plotGeometry(1,ungradetest.Cp{1}(:,1),[-2,1]);
-    ungradetest.plotOptimizationState(2);
-end
-%}

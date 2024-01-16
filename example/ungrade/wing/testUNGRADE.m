@@ -34,42 +34,4 @@ for i = 1:60
 end
 %}
 
-%%%%%%%%%%%%%%%%%上級者向け -- calcNextVariablesの中身を個別実行%%%%%%%%%%%%%%%%%%
-%{
-for iter = 1:60
-    TR = 0.05;
-    ungradetest = ungradetest.calcLagrangianGradient(@objFun,cmin,cmax,"TrustRegion",TR,"betaLM",0.1);%次の設計変数を計算する
-    ungradetest = ungradetest.updateHessian();%準ニュートン法のヘッシアン更新
-    [nextVar,dxNorm] = ungradetest.descentLagrangian();%次の設計変数を計算する
-    for i = 1:30  
-        ungradetestdx= ungradetest.updateMeshGeomfromVariables(nextVar,1);%Mesh作成により次の設計変数を用いて機体形状を更新する。
-        [Ldx,Idx,condx,ungradetestdx] = ungradetestdx.calcLagrangian(@objFun,cmin,cmax);
-        %penartyorg = 100 * sum(max(max(0,cmin-conorg),max(conorg-cmax)));
-        %penartydx = 100 * sum(max(max(0,cmin-condx),max(condx-cmax)));
-        disp("Ldx,Lorg")
-        disp([Ldx,ungradetest.LagrangianInfo.Lorg])
-        if Ldx <= ungradetest.LagrangianInfo.Lorg || TR < 1e-3
-            ungradetest = ungradetestdx;
-            Iorg = Idx;
-            conorg = condx;
-            break;
-        else
-            for j = 1:30
-                TR = TR * 0.9; %信頼領域法の精度検証に相当する。
-                nextVar2 = ungradetest.descentLagrangian("TrustRegion",TR);%次の設計変数を計算する。ここでのsettingの変更は残らない
-                if any(abs(nextVar2-nextVar)>0.0011) 
-                    nextVar = nextVar2;
-                    break
-                else
-                    nextVar = nextVar2;
-                end
-            end
-        end
-    end
-    %ungradetest= ungradetest.updateMeshGeomfromVariables(nextVar,1);%Mesh作成により次の設計変数を用いて機体形状を更新する。
-    %[Lorg,Iorg,conorg,ungradetest] = ungradetest.calcLagrangian(@objFun,cmin,cmax);
-    ungradetest.plotGeometry(1,ungradetest.Cp{1}(:,1),[-2,1]);
-    ungradetest.plotOptimizationState(2);
-end
-%}
 

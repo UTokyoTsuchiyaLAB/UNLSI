@@ -1,9 +1,9 @@
 8
-MEFLVSUHRFG:WingGeom:XSec_2:Span: 0.487
-PLBQLRYYEDP:WingGeom:XSec_2:Sweep: 41.866
-VGJGCRMAHAK:WingGeom:XSec_2:Tip_Chord: 0.232
-POAEWLNRSNT:WingGeom:XSec_2:Twist: -5.602
-TXUHRDTTOJJ:WingGeom:XForm:Y_Rel_Rotation: 5.122
-ENNDFHNLZPR:WingGeom:XSecCurve_0:Camber: -0.035
-YIZZQSWCDXM:WingGeom:XSec_1:Root_Chord: 0.399
-DWXANMHGLEF:WingGeom:XSec_1:Span: 0.163
+MEFLVSUHRFG:WingGeom:XSec_2:Span: 0.479
+PLBQLRYYEDP:WingGeom:XSec_2:Sweep: 34.400
+VGJGCRMAHAK:WingGeom:XSec_2:Tip_Chord: 0.205
+POAEWLNRSNT:WingGeom:XSec_2:Twist: -11.014
+TXUHRDTTOJJ:WingGeom:XForm:Y_Rel_Rotation: 6.166
+ENNDFHNLZPR:WingGeom:XSecCurve_0:Camber: -0.003
+YIZZQSWCDXM:WingGeom:XSec_1:Root_Chord: 0.395
+DWXANMHGLEF:WingGeom:XSec_1:Span: 0.152

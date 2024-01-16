@@ -3,7 +3,7 @@ orgMesh.vspgeom
 4
 
 # tag#,geom#,surf#,gname,gid,ssname1,ssname2,...,ssid1,ssid2,...
-1,0,0,StackGeom,HKXIAPFJVO
-2,1,0,WingGeom,GHEHDIDSPO
-3,2,0,PropGeom,FQNFRGTDBL
-4,1,0,WingGeom,GHEHDIDSPO,SS_CONT_0,WCWJMPOHSX
+1,0,0,StackGeom_S,HKXIAPFJVO
+2,1,0,WingGeom_S,GHEHDIDSPO
+3,2,0,PropGeom_S,FQNFRGTDBL
+4,1,0,WingGeom_S,GHEHDIDSPO,SS_CONT_0,WCWJMPOHSX

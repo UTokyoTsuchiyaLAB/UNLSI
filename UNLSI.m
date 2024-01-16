@@ -22,6 +22,7 @@ classdef UNLSI
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
     properties
+        settingUNLSI %パラメータセッティング
         tri %MATLAB triangulationクラス
         surfID %各パネルのタグ番号
         wakeline %wakeパネルの設定
@@ -36,8 +37,6 @@ classdef UNLSI
         IndexPanel2Solver %パネルのインデックス⇒ソルバー上でのインデックス
         approxMat %パネル法行列の近似行列を作成するためのセル
         approximated %パネル法行列が近似されたものかどうか    
-        VindWakes
-        settingUNLSI
         orgNormal %各パネルの法線ベクトル
         modNormal %舵角等によって変更した法線ベクトル
         center %各パネルの中心
@@ -49,15 +48,16 @@ classdef UNLSI
         LHS %パネル法連立方程式の左辺行列
         RHS %パネル法連立方程式の右辺行列
         mu2v %ポテンシャル⇒機体表面速度への変換行列
+        verts2centerMat %節点での量⇛パネルセンターでの量への変換行列
         Cp %圧力係数
         Cfe %表面摩擦係数
-        deflAngle
-        deflGroup
+        deflAngle %舵角
+        deflGroup %舵面グループ
         AERODATA %空力解析結果の格納
         DYNCOEF %同安定微係数結果の格納
-        LLT
-        ppCoef
-        ppDyn
+        LLT %トレフツ面解析用の構造体
+        ppCoef %空力補完局面(griddedInterp)
+        ppDyn %動安定微係数補完局面(griddedInterp)
         femutils
         femLHS
         femRHS
@@ -68,8 +68,9 @@ classdef UNLSI
         femcenter
         femThn
         femE
+        femRho
         fem2aeroMat
-        verts2centerMat
+        femverts2centerMat %femメッシュでの節点量⇛パネルセンター量への変換行列
     end
 
     methods(Access = public)
@@ -372,7 +373,10 @@ classdef UNLSI
             warning('off','MATLAB:triangulation:PtsNotInTriWarnId');
             con = obj.tri.ConnectivityList;
             obj.tri = triangulation(con,verts);
-            
+            obj.area = zeros(numel(obj.paneltype),1);
+            obj.orgNormal = zeros(numel(obj.paneltype),3);
+            obj.modNormal = zeros(numel(obj.paneltype),3);
+            obj.center = zeros(numel(obj.paneltype),3);
             for i = 1:numel(obj.paneltype)
                 [obj.area(i,1),~ , obj.orgNormal(i,:)] = obj.vertex(verts(obj.tri(i,1),:),verts(obj.tri(i,2),:),verts(obj.tri(i,3),:));
                 obj.center(i,:) = [mean(verts(obj.tri.ConnectivityList(i,:),1)),mean(verts(obj.tri.ConnectivityList(i,:),2)),mean(verts(obj.tri.ConnectivityList(i,:),3))];
@@ -2153,6 +2157,9 @@ classdef UNLSI
             end
             obj.femtri = triangulation(connectivity,verts);
             obj.femID = femID;
+            obj.femarea = zeros(numel(obj.femID),1);
+            obj.femNormal = zeros(numel(obj.femID),3);
+            obj.femcenter = zeros(numel(obj.femID),3);
             for i = 1:numel(obj.femID)
                 [obj.femarea(i,1),~ , obj.femNormal(i,:)] = obj.vertex(obj.femtri.Points(obj.femtri.ConnectivityList(i,1),:),obj.femtri.Points(obj.femtri.ConnectivityList(i,2),:),obj.femtri.Points(obj.femtri.ConnectivityList(i,3),:));
                 obj.femcenter(i,:) = [mean(obj.femtri.Points(obj.femtri.ConnectivityList(i,:),1)),mean(obj.femtri.Points(obj.femtri.ConnectivityList(i,:),2)),mean(obj.femtri.Points(obj.femtri.ConnectivityList(i,:),3))];
@@ -2165,7 +2172,8 @@ classdef UNLSI
             obj.femutils.usedVerts=usedVertsbuff(:)';
             obj.femutils.nbVerts = numel(obj.femutils.usedVerts);
             obj.femThn = ones(size(obj.femID)).*0.01;
-            obj.femE = ones(size(obj.femID)).*1000000000;
+            obj.femE = ones(size(obj.femID)).*100000000000;
+            obj.femRho = ones(size(obj.femID)).*1000;
             for iter = 1:size(obj.femtri.ConnectivityList,1)
                 obj.femutils.IndexRow{iter} = zeros(18,18);
                 obj.femutils.IndexCol{iter} = zeros(18,18);
@@ -2202,8 +2210,7 @@ classdef UNLSI
             
             %構造メッシュと空力メッシュの変換行列の作成
             %Rstrを計算
-            
-            
+
             usedAerobuff = unique(obj.tri.ConnectivityList(any(obj.surfID == aeroIDLink(:)',2),:));
             obj.femutils.usedAeroVerts =  usedAerobuff(:);
             femMeshScaling = abs(max(obj.tri.Points(obj.femutils.usedAeroVerts,:),[],1)-min(obj.tri.Points(obj.femutils.usedAeroVerts,:),[],1));
@@ -2219,13 +2226,26 @@ classdef UNLSI
             Mp = pinv(Pss*invM*Pss');
             obj.fem2aeroMat = Aas * [Mp*Pss*invM;invM-invM*Pss'*Mp*Pss*invM];
 
+            %femのパネル中心座標からメッシュノードへ投影する変換行列の作成
+            phi = @(r)obj.phi3(r,1);
+            Avv = phi(obj.calcRMat(obj.femtri.Points,obj.femtri.Points));
+            Acv = phi(obj.calcRMat(obj.femcenter,obj.femtri.Points));
+            obj.femverts2centerMat = Acv*pinv(Avv);
+
 
         end
 
-        function obj = setFemMaterials(obj,femID,thickness,youngModulus)
+        function [obj,weight] = setFemMaterials(obj,femID,thickness,youngModulus,rho)
             for i = 1:numel(femID)
                 obj.femThn(obj.femID==femID(i),1) = thickness(i);
                 obj.femE(obj.femID==femID(i),1) = youngModulus(i);
+                obj.femRho(obj.femID==femID(i),1) = rho(i);
+            end
+            if nargout>1
+                weight = zeros(1,numel(femID));
+                for i = 1:numel(femID)
+                    weight(i) = sum(obj.femRho(obj.femID==femID(i),1).*obj.femarea(obj.femID==femID(i),1).*obj.femThn(obj.femID==femID(i),1));
+                end
             end
         end
 
@@ -2358,8 +2378,11 @@ classdef UNLSI
 
         end
 
-        function delta = solveFem(obj,distLoad)
-            %distLoad:空力解析メッシュにかかる分布加重。圧力やパネル自重など
+        function delta = solveFem(obj,distLoad,selfLoadFlag)
+            %distLoad:空力解析メッシュにかかる分布加重。圧力など
+            if nargin < 3
+                selfLoadFlag = 1; %defaultは自重による荷重を含める。
+            end
             %空力解析メッシュから構造解析メッシュへ圧力分布を投影
             for iter = 1:size(distLoad,2)
                 Fp = sparse(6*size(obj.femutils.usedVerts,2),1);
@@ -2367,10 +2390,16 @@ classdef UNLSI
                 vNormal = vertexNormal(obj.tri);
                 %femPointLoad = obj.fem2aeroMat'*interpLoad;
                 vertsLoad = vNormal.*interpLoad;
-
+                if selfLoadFlag == 1
+                    selfLoad = obj.femverts2centerMat'*(9.8.*obj.femarea.*obj.femThn.*obj.femRho);
+                end
                 femPointLoad(:,1) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,1);
                 femPointLoad(:,2) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,2);
-                femPointLoad(:,3) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,3);
+                if selfLoadFlag == 1
+                    femPointLoad(:,3) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,3) + selfLoad(obj.femutils.usedVerts,1);
+                else
+                    femPointLoad(:,3) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,3);
+                end
                 for i = 1:size(obj.femtri.Points,1)  
                     Fp(i,1) = -femPointLoad(i,1);
                     Fp(i+size(obj.femtri.Points,1),1) = -femPointLoad(i,2);
