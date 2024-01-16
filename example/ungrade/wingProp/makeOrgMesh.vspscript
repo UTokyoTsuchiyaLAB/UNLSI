@@ -1,5 +1,0 @@
-void main()
-{   
- SetComputationFileName( CFD_VSPGEOM_TYPE, "orgMesh.vspgeom" );
- ComputeCFDMesh(0, CFD_VSPGEOM_TYPE );
-}

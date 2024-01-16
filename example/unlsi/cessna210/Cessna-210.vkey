@@ -3,8 +3,8 @@ C:\Users\Naoto\Dropbox\research\UNLSI\example\unlsi\cessna210\Cessna-210.vspgeom
 5
 
 # tag#,geom#,surf#,gname,gid,ssname1,ssname2,...,ssid1,ssid2,...
-1,4,0,Fuselage,IPKETGGBAT
-2,2,0,Hub,SROGCQERWL
-3,1,0,Vert,TQKIBVAXHW
-4,0,0,Horz,YSRSLAZHKU
-5,3,0,NormalWing,MSFMMQSVWG
+1,4,0,Fuselage_S,IPKETGGBAT
+2,2,0,Hub_S,SROGCQERWL
+3,1,0,Vert_S,TQKIBVAXHW
+4,0,0,Horz_S,YSRSLAZHKU
+5,3,0,NormalWing_S,MSFMMQSVWG
