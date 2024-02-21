@@ -21,13 +21,14 @@ wing.plotGeometry(1,wing.getCp(alpha,0,0.001,Re),[-3,1.5]);%圧力係数のプ�
 disp(wing.getAERODATA(alpha,0));
 [con,verts,femID] = readFemMesh('wing_WingGeom_Struct0.msh');
 wing = wing.setFemMesh(verts,con,femID);%すべての空力メッシュIDとfemメッシュを関連付ける（第二引数省略）
-[wing,weight] = wing.setFemMaterials([1,2,3],[0.002,0.003,0.003],[73500000000,73500000000,73500000000],[2700,2700,2700]);
+[wing,weight] = wing.setFemMaterials([1,2,3],[0.002,0.003,0.01],[73500000000,73500000000,73500000000],[2700,2700,2700]);
 disp("weight");
 disp(weight);
 wing = wing.makeFemEquation();
-%}
+%
+
 wing2 = wing;
-for iter = 1:4
+for iter = 1
     delta = wing.solveFem(wing2.getCp(alpha,0,0.001,Re).*Vinf.^2.*1.225.*0.5,1);
     modVerts = wing.calcModifiedVerts(delta{1});
     wing2 = wing2.setVerts(modVerts);
@@ -36,4 +37,3 @@ for iter = 1:4
     disp(wing2.getAERODATA(alpha,0));
     wing2.plotGeometry(2,wing2.getCp(alpha,0,0.001,Re),[-3,1.5]);%圧力係数のプロット
 end
-%}
