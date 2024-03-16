@@ -53,7 +53,7 @@
 
     methods(Access = public)
 
-        function obj = UNGRADE(meshGenFun,geomGenFun,unscaledVariables,lb,ub,halfmesh)
+        function obj = UNGRADE(meshGenFun,geomGenFun,unscaledVariables,lb,ub,halfmesh,vertsMergeTol)
             %%%%%%%%%%%%メッシュの登録と基準サーフェス生成関数の登録%%%%%%%%%%%%%%%
             %orgVerts,orgCon　実際に解析を行うメッシュ（openVSPのCFDツール等で生成した（基本的に）オーバーラップのない非構造メッシュ）
             %meshGenFun　設計変数（スケールされていない）から基準サーフェス（解析メッシュと同じ表面を持つ、トリムされていないメッシュ）
@@ -63,7 +63,12 @@
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             warning('off','MATLAB:triangulation:PtsNotInTriWarnId');
             [orgMeshVerts, orgMeshCon,surfID,wakeLineID, desOrg] = meshGenFun(unscaledVariables(:)');
-            obj = obj@UNLSI(orgMeshVerts,orgMeshCon,surfID,wakeLineID,halfmesh);
+            if ~exist('vertsMergeTol', 'var')
+                vertsTol = 0.001;
+            else
+                vertsTol = vertsMergeTol;
+            end
+            obj = obj@UNLSI(orgMeshVerts,orgMeshCon,surfID,wakeLineID,halfmesh,vertsTol);
             obj.lb = lb(:)';
             obj.ub = ub(:)';
             obj.designScale = (ub-lb);
@@ -93,7 +98,7 @@
             obj.settingUNGRADE.dynCoefFlag = 0;
             obj.settingUNGRADE.r0RBF = 1;
             %%%%%%%%%%%%%
-            obj = obj.checkMesh(obj.settingUNLSI.checkMeshTol,obj.settingUNLSI.checkMeshMethod);
+            obj = obj.checkMesh(obj.settingUNLSI.checkMeshTol,"delete");
             warning('off','MATLAB:triangulation:PtsNotInTriWarnId');
             [orgGeomVerts,orgGeomCon,optSREF,optBREF,optCREF,optXYZREF,obj.argin_x,desOrg] = obj.geomGenFun(desOrg);
             obj.orgMesh = triangulation(obj.tri.ConnectivityList,obj.tri.Points);

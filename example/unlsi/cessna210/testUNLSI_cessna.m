@@ -13,24 +13,34 @@ wing = wing.makeCluster(); %速度分布を求めるためのパネルクラス�
 wing = wing.makeEquation(); %パネル法行列の作成
 %%%%%%%%ここまでは一度計算すればスキップできる
 %}
+ad = [];
+for i = 1:numel(winddata.alpha)
+    wakeDir = [5,100*[cosd(winddata.alpha(i)),0,sind(winddata.alpha(i))];
+        3,100*[cosd(winddata.alpha(i)),0,sind(winddata.alpha(i))];
+        4,100*[cosd(winddata.alpha(i)),0,sind(winddata.alpha(i))];];
+    wing = wing.makeWakeEquation(wakeDir); %パネル法行列の作成
+    wing = wing.solveFlow(winddata.alpha(i),0,0.001,2.3*10^6); %パネル法を解く
+    if winddata.alpha(i) == 0
+        wing.plotGeometry(1,wing.getCp(0,0,0.001,2.3*10^6),[-2,1]); %圧力係数のプロット
+    end
+    ad = [ad;wing.AERODATA{1}];
+end
 
-wing = wing.solveFlow(winddata.alpha,zeros(size(winddata.alpha)),0.001,2.3*10^6); %パネル法を解く
-wing.plotGeometry(1,wing.getCp(0,0,0.001,2.3*10^6),[-2,1]); %圧力係数のプロット
 
 %%%%%風洞試験結果との比較
 figure(2);clf,grid on;hold on;
 set(gca,"FontSize",14);
 plot(winddata.alpha,winddata.CL,'-o');
-plot(winddata.alpha,wing.AERODATA{1}(:,5),'-o');
-plot(winddata.alpha,wing.AERODATA{1}(:,6),'-o');
+plot(winddata.alpha,ad(:,5),'-o');
+plot(winddata.alpha,ad(:,6),'-o');
 legend("WT","Cp Integral","Trefftz")
 xlabel("AoA deg");
 ylabel("CL");
 figure(3);clf,grid on;hold on;
 set(gca,"FontSize",14);
 plot(winddata.alpha,winddata.CD,'-o');
-plot(winddata.alpha,wing.AERODATA{1}(:,9),'-o');
-plot(winddata.alpha,wing.AERODATA{1}(:,11),'-o');
+plot(winddata.alpha,ad(:,9),'-o');
+plot(winddata.alpha,ad(:,11),'-o');
 legend("WT","Cp Integral","Trefftz")
 xlabel("AoA deg");
 ylabel("CD");

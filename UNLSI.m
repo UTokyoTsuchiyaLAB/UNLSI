@@ -46,6 +46,7 @@ classdef UNLSI
         prop %各プロペラ方程式情報が格納されたセル配列
         cluster %パネルクラスターの情報
         LHS %パネル法連立方程式の左辺行列
+        wakeLHS %パネル法のwake影響行列
         RHS %パネル法連立方程式の右辺行列
         mu2v %ポテンシャル⇒機体表面速度への変換行列
         verts2centerMat %節点での量⇛パネルセンターでの量への変換行列
@@ -77,7 +78,7 @@ classdef UNLSI
     end
 
     methods(Access = public)
-        function obj = UNLSI(verts,connectivity,surfID,wakelineID,halfmesh)
+        function obj = UNLSI(verts,connectivity,surfID,wakelineID,halfmesh,vertsMergeTol)
             warning('off','MATLAB:triangulation:PtsNotInTriWarnId');
             %%%%%%%%%%%Constructor%%%%%%%%%%%%%
             %verts:頂点座標
@@ -87,10 +88,15 @@ classdef UNLSI
             %halfmesh:半裁メッシュの場合に1を指定 引数を省略すれば自動設定
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             %データの格納、パネル法線、面積の計算
+            if ~exist('vertsMergeTol', 'var')
+                obj.settingUNLSI.vertsTol = 0.001;
+            else
+                obj.settingUNLSI.vertsTol = vertsMergeTol;
+            end
 
             %halfmeshの判定
             if all(verts(:,2) >=0) ||  all(verts(:,2) <=0)
-                if nargin > 4 
+                if exist('halfmesh', 'var')
                     if halfmesh == 0
                         warning("Signatures of verts' y cordinates are all same, but the half mesh settingUNLSI is 0 (not halfmesh)");
                     end
@@ -98,7 +104,7 @@ classdef UNLSI
                     halfmesh = 1;
                 end
             else
-               if nargin > 4 
+               if exist('halfmesh', 'var')
                     if halfmesh == 1
                         warning("Signatures of verts' y cordinates are NOT all same, but the half mesh settingUNLSI is 1 (halfmesh)");
                     end
@@ -108,9 +114,7 @@ classdef UNLSI
             end
                      
             %%%%%%%%%%%settingUNLSIの初期設定%%%%%%%%%%%%%
-            obj.settingUNLSI.checkMeshMethod = "delete";
             obj.settingUNLSI.checkMeshTol = sqrt(eps);
-            obj.settingUNLSI.vertsTol = 0.01;
             obj.settingUNLSI.LLTnInterp = 10;
             obj.settingUNLSI.nCluster = 50;%クラスターの目標数（達成できなければそこで打ち切り）
             obj.settingUNLSI.edgeAngleThreshold = 50;%この角度以下であれば近隣パネルとして登録する（角度差が大きすぎるモノをはじくため）
@@ -361,7 +365,7 @@ classdef UNLSI
             for i = setdiff(unique(obj.surfID)',wakesurfID)
                 obj = obj.setCpCalcType(i,"linear");
             end
-            obj = obj.checkMesh(obj.settingUNLSI.checkMeshTol,obj.settingUNLSI.checkMeshMethod);
+            obj = obj.checkMesh(obj.settingUNLSI.checkMeshTol,"delete");
             warning('on','MATLAB:triangulation:PtsNotInTriWarnId');
 
             %空力のパネル中心座標からメッシュノードへ投影する変換行列の作成
@@ -390,7 +394,7 @@ classdef UNLSI
                 obj.center(i,:) = [mean(verts(obj.tri.ConnectivityList(i,:),1)),mean(verts(obj.tri.ConnectivityList(i,:),2)),mean(verts(obj.tri.ConnectivityList(i,:),3))];
                 obj.modNormal(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])*obj.orgNormal(i,:)')';
             end
-            obj.checkMesh(obj.settingUNLSI.checkMeshTol,obj.settingUNLSI.checkMeshMethod);
+            obj.checkMesh(obj.settingUNLSI.checkMeshTol,"delete");
             warning('on','MATLAB:triangulation:PtsNotInTriWarnId');
         end
 
@@ -639,6 +643,7 @@ classdef UNLSI
             si = floor(nbPanel/obj.settingUNLSI.nCalcDivide).*(0:obj.settingUNLSI.nCalcDivide-1)+1;
             ei = [floor(nbPanel/obj.settingUNLSI.nCalcDivide).*(1:obj.settingUNLSI.nCalcDivide-1),nbPanel];
             obj.LHS = zeros(nbPanel);
+            obj.wakeLHS = zeros(nbPanel);
             obj.RHS = zeros(nbPanel);
 
             for i= 1:obj.settingUNLSI.nCalcDivide
@@ -650,6 +655,15 @@ classdef UNLSI
 
             %wakeパネル⇒機体パネルへの影響
             %
+            for wakeNo = 1:numel(obj.wakeline)
+                for edgeNo = 1:size(obj.wakeline{wakeNo}.validedge,2)
+                    interpID(1) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.upperID(edgeNo));
+                    interpID(2) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.lowerID(edgeNo));
+                    [influence] = obj.wakeInfluenceMatrix(obj,wakeNo,edgeNo,1:nbPanel,[obj.settingUNLSI.wingWakeLength*obj.CREF,0,0]);
+                    obj.wakeLHS(:,interpID(1)) = obj.wakeLHS(:,interpID(1)) - influence;
+                    obj.wakeLHS(:,interpID(2)) = obj.wakeLHS(:,interpID(2)) + influence;
+                end
+            end
             
             for wakeNo = 1:numel(obj.wakeline)
                 theta = linspace(pi,0,size(obj.wakeline{wakeNo}.validedge,2)*obj.settingUNLSI.LLTnInterp+1);
@@ -668,9 +682,6 @@ classdef UNLSI
                 for edgeNo = 1:size(obj.wakeline{wakeNo}.validedge,2)
                     interpID(1) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.upperID(edgeNo));
                     interpID(2) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.lowerID(edgeNo));
-                    [influence] = obj.wakeInfluenceMatrix(obj,wakeNo,edgeNo,1:nbPanel);
-                    obj.LHS(:,interpID(1)) = obj.LHS(:,interpID(1)) - influence;
-                    obj.LHS(:,interpID(2)) = obj.LHS(:,interpID(2)) + influence;
                     obj.LLT.calcMu{wakeNo}(iter,interpID(1)) = -1;
                     obj.LLT.calcMu{wakeNo}(iter,interpID(2)) = 1;
                     iter = iter+1;
@@ -687,6 +698,25 @@ classdef UNLSI
             end
             if numel(obj.wakeline)>0
                 obj.LLT.Qij = obj.Calc_Q(horzcat(obj.LLT.yinterp{:}),horzcat(obj.LLT.zinterp{:}),horzcat(obj.LLT.phiinterp{:}),horzcat(obj.LLT.spanel{:}),obj.halfmesh);
+            end
+        end
+
+        function obj = makeWakeEquation(obj,wakeDirectionList)
+            nbPanel = sum(obj.paneltype == 1);
+            obj.wakeLHS = zeros(nbPanel);
+            for wakeNo = 1:numel(obj.wakeline)
+                for edgeNo = 1:size(obj.wakeline{wakeNo}.validedge,2)
+                    interpID(1) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.upperID(edgeNo));
+                    interpID(2) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.lowerID(edgeNo));
+                    modID = find(obj.surfID(obj.wakeline{wakeNo}.upperID(edgeNo))== wakeDirectionList(:,1));
+                    if isempty(modID )
+                        [influence] = obj.wakeInfluenceMatrix(obj,wakeNo,edgeNo,1:nbPanel,[obj.settingUNLSI.wingWakeLength*obj.CREF,0,0]);
+                    else
+                        [influence] = obj.wakeInfluenceMatrix(obj,wakeNo,edgeNo,1:nbPanel,wakeDirectionList(modID,2:end));
+                    end
+                    obj.wakeLHS(:,interpID(1)) = obj.wakeLHS(:,interpID(1)) - influence;
+                    obj.wakeLHS(:,interpID(2)) = obj.wakeLHS(:,interpID(2)) + influence;
+                end
             end
         end
 
@@ -1085,7 +1115,7 @@ classdef UNLSI
                     else
                         RHV = obj.RHS*sigmas;
                     end
-                    u =  -obj.LHS\RHV;
+                    u =  -(obj.LHS+obj.wakeLHS)\RHV;
                     %figure(2);clf;
                     %plot(u);
                     dv = zeros(nPanel,3);
@@ -1243,8 +1273,8 @@ classdef UNLSI
                     else
                        RHV = obj.RHS*sigmas;
                     end
-                    usolve =  -obj.LHS\RHV;
-                    Rsolve = obj.LHS*usolve+RHV;
+                    usolve =  -(obj.LHS+obj.wakeLHS)\RHV;
+                    Rsolve = (obj.LHS+obj.wakeLHS)*usolve+RHV;
                     u = [u;usolve];
                     R = [R;Rsolve];
                 else
@@ -1432,7 +1462,7 @@ classdef UNLSI
                     if obj.settingUNLSI.propCalcFlag == 1
                         RHV = RHV+RHVprop;
                     end
-                    R(nbPanel*(iterflow-1)+1:nbPanel*iterflow,1) = obj.LHS*usolve+RHV;
+                    R(nbPanel*(iterflow-1)+1:nbPanel*iterflow,1) = (obj.LHS+obj.wakeLHS)*usolve+RHV;
                 else
                     R(nbPanel*(iterflow-1)+1:nbPanel*iterflow,1) = usolve-obj.flow{flowNo}.pp(delta);
                 end
@@ -1660,7 +1690,7 @@ classdef UNLSI
                         end
                     end
                     rhsdw = obj.RHS*vdw;
-                    udw(1+nbPanel*(iterflow-1):nbPanel*iterflow,1) = -obj.LHS\rhsdw;
+                    udw(1+nbPanel*(iterflow-1):nbPanel*iterflow,1) = -(obj.LHS+obj.wakeLHS)\rhsdw;
         
                     %alphaについて
                     Vinfdw = repmat([-sind(alpha(iterflow))*cosd(beta(iterflow))*dw,0,cosd(alpha(iterflow))*cosd(beta(iterflow))*dw],[nPanel,1]);
@@ -1673,15 +1703,16 @@ classdef UNLSI
                         end
                     end
                     rhsdw = obj.RHS*vdw;
-                    udw(1+nbPanel*(iterflow-1):nbPanel*iterflow,2) = -obj.LHS\rhsdw;
+                    udw(1+nbPanel*(iterflow-1):nbPanel*iterflow,2) = -(obj.LHS+obj.wakeLHS)\rhsdw;
                 end
 
                 for jter = 1:3%p,q,rについて差分をとる
-                    if isempty(obj.settingUNLSI.angularVelocity)
+                    %if isempty(obj.settingUNLSI.angularVelocity)
                         omegadw = zeros(1,3);
-                    else
-                        omegadw = obj.settingUNLSI.angularVelocity(iterflow,:);
-                    end
+                    %end
+                    %else
+                        %omegadw = obj.settingUNLSI.angularVelocity(iterflow,:);
+                    %end
                     omegadw(jter) = omegadw(jter)+dw;
                     Vinfdw = zeros(nPanel,3);
                     for i = 1:nPanel
@@ -1697,7 +1728,7 @@ classdef UNLSI
                         end
                     end
                     rhsdw = obj.RHS*vdw;
-                    buff = -obj.LHS\rhsdw;
+                    buff = -(obj.LHS+obj.wakeLHS)\rhsdw;
                     for iterflow = 1:numel(alpha)
                         udw(1+nbPanel*(iterflow-1):nbPanel*iterflow,2+jter) = buff;
                     end
@@ -2179,7 +2210,7 @@ classdef UNLSI
                 obj.femcenter(i,:) = [mean(obj.femtri.Points(obj.femtri.ConnectivityList(i,:),1)),mean(obj.femtri.Points(obj.femtri.ConnectivityList(i,:),2)),mean(obj.femtri.Points(obj.femtri.ConnectivityList(i,:),3))];
             end
             obj.femutils = [];
-            obj = obj.checkFemMesh(obj.settingUNLSI.checkMeshTol,obj.settingUNLSI.checkMeshMethod);
+            obj = obj.checkFemMesh(obj.settingUNLSI.checkMeshTol,"delete");
                 
             %取り急ぎ、解析用のメッシュと空力メッシュは同一。後でFEAメッシュ等からメッシュを入れられるようにする。
             usedVertsbuff = unique(obj.femtri.ConnectivityList);
@@ -2282,6 +2313,8 @@ classdef UNLSI
                 end
             end
         end
+
+        
 
         function obj = makeFemEquation(obj)
             nu = 0.34;
@@ -2536,7 +2569,7 @@ classdef UNLSI
                 end
     
                 femRHSp = Fp(obj.femutils.MatIndex==1,1);
-                delta_p = lsqminnorm(obj.femLHS,femRHSp);
+                delta_p = lsqminnorm(obj.femLHS,femRHSp,1e-12);
                 %delta_p = obj.femMass\femRHSp;
                 disp_buff = zeros(size(obj.femtri.Points,1)*6,1);
                 disp_buff(obj.femutils.InvMatIndex,1)=delta_p;
@@ -2600,6 +2633,7 @@ classdef UNLSI
                 end
                 disp_buff = zeros(size(obj.femtri.Points,1)*6,1);
                 disp_buff(obj.femutils.InvMatIndex,1)=ybuff(end,1:numel(y))';
+                disp_buff(isnan(disp_buff)) = 0;
                 delta{iter} = zeros(size(obj.femtri.Points,1),6);    
                 delta{iter}(obj.femutils.usedVerts,1)=disp_buff(1:obj.femutils.nbVerts,1);
                 delta{iter}(obj.femutils.usedVerts,2)=disp_buff(obj.femutils.nbVerts+1:2*obj.femutils.nbVerts,1);
@@ -2626,6 +2660,30 @@ classdef UNLSI
             delta(obj.femutils.usedVerts,1)=disp_buff(1:obj.femutils.nbVerts,1);
             delta(obj.femutils.usedVerts,2)=disp_buff(obj.femutils.nbVerts+1:2*obj.femutils.nbVerts,1);
             delta(obj.femutils.usedVerts,3)=disp_buff(2*obj.femutils.nbVerts+1:3*obj.femutils.nbVerts,1);
+        end
+
+        function deltaInterp = interpFemDelta(obj,delta,xyzinAeroMesh)
+            deltaAero = zeros(size(obj.tri.Points));
+            deltaAero(obj.femutils.usedAeroVerts,1) = obj.fem2aeroMat*delta(obj.femutils.usedVerts,1);
+            deltaAero(obj.femutils.usedAeroVerts,2) = obj.fem2aeroMat*delta(obj.femutils.usedVerts,2);
+            deltaAero(obj.femutils.usedAeroVerts,3) = obj.fem2aeroMat*delta(obj.femutils.usedVerts,3);
+            deltaAero(obj.femutils.usedAeroVerts,4) = obj.fem2aeroMat*delta(obj.femutils.usedVerts,4);
+            deltaAero(obj.femutils.usedAeroVerts,5) = obj.fem2aeroMat*delta(obj.femutils.usedVerts,5);
+            deltaAero(obj.femutils.usedAeroVerts,6) = obj.fem2aeroMat*delta(obj.femutils.usedVerts,6);
+
+            %空力メッシュから補間点への補間
+            phi = @(r)obj.phi3(r,1);
+            Avv = phi(obj.calcRMat(obj.tri.Points,obj.tri.Points));
+            Acv = phi(obj.calcRMat(obj.tri.Points,xyzinAeroMesh));
+            
+            interpMat = Acv'*pinv(Avv);
+            deltaInterp(:,1)  = interpMat*deltaAero(:,1);
+            deltaInterp(:,2)  = interpMat*deltaAero(:,2);
+            deltaInterp(:,3)  = interpMat*deltaAero(:,3);
+            deltaInterp(:,4)  = interpMat*deltaAero(:,4);
+            deltaInterp(:,5)  = interpMat*deltaAero(:,5);
+            deltaInterp(:,6)  = interpMat*deltaAero(:,6);
+
         end
 
         function modVerts = calcModifiedVerts(obj,delta)
@@ -3134,7 +3192,7 @@ classdef UNLSI
             end
         end
 
-        function [VortexA] = wakeInfluenceMatrix(obj,wakeNo,edgeNo,rowIndex)
+        function [VortexA] = wakeInfluenceMatrix(obj,wakeNo,edgeNo,rowIndex,wakeShape)
             %%%%%%%%%%%%wakeからパネルへの影響関数%%%%%%%%%%%%%%%%%
             %wakeNoとedgeNoを指定して全パネルへの影響を計算
             %
@@ -3148,11 +3206,12 @@ classdef UNLSI
             POI.Z = center(rowIndex,3);
             nrow = numel(rowIndex);
             VortexA = zeros(nrow,1);
-            for i = 1:1
-                wakepos(1,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+[obj.settingUNLSI.wingWakeLength*obj.CREF*(i-1),0,0];
-                wakepos(2,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+[obj.settingUNLSI.wingWakeLength*obj.CREF*(i-1),0,0];
-                wakepos(3,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+[obj.settingUNLSI.wingWakeLength*obj.CREF*i,0,0];
-                wakepos(4,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+[obj.settingUNLSI.wingWakeLength*obj.CREF*i,0,0];
+            nwake = 5;
+            for i = 1:nwake
+                wakepos(1,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+wakeShape(:)'.*(i-1) .* norm(wakeShape)./nwake;
+                wakepos(2,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+wakeShape(:)'.*(i-1) .* norm(wakeShape)./nwake;
+                wakepos(3,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+wakeShape(:)'.*i .* norm(wakeShape)./nwake;
+                wakepos(4,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+wakeShape(:)'.*i .* norm(wakeShape)./nwake;
                 [~, ~, nbuff] = obj.vertex(wakepos(1,:),wakepos(2,:),wakepos(3,:));
                 
                 ulvec = obj.center(obj.wakeline{wakeNo}.lowerID(edgeNo),:)-obj.center(obj.wakeline{wakeNo}.upperID(edgeNo),:);
@@ -4474,7 +4533,7 @@ end
             %H2 = repmat(Xs',[nInterp,1]);
             %M = val_interp*pp.val_samp';
             %r = sqrt(H1-2.*M+H2);
-            r = obj.calcRMat(val_interp,pp.val_samp);
+            r = obj.calcRMat(pp.val_samp,val_interp);
             fi = phi(r,pp.R0)*pp.w(:);
         end
 
