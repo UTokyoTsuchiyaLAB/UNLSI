@@ -961,22 +961,30 @@ classdef UNLSI
         end
 
 
+
+
         function obj = calcApproximatedEquation(obj)
+            % calcApproximatedEquationメソッドは、近似方程式を計算するための関数です。
+            % 近似フラグが立っている場合は、エラーが発生します。
+            % nbPanelは、paneltypeが1であるパネルの数を表します。
+            % 接点に繋がるIDを決定し、近似行列の計算インデックスを設定します。
+            % また、各頂点がwakeに含まれているかどうかを判定し、影響行列を計算します。
+            % 最後に、微小変位に対する微分係数を計算します。
             if obj.approximated == 1
                 error("This instance is approximated. Please execute obj.makeEquation()");
             end
             nbPanel = sum(obj.paneltype == 1);
-            %接点に繋がるIDを決定
+            % 接点に繋がるIDを決定
             vertAttach = obj.tri.vertexAttachments();
             pert = sqrt(eps);
             for i = 1:numel(vertAttach)
                 if mod(i,floor(numel(vertAttach)/100))==0 || i == 1
                     fprintf("%d/%d ",i,numel(vertAttach));
                 end
-                %paneltype == 1以外を削除する
+                % paneltype == 1以外を削除する
                 vertAttach{i}(obj.paneltype(vertAttach{i}) ~=1) = [];
                 obj.approxMat.calcIndex{i} = sort(obj.IndexPanel2Solver(vertAttach{i}));
-                %このvertsがwakeに含まれているか
+                % このvertsがwakeに含まれているか
                 for j = 1:3
                     newVerts = obj.tri.Points;
                     newVerts(i,j) = obj.tri.Points(i,j)+pert;
@@ -1117,10 +1125,21 @@ classdef UNLSI
 
         end
 
-        function obj = makePropEquation(obj,propNo)
-            %とりあえずpaneltypeで計算しているが、IDで管理したい
-            %muとsigma両方
-            [VortexAi,VortexBi,VortexAo,VortexBo,propWakeA] = obj.propellerInfluenceMatrix(obj,propNo,obj.settingUNLSI.propWakeLength);
+
+        function obj = makePropEquation(obj, propNo)
+            % makePropEquationメソッドは、指定されたプロペラ番号に対してプロペラの影響行列を計算し、オブジェクトのプロパティに格納します。
+            % 
+            % 入力:
+            %   - obj: UNLSIオブジェクト
+            %   - propNo: プロペラ番号
+            %
+            % 出力:
+            %   - obj: 更新されたUNLSIオブジェクト
+            %
+            % 例:
+            %   obj = makePropEquation(obj, 1);
+            %
+            [VortexAi, VortexBi, VortexAo, VortexBo, propWakeA] = obj.propellerInfluenceMatrix(obj, propNo, obj.settingUNLSI.propWakeLength);
             obj.prop{propNo}.LHSi = VortexAi;
             obj.prop{propNo}.RHSi = VortexBi;
             obj.prop{propNo}.LHSo = VortexAo;
