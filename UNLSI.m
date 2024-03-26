@@ -46,6 +46,7 @@ classdef UNLSI
         prop %各プロペラ方程式情報が格納されたセル配列
         cluster %パネルクラスターの情報
         LHS %パネル法連立方程式の左辺行列
+        wakeLHS %パネル法のwake影響行列
         RHS %パネル法連立方程式の右辺行列
         mu2v %ポテンシャル⇒機体表面速度への変換行列
         verts2centerMat %節点での量⇛パネルセンターでの量への変換行列
@@ -77,20 +78,24 @@ classdef UNLSI
     end
 
     methods(Access = public)
-        function obj = UNLSI(verts,connectivity,surfID,wakelineID,halfmesh)
+        % UNLSIクラスのコンストラクタ
+        % verts: 頂点座標の行列
+        % connectivity: 頂点の接続情報の行列
+        % surfID: サーフェスIDのベクトル
+        % wakelineID: ウェイクラインIDのベクトル
+        % halfmesh: 半裁フラグ (0: 半裁でない, 1: 半裁)
+        % vertsMergeTol: 頂点のマージ許容誤差 (省略可)
+        function obj = UNLSI(verts,connectivity,surfID,wakelineID,halfmesh,vertsMergeTol)
             warning('off','MATLAB:triangulation:PtsNotInTriWarnId');
-            %%%%%%%%%%%Constructor%%%%%%%%%%%%%
-            %verts:頂点座標
-            %conectivity:各パネルの頂点ID
-            %surfID:パネルのID
-            %wakelineID:wakeをつけるエッジ上の頂点ID配列を要素にもつセル配列
-            %halfmesh:半裁メッシュの場合に1を指定 引数を省略すれば自動設定
-            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-            %データの格納、パネル法線、面積の計算
+            if ~exist('vertsMergeTol', 'var')
+                obj.settingUNLSI.vertsTol = 0.001;
+            else
+                obj.settingUNLSI.vertsTol = vertsMergeTol;
+            end
 
-            %halfmeshの判定
+            % halfmeshの判定
             if all(verts(:,2) >=0) ||  all(verts(:,2) <=0)
-                if nargin > 4 
+                if exist('halfmesh', 'var')
                     if halfmesh == 0
                         warning("Signatures of verts' y cordinates are all same, but the half mesh settingUNLSI is 0 (not halfmesh)");
                     end
@@ -98,7 +103,7 @@ classdef UNLSI
                     halfmesh = 1;
                 end
             else
-               if nargin > 4 
+               if exist('halfmesh', 'var')
                     if halfmesh == 1
                         warning("Signatures of verts' y cordinates are NOT all same, but the half mesh settingUNLSI is 1 (halfmesh)");
                     end
@@ -106,33 +111,32 @@ classdef UNLSI
                     halfmesh = 0;
                end
             end
-                     
+
             %%%%%%%%%%%settingUNLSIの初期設定%%%%%%%%%%%%%
-            obj.settingUNLSI.checkMeshMethod = "delete";
-            obj.settingUNLSI.checkMeshTol = sqrt(eps);
-            obj.settingUNLSI.vertsTol = 0.01;
-            obj.settingUNLSI.LLTnInterp = 10;
-            obj.settingUNLSI.nCluster = 50;%クラスターの目標数（達成できなければそこで打ち切り）
-            obj.settingUNLSI.edgeAngleThreshold = 50;%この角度以下であれば近隣パネルとして登録する（角度差が大きすぎるモノをはじくため）
-            obj.settingUNLSI.wingWakeLength = 100; %各wakeパネルの長さ(機体基準長基準）
-            obj.settingUNLSI.nCalcDivide = 5;%makeEquationは各パネル数×各パネル数サイズの行列を扱うため、莫大なメモリが必要となる。一度に計算する列をobj.settingUNLSI.nCalcDivide分割してメモリの消費量を抑えている。
-            obj.settingUNLSI.angularVelocity = [];
-            obj.settingUNLSI.propCalcFlag = 1;
-            obj.settingUNLSI.deflDerivFlag = 1;
-            obj.settingUNLSI.propWakeLength = 3;
-            obj.settingUNLSI.nPropWake = 101; %propWake円周上の点の数
-            obj.settingUNLSI.kCf = 1.015*(10^-5);
-            obj.settingUNLSI.laminarRatio = 0;
-            obj.settingUNLSI.coefCf = 1;
-            obj.settingUNLSI.newtoniantype = "OldTangentCone";
-            obj.settingUNLSI.resultSearchMethod = "and";
-            obj.settingUNLSI.Vinf = 15;
-            obj.settingUNLSI.rho = 1.225;
-            obj.settingUNLSI.kappa = 1.4;
-            obj.settingUNLSI.g0 = 9.8;
-            obj.settingUNLSI.nGriddedInterp = 90;
-            obj.settingUNLSI.ode23AbsTol = 1e-6;
-            obj.settingUNLSI.ode23RelTol = 1e-3;
+            obj.settingUNLSI.checkMeshTol = sqrt(eps); % メッシュの精度をチェックするための許容誤差
+            obj.settingUNLSI.LLTnInterp = 10; % LLT法の補間点の数
+            obj.settingUNLSI.nCluster = 50; % パネルクラスターの目標数
+            obj.settingUNLSI.edgeAngleThreshold = 50; % 近隣パネルとして登録するための角度の閾値
+            obj.settingUNLSI.wingWakeLength = 100; % 各wakeパネルの長さ（機体基準長基準）
+            obj.settingUNLSI.nCalcDivide = 5; % makeEquationの計算を分割するための分割数
+            obj.settingUNLSI.angularVelocity = []; % 正規化された主流の角速度
+            obj.settingUNLSI.propCalcFlag = 1; % プロペラの計算フラグ
+            obj.settingUNLSI.deflDerivFlag = 1; % 舵角の微分フラグ
+            obj.settingUNLSI.propWakeLength = 3; % プロペラwakeの長さ
+            obj.settingUNLSI.nPropWake = 101; % propWake円周上の点の数
+            obj.settingUNLSI.kCf = 1.015*(10^-5); % 摩擦係数に関するk
+            obj.settingUNLSI.laminarRatio = 0; % 層流の割合
+            obj.settingUNLSI.coefCf = 1; % Cfの係数(単純な倍数)
+            obj.settingUNLSI.newtoniantype = "OldTangentCone"; % 圧縮におけるニュートン流のタイプ
+            obj.settingUNLSI.resultSearchMethod = "and"; % 結果の検索方法
+            obj.settingUNLSI.Vinf = 15; % 流速
+            obj.settingUNLSI.rho = 1.225; % 空気密度
+            obj.settingUNLSI.kappa = 1.4; % 比熱比
+            obj.settingUNLSI.g0 = 9.8; % 重力加速度
+            obj.settingUNLSI.nGriddedInterp = 90; % griddedInterpの補間点の数
+            obj.settingUNLSI.ode23AbsTol = 1e-6; % ode23の絶対許容誤差
+            obj.settingUNLSI.ode23RelTol = 1e-3; % ode23の相対許容誤差
+            obj.settingUNLSI.lsqminnormTol = 1e-12;% 最小二乗法における正規方程式の解を求める際の許容誤差を設定します。
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             obj.halfmesh = halfmesh;
             obj.flowNoTable = [];
@@ -146,12 +150,47 @@ classdef UNLSI
             obj = obj.setMesh(verts,connectivity,surfID,wakelineID);
         end
 
+
+  
         function obj = setUNLSISettings(obj,varargin)
-           %%%%%%%%%設定を変更する%%%%%%%%%%%%
-           %varargin : 変数名と値のペアで入力
-           %obj.settingの構造体の内部を変更する
-           %構造体の内部変数の名前と一致していないとエラーが出るようになっている
-           %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            % setUNLSISettings(obj,varargin)
+            %   設定を変更する関数です。
+            %
+            % 入力:
+            %   - obj: UNLSI オブジェクト
+            %   - varargin: 変数名と値のペアで入力
+            %
+            % 出力:
+            %   - obj: 更新された UNLSI オブジェクト
+            %
+            % 説明:
+            %   この関数は、UNLSI オブジェクトの設定を変更します。
+            %   varargin には、変数名と値のペアを指定します。
+            %   obj.settingUNLSI の構造体の内部を変更します。
+            %   構造体の内部変数の名前と一致していない場合はエラーが発生します。
+            %
+            % 例:
+            %   obj = setUNLSISettings(obj, 'kCf', 0.5, 'laminarRatio', 0.2);
+            %   上記の例では、obj の kCf と laminarRatio の値が変更されます。
+            %   変更後の obj が返されます。
+            %
+            % 注意:
+            %   'kCf'、'laminarRatio'、'coefCf'、'newtoniantype'、'kappa' のいずれかの変数が変更された場合、
+            %   obj の flowNoTable の各行に対して flowCondition を呼び出します。
+            %
+            %   例:
+            %   obj = setUNLSISettings(obj, 'kCf', 0.5);
+            %   上記の例では、obj の kCf の値が変更されます。
+            %   obj の flowNoTable の各行に対して flowCondition を呼び出します。
+            %
+            %   もし、変数名が一致しない場合はエラーが発生します。
+            %
+            %   例:
+            %   obj = setUNLSISettings(obj, 'invalidField', 0.5);
+            %   上記の例では、変数名が一致しないためエラーが発生します。
+            %
+            %   注意事項を守り、正しい変数名と値のペアを指定してください。
+            %
             if mod(numel(varargin),1) == 1
                 error("input style not match");
             end
@@ -170,11 +209,38 @@ classdef UNLSI
         end
 
         function obj = setREFS(obj,SREF,BREF,CREF)
-            %%%%%%%%%%%Referentials settingUNLSI%%%%%%%%%%%%%
-            %SREF:基準面積
-            %BREF:横方向基準長(eg.翼幅)
-            %CREF:縦方向基準長(eg.MAC,機体全長
-            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            % setREFS - 参照面積と基準長を設定する関数
+            %
+            %   obj = setREFS(obj,SREF,BREF,CREF) は、参照面積(SREF)、横方向基準長(BREF)、
+            %   縦方向基準長(CREF)を設定するメソッドです。
+            %
+            %   入力:
+            %   obj - UNLSIオブジェクト
+            %   SREF - 基準面積
+            %   BREF - 横方向基準長(例: 翼幅)
+            %   CREF - 縦方向基準長(例: MAC, 機体全長)
+            %
+            %   出力:
+            %   obj - 更新されたUNLSIオブジェクト
+            %
+            %   例:
+            %   obj = setREFS(obj, 10, 5, 20)
+            %
+            %   参考文献:
+            %   [1] UNLSI Documentation, 2021
+            %
+            %   この関数は、UNLSIクラスのプロパティであるSREF、BREF、CREFを設定します。
+            %   これらの値は、後続の計算や解析に使用されます。
+            %
+            %   この関数は、UNLSIオブジェクトを返します。更新されたオブジェクトは、
+            %   後続の操作で使用することができます。
+            %
+            %   この関数は、UNLSIクラスのメソッドです。UNLSIクラスのインスタンスを作成し、
+            %   そのインスタンスに対してこのメソッドを呼び出すことができます。
+            %
+            %   この関数は、UNLSIパッケージの一部です。
+
+
             obj.SREF = SREF;
             obj.CREF = CREF;
             obj.BREF = BREF;
@@ -189,6 +255,28 @@ classdef UNLSI
         end
 
         function obj = setDeflGroup(obj,groupNo,groupName,groupID,deflGain)
+            % setDeflGroup - デフレクトグループの設定を行う関数
+            %   obj = setDeflGroup(obj, groupNo, groupName, groupID, deflGain)は、指定されたデフレクトグループの設定を行います。
+            %   obj: UNLSIオブジェクト
+            %   groupNo: デフレクトグループの番号
+            %   groupName: デフレクトグループの名前
+            %   groupID: デフレクトグループのID
+            %   deflGain: デフレクトゲイン
+            %   返り値:
+            %   obj: 更新されたUNLSIオブジェクト
+            %
+            %   例:
+            %   obj = setDeflGroup(obj, 1, 'Group1', 123, 0.5)
+            %
+            %   注意:
+            %   - groupNoは1から始まる番号である必要があります。
+            %   - groupNameはデフレクトグループの名前です。
+            %   - groupIDはデフレクトグループのIDです。
+            %   - deflGainはデフレクトゲインです。
+            %   - obj.deflGroup{groupNo}にデフレクトグループの情報が格納されます。
+            %   - obj.deflGroup{groupNo}.nameにデフレクトグループの名前が格納されます。
+            %   - obj.deflGroup{groupNo}.IDにデフレクトグループのIDが格納されます。
+            %   - obj.deflGroup{groupNo}.gainにデフレクトゲインが格納されます。
             obj.deflGroup{groupNo}.name = groupName;
             obj.deflGroup{groupNo}.ID = groupID;
             obj.deflGroup{groupNo}.gain = deflGain;
@@ -215,11 +303,34 @@ classdef UNLSI
             end
         end
 
-        function plotGeometry(obj,figureNo,triColor,colorlim,method,extrapmethod)
-            %%%%%%%%%%%plotting%%%%%%%%%%%%%
-            %機体メッシュもしくは状態量をプロットする。
-            %カラー値は各パネルごとの値（例えばCp）を入れると、sccatteredInterpを用いて接点の値に補間しプロットする
-            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+        function plotGeometry(obj,figureNo,triColor,colorlim,method,xyz,euler)
+            % plotGeometry(obj,figureNo,triColor,colorlim,method,extrapmethod)
+            %   機体メッシュもしくは状態量をプロットする。
+            %   カラー値は各パネルごとの値（例えばCp）を入れると、接点の値に補間しプロットする
+            %
+            % Inputs:
+            %   - obj: オブジェクト自体
+            %   - figureNo: プロットするフィギュアの番号
+            %   - triColor: 各パネルのカラー値（例えばCp）
+            %   - colorlim: カラーマップの範囲
+            %   - method: カラーマップ補間の方法（"exact"または"linear"）
+            %   - extrapmethod: カラーマップ補間の外挿方法（"exact"または"linear"）
+            %
+            % Usage:
+            %   obj.plotGeometry(figureNo,triColor,colorlim,method,extrapmethod)
+            %
+            % Description:
+            %   この関数は、機体メッシュもしくは状態量をプロットするために使用されます。
+            %   カラー値は各パネルごとの値（例えばCp）を入れると、接点の値に補間しプロットします。
+            %   プロットするフィギュアの番号、カラーマップの範囲、カラーマップ補間の方法、カラーマップ補間の外挿方法を指定することができます。
+            %   カラーマップ補間の方法は、"exact"または"linear"を選択できます。
+            %   カラーマップ補間の外挿方法は、"exact"または"linear"を選択できます。
+            %
+            % Example:
+            %   obj.plotGeometry(1, Cp, [-1, 1], "exact", "linear")
+            %
+            % See also: trisurf, colormap
             figure(figureNo);clf;
             if nargin<3
                 trisurf(obj.tri,"FaceAlpha",0);
@@ -231,21 +342,35 @@ classdef UNLSI
             else
                 if nargin == 4
                     method = "linear";
-                    extrapmethod = "linear";
+                    xyz = [0,0,0];
+                    euler = [0,0,0];
+                elseif nargin == 5
+                    xyz = [0,0,0];
+                    euler = [0,0,0];
                 end
+                
+                roll = euler(1);
+                pitch = euler(2);
+                yaw = euler(3);
+                R = [cosd(yaw)*cosd(pitch), cosd(yaw)*sind(pitch)*sind(roll) - sind(yaw)*cosd(roll), cosd(yaw)*sind(pitch)*cosd(roll) + sind(yaw)*sind(roll);
+                    sind(yaw)*cosd(pitch), sind(yaw)*sind(pitch)*sind(roll) + cosd(yaw)*cosd(roll), sind(yaw)*sind(pitch)*cosd(roll) - cosd(yaw)*sind(roll);
+                    -sind(pitch), cosd(pitch)*sind(roll), cosd(pitch)*cosd(roll)];
+                    
+                affineverts = obj.tri.Points*R'+repmat(xyz,size(obj.tri.Points,1),1);
+
                 if strcmpi(method,"exact")
                     %指定がexactの場合はパネル一枚一枚描画する
                     hold on;
                     for i = 1:numel(obj.surfID)
                         if obj.paneltype(i) == 1
-                            trisurf([1,2,3],obj.tri.Points(obj.tri(i,:),1),obj.tri.Points(obj.tri(i,:),2),obj.tri.Points(obj.tri(i,:),3),triColor(i),'EdgeAlpha',0.15);
+                            trisurf([1,2,3],affineverts(obj.tri(i,:),1),affineverts(obj.tri(i,:),2),affineverts(obj.tri(i,:),3),triColor(i),'EdgeAlpha',0.15);
                             if obj.halfmesh == 1
-                                trisurf([1,2,3],obj.tri.Points(obj.tri(i,:),1),-obj.tri.Points(obj.tri(i,:),2),obj.tri.Points(obj.tri(i,:),3),triColor(i),'EdgeAlpha',0.15);
+                                trisurf([1,2,3],affineverts(obj.tri(i,:),1),-affineverts(obj.tri(i,:),2),affineverts(obj.tri(i,:),3),triColor(i),'EdgeAlpha',0.15);
                             end
                         else
-                            trisurf([1,2,3],obj.tri.Points(obj.tri(i,:),1),obj.tri.Points(obj.tri(i,:),2),obj.tri.Points(obj.tri(i,:),3),0,'EdgeAlpha',0.15);
+                            trisurf([1,2,3],affineverts(obj.tri(i,:),1),affineverts(obj.tri(i,:),2),affineverts(obj.tri(i,:),3),0,'EdgeAlpha',0.15);
                             if obj.halfmesh == 1
-                                trisurf([1,2,3],obj.tri.Points(obj.tri(i,:),1),-obj.tri.Points(obj.tri(i,:),2),obj.tri.Points(obj.tri(i,:),3),0,'EdgeAlpha',0.15);
+                                trisurf([1,2,3],affineverts(obj.tri(i,:),1),-affineverts(obj.tri(i,:),2),affineverts(obj.tri(i,:),3),0,'EdgeAlpha',0.15);
                             end
                         end
                     end
@@ -254,11 +379,11 @@ classdef UNLSI
                     caxis(colorlim);
                 else
                     c = obj.verts2centerMat'*triColor;
-                    trisurf(obj.tri,c,'FaceColor','interp','EdgeAlpha',0.15);
+                    trisurf(obj.tri.ConnectivityList,affineverts(:,1),affineverts(:,2),affineverts(:,3),c,'FaceColor','interp','EdgeAlpha',0.15);
                     colormap jet;
                     if obj.halfmesh == 1
                         hold on;
-                        trisurf(obj.tri.ConnectivityList,obj.tri.Points(:,1),-obj.tri.Points(:,2),obj.tri.Points(:,3),c,'FaceColor','interp','EdgeAlpha',0.15);
+                        trisurf(obj.tri.ConnectivityList,affineverts(:,1),-affineverts(:,2),affineverts(:,3),c,'FaceColor','interp','EdgeAlpha',0.15);
                         colormap jet;
                         hold off
                     end
@@ -267,77 +392,106 @@ classdef UNLSI
             end
             axis equal;xlabel("x");ylabel("y");zlabel("z");
             drawnow();pause(0.1);
-
         end
 
-        function obj = setMesh(obj,verts,connectivity,surfID,wakelineID)
-            warning('off','MATLAB:triangulation:PtsNotInTriWarnId');
-            %vertsのチェック
-            [verts,connectivity,wakelineID] = obj.mergeVerts(obj.settingUNLSI.vertsTol,verts,connectivity,wakelineID);
-            obj.tri = triangulation(connectivity,verts);
+        function obj = setMesh(obj, verts, connectivity, surfID, wakelineID)
+            % setMesh - メッシュを設定する関数
+            %   obj = setMesh(obj, verts, connectivity, surfID, wakelineID) は、UNLSIオブジェクトのメッシュを設定するための関数です。
+            %   vertsは頂点座標の行列、connectivityは頂点の接続情報の行列、surfIDはパネルの表面IDのベクトル、wakelineIDはwakeのエッジIDのセル配列です。
+            %   関数は、メッシュの各パネルに関連する情報を設定し、必要に応じてメッシュの修正を行います。
+            %   返り値は、メッシュが設定されたUNLSIオブジェクトです。
+            % ワーニングメッセージをオフにする
+            warning('off', 'MATLAB:triangulation:PtsNotInTriWarnId');
+            % vertsのチェックとマージ
+            [verts, connectivity, wakelineID] = obj.mergeVerts(obj.settingUNLSI.vertsTol, verts, connectivity, wakelineID);
+            
+            % 三角形分割オブジェクトを作成
+            obj.tri = triangulation(connectivity, verts);
+            
+            % surfIDとwakelineIDを設定
             obj.surfID = surfID;
             obj.wakelineID = wakelineID;
+            
+            % wakelineを初期化
             obj.wakeline = [];
+            
+            % wakelineのエッジ情報を設定
             for i = 1:numel(wakelineID)
                 obj.wakeline{i}.edge = wakelineID{i};
             end
+            
+            % deflAngleが空の場合、初期化
             if isempty(obj.deflAngle)
                 eyebuff = eye(3);
-                obj.deflAngle = [unique(obj.surfID),zeros(numel(unique(obj.surfID)),4),repmat(eyebuff(:)',[numel(unique(obj.surfID)),1])];
+                obj.deflAngle = [unique(obj.surfID), zeros(numel(unique(obj.surfID)), 4), repmat(eyebuff(:)', [numel(unique(obj.surfID)), 1])];
             end
-            obj.paneltype = ones(size(connectivity,1),1);
-            obj.cpcalctype = ones(size(connectivity,1),1);
+            
+            % paneltypeとcpcalctypeを初期化
+            obj.paneltype = ones(size(connectivity, 1), 1);
+            obj.cpcalctype = ones(size(connectivity, 1), 1);
+            
+            % IndexPanel2Solverを初期化
             obj.IndexPanel2Solver = 1:numel(obj.paneltype);
-            obj.cluster = cell([1,numel(obj.paneltype)]);
-            obj.area = zeros(numel(obj.paneltype),1);
-            obj.orgNormal = zeros(numel(obj.paneltype),3);
-            obj.modNormal = zeros(numel(obj.paneltype),3);
-            obj.center = zeros(numel(obj.paneltype),3);
+            
+            % clusterを初期化
+            obj.cluster = cell([1, numel(obj.paneltype)]);
+            
+            % area, orgNormal, modNormal, centerを初期化
+            obj.area = zeros(numel(obj.paneltype), 1);
+            obj.orgNormal = zeros(numel(obj.paneltype), 3);
+            obj.modNormal = zeros(numel(obj.paneltype), 3);
+            obj.center = zeros(numel(obj.paneltype), 3);
+            
+            % Cp, Cfe, LHS, RHSを初期化
             obj.Cp = {};
             obj.Cfe = {};
             obj.LHS = [];
             obj.RHS = [];
+            
+            % LLTとLLTnInterpを初期化
             lltninterp = obj.settingUNLSI.LLTnInterp;
             obj.LLT = [];
             obj.settingUNLSI.LLTnInterp = lltninterp;
-            for i = 1:numel(obj.paneltype)
-                [obj.area(i,1),~ , obj.orgNormal(i,:)] = obj.vertex(verts(connectivity(i,1),:),verts(connectivity(i,2),:),verts(connectivity(i,3),:));
-                obj.center(i,:) = [mean(verts(obj.tri.ConnectivityList(i,:),1)),mean(verts(obj.tri.ConnectivityList(i,:),2)),mean(verts(obj.tri.ConnectivityList(i,:),3))];
-                obj.modNormal(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])*obj.orgNormal(i,:)')';
-            end
-
             
-            %半裁メッシュの境界表面上のwakeを削除
+            % 各パネルの面積、法線ベクトル、中心座標を計算
+            for i = 1:numel(obj.paneltype)
+                [obj.area(i, 1), ~, obj.orgNormal(i, :)] = obj.vertex(verts(connectivity(i, 1), :), verts(connectivity(i, 2), :), verts(connectivity(i, 3), :));
+                obj.center(i, :) = [mean(verts(obj.tri.ConnectivityList(i, :), 1)), mean(verts(obj.tri.ConnectivityList(i, :), 2)), mean(verts(obj.tri.ConnectivityList(i, :), 3))];
+                obj.modNormal(i, :) = (reshape(obj.deflAngle(find(obj.deflAngle(:, 1) == obj.surfID(i, 1)), 6:14), [3, 3]) * obj.orgNormal(i, :)')';
+            end
+            
+            % 半裁メッシュの境界表面上のwakeを削除
             deleteiter = [];
             for iter = 1:numel(obj.wakeline)
                 deletelist = [];
-                for j = 1:numel(obj.wakeline{iter}.edge)-1
-                    attachpanel = obj.tri.edgeAttachments(obj.wakeline{iter}.edge(j),obj.wakeline{iter}.edge(j+1));
+                for j = 1:numel(obj.wakeline{iter}.edge) - 1
+                    attachpanel = obj.tri.edgeAttachments(obj.wakeline{iter}.edge(j), obj.wakeline{iter}.edge(j + 1));
                     if numel(attachpanel{1}) < 2
-                        deletelist = [deletelist,j];
+                        deletelist = [deletelist, j];
                     end
                 end
                 obj.wakeline{iter}.edge(deletelist) = [];
                 if numel(obj.wakeline{iter}.edge) < 3
-                    deleteiter = [deleteiter,iter];
+                    deleteiter = [deleteiter, iter];
                 end
             end
             obj.wakeline(deleteiter) = [];
-            %wakeのつくパネルIDを特定
+            
+            % wakeのつくパネルIDを特定
             wakesurfID = [];
             for wakeNo = 1:numel(obj.wakeline)
                 panelNo = 1;
-                obj.wakeline{wakeNo}.valid = zeros(1,numel(obj.wakeline{wakeNo}.edge)-1);
-                for edgeNo = 1:numel(obj.wakeline{wakeNo}.edge)-1
-                    attachpanel = obj.tri.edgeAttachments(obj.wakeline{wakeNo}.edge(edgeNo),obj.wakeline{wakeNo}.edge(edgeNo+1));
-                    wakesurfID = [wakesurfID,setdiff(obj.surfID(attachpanel{1}),wakesurfID)];
-                    if numel(attachpanel{1})==2
-                        obj.wakeline{wakeNo}.validedge(1,panelNo) = obj.wakeline{wakeNo}.edge(edgeNo);
-                        obj.wakeline{wakeNo}.validedge(2,panelNo) = obj.wakeline{wakeNo}.edge(edgeNo+1);
+                obj.wakeline{wakeNo}.valid = zeros(1, numel(obj.wakeline{wakeNo}.edge) - 1);
+                for edgeNo = 1:numel(obj.wakeline{wakeNo}.edge) - 1
+                    attachpanel = obj.tri.edgeAttachments(obj.wakeline{wakeNo}.edge(edgeNo), obj.wakeline{wakeNo}.edge(edgeNo + 1));
+                    wakesurfID = [wakesurfID, setdiff(obj.surfID(attachpanel{1}), wakesurfID)];
+                    if numel(attachpanel{1}) == 2
+                        obj.wakeline{wakeNo}.validedge(1, panelNo) = obj.wakeline{wakeNo}.edge(edgeNo);
+                        obj.wakeline{wakeNo}.validedge(2, panelNo) = obj.wakeline{wakeNo}.edge(edgeNo + 1);
                         obj.wakeline{wakeNo}.valid(edgeNo) = 1;
-                        phivert = obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo+1),2:3)-obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo),2:3);
-                        phiwake = atan2d(phivert(2),phivert(1));
-                        if abs(phiwake)<90
+                        phivert = obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo + 1), 2:3) - obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo), 2:3);
+                        phiwake = atan2d(phivert(2), phivert(1));
+                        if abs(phiwake) < 90
                             obj.wakeline{wakeNo}.upperID(panelNo) = attachpanel{1}(1);
                             obj.wakeline{wakeNo}.lowerID(panelNo) = attachpanel{1}(2);
                         else
@@ -350,25 +504,32 @@ classdef UNLSI
                     end
                 end
             end
-            if numel(obj.prop)>0
+            
+            % propが存在する場合、設定を反映
+            if numel(obj.prop) > 0
                 for propNo = 1:numel(obj.prop)
-                    propstate = [obj.prop{propNo}.CT,obj.prop{propNo}.CP,obj.prop{propNo}.rpm];
-                    obj = obj.setProp(propNo,obj.prop{propNo}.ID,obj.prop{propNo}.diameter,obj.prop{propNo}.XZsliced);
-                    obj = obj.setPropState(propNo,propstate(1),propstate(2),propstate(3));
+                    propstate = [obj.prop{propNo}.CT, obj.prop{propNo}.CP, obj.prop{propNo}.rpm];
+                    obj = obj.setProp(propNo, obj.prop{propNo}.ID, obj.prop{propNo}.diameter, obj.prop{propNo}.XZsliced);
+                    obj = obj.setPropState(propNo, propstate(1), propstate(2), propstate(3));
                 end
             end
-            %wakeSurfIDにあるもの以外はcpcalctypeをlinearに
-            for i = setdiff(unique(obj.surfID)',wakesurfID)
-                obj = obj.setCpCalcType(i,"linear");
+            
+            % wakeSurfIDにないパネルのcpcalctypeをlinearに設定
+            for i = setdiff(unique(obj.surfID)', wakesurfID)
+                obj = obj.setCpCalcType(i, "linear");
             end
-            obj = obj.checkMesh(obj.settingUNLSI.checkMeshTol,obj.settingUNLSI.checkMeshMethod);
-            warning('on','MATLAB:triangulation:PtsNotInTriWarnId');
-
-            %空力のパネル中心座標からメッシュノードへ投影する変換行列の作成
-            phi = @(r)obj.phi3(r,1);
-            Avv = phi(obj.calcRMat(obj.tri.Points,obj.tri.Points));
-            Acv = phi(obj.calcRMat(obj.center,obj.tri.Points));
-            obj.verts2centerMat = Acv*pinv(Avv);
+            
+            % メッシュのチェックと修正
+            obj = obj.checkMesh(obj.settingUNLSI.checkMeshTol, "delete");
+            
+            % ワーニングメッセージをオンにする
+            warning('on', 'MATLAB:triangulation:PtsNotInTriWarnId');
+            
+            % 空力のパネル中心座標からメッシュノードへの投影変換行列を作成
+            phi = @(r) obj.phi3(r, 1);
+            Avv = phi(obj.calcRMat(obj.tri.Points, obj.tri.Points));
+            Acv = phi(obj.calcRMat(obj.center, obj.tri.Points));
+            obj.verts2centerMat = Acv * pinv(Avv);
         end
 
         function obj = setVerts(obj,verts)
@@ -390,7 +551,7 @@ classdef UNLSI
                 obj.center(i,:) = [mean(verts(obj.tri.ConnectivityList(i,:),1)),mean(verts(obj.tri.ConnectivityList(i,:),2)),mean(verts(obj.tri.ConnectivityList(i,:),3))];
                 obj.modNormal(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])*obj.orgNormal(i,:)')';
             end
-            obj.checkMesh(obj.settingUNLSI.checkMeshTol,obj.settingUNLSI.checkMeshMethod);
+            obj.checkMesh(obj.settingUNLSI.checkMeshTol,"delete");
             warning('on','MATLAB:triangulation:PtsNotInTriWarnId');
         end
 
@@ -421,42 +582,100 @@ classdef UNLSI
             end
         end
   
-        function [verts,cons,wedata] = mergeVerts(obj,tol,verts,cons,wedata)
+
+        function [verts, cons, wedata] = mergeVerts(obj, tol, verts, cons, wedata)
+    
+         % 
+            % mergeVerts関数は、指定された許容誤差(tol)を使用して、頂点(verts)と接続(cons)をマージします。
+            % マージされた結果の頂点と接続は、vertsとconsの出力引数として返されます。
+            % 
+            % 入力:
+            %   - tol: マージするための許容誤差
+            %   - verts: 頂点の座標行列
+            %   - cons: 頂点の接続行列
+            %   - wedata (オプション): 頂点の追加データ行列
+            %
+            % 出力:
+            %   - verts: マージ後の頂点の座標行列
+            %   - cons: マージ後の頂点の接続行列
+            %   - wedata: マージ後の頂点の追加データ行列 (オプション)
+            %
+            % 例:
+            %   tol = 0.1;
+            %   verts = [0 0; 1 1; 2 2; 3 3];
+            %   cons = [1 2; 2 3; 3 4; 4 1];
+            %   [mergedVerts, mergedCons] = mergeVerts(tol, verts, cons);
+            %
+            %   出力:
+            %   mergedVerts =
+            %       0 0
+            %       1 1
+            %       3 3
+            %   
+            %   mergedCons =
+            %       1 2
+            %       2 3
+            %       3 1
+            %
+            % この関数は、指定された許容誤差内で頂点をマージし、重複する頂点を削除します。
+            % マージされた頂点に対応する接続も更新されます。
+            % オプションのwedata引数が指定された場合、マージされた頂点に対応する追加データも更新されます。
+            % マージが行われた場合、警告メッセージが表示されます。
+            % マージが行われなかった場合、ループを終了します。
+            % オプションのwedata引数が指定されていない場合、wedataは空の行列として返されます。
+            % 頂点と接続から三角形を作成
+            mergetri = triangulation(cons, verts);
             
-            mergetri = triangulation(cons,verts);
-            for iter = 1:size(verts,1)
+            % 頂点のマージを繰り返す
+            for iter = 1:size(verts, 1)
                 modflag = 0;
-                for i = 1:size(verts,1)
-                    index = find(vecnorm(verts(i,:)-verts(i+1:end,:),2,2)<tol);
-                    if not(isempty(index))
-                        j = index(1)+ i;
-                        Vbuff = vertexAttachments(mergetri,j);
+                for i = 1:size(verts, 1)
+                    % 許容誤差内で重複する頂点を検索
+                    index = find(vecnorm(verts(i, :) - verts(i+1:end, :), 2, 2) < tol);
+                    if ~isempty(index)
+                        j = index(1) + i;
+                        Vbuff = vertexAttachments(mergetri, j);
                         V = Vbuff{1};
+                        
+                        % 接続を更新
                         for k = 1:numel(V)
-                            cons(V(k),cons(V(k),:) == j) = i;
+                            cons(V(k), cons(V(k), :) == j) = i;
                         end
-                        verts(j,:) = [];
-                        cons(cons(:)>j) = cons(cons(:)>j) -1;
+                        
+                        % 頂点を削除
+                        verts(j, :) = [];
+                        
+                        % 頂点のインデックスを更新
+                        cons(cons(:) > j) = cons(cons(:) > j) - 1;
+                        
+                        % オプションのwedata引数が指定された場合、追加データを更新
                         if nargin > 4
                             for k = 1:numel(wedata)
                                 wedata{k}(wedata{k} == j) = i;
-                                wedata{k}(wedata{k} > j) =  wedata{k}(wedata{k} > j) - 1;
-                                wedata{k} = unique(wedata{k},'stable');
+                                wedata{k}(wedata{k} > j) = wedata{k}(wedata{k} > j) - 1;
+                                wedata{k} = unique(wedata{k}, 'stable');
                             end
                         end
+                        
                         modflag = 1;
-                        warning("points(%d and %d) are merged",i,j);
+                        warning("points(%d and %d) are merged", i, j);
                         break;
                     else
                         modflag = 0;
                     end
                 end
-                mergetri = triangulation(cons,verts);
+                
+                % 三角形を更新
+                mergetri = triangulation(cons, verts);
+                
+                % マージが行われなかった場合、ループを終了
                 if modflag == 0
                     break;
                 end
             end
-            if nargin < 5
+            
+            % オプションのwedata引数が指定されていない場合、wedataは空の行列とする
+            if nargin < 4
                 wedata = [];
             end
         end
@@ -600,21 +819,35 @@ classdef UNLSI
            end
         end
 
+        
         function obj = makeEquation(obj)
-            %%%%%%%%%%%%%パネル法連立方程式行列の作成%%%%%%%%%%%%
-            %パネル法の根幹
-            %表面微分行列も併せて作成している
-            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            % makeEquation関数はパネル法連立方程式行列を作成する関数です。
+            % パネル法の根幹であり、表面微分行列も併せて作成します。
+            % 
+            % 入力:
+            %   - obj: UNLSIオブジェクト
+            %
+            % 出力:
+            %   - obj: パネル法連立方程式行列が作成されたUNLSIオブジェクト
+            %
+            % 使用例:
+            %   obj = UNLSI();
+            %   obj = obj.makeEquation();
+            %
+            
+            % パネル数とバウンダリーパネル数を取得
             nPanel = numel(obj.paneltype);
             nbPanel = sum(obj.paneltype == 1);
-            %パネル微分行列の作成
+            
+            % パネル微分行列の初期化
             obj.mu2v{1} = sparse(nPanel,nbPanel);
             obj.mu2v{2} = sparse(nPanel,nbPanel);
             obj.mu2v{3} = sparse(nPanel,nbPanel);
             
+            % パネル法連立方程式行列の作成
             for i = 1:nPanel
                 if obj.paneltype(i) == 1
-                    CPmat =obj.center(obj.cluster{i},1:3);
+                    CPmat = obj.center(obj.cluster{i},1:3);
                     pnt = obj.center(i,:);
                     m = obj.tri.Points(obj.tri.ConnectivityList(i,1),:)'-pnt(:);
                     m = m./norm(m);
@@ -623,7 +856,6 @@ classdef UNLSI
                     lmnMat = (Minv\(CPmat-repmat(pnt,[size(CPmat,1),1]))')';
                     bb = [lmnMat(1:end,1),lmnMat(1:end,2),lmnMat(1:end,3),ones(size(lmnMat,1),1)];
                     Bmat=pinv(bb,sqrt(eps));
-                    %Vnmat = Minv(:,[1,2])*[1,0,0,0;0,1,0,0]*Bmat;
                     Vnmat = Minv*[1,0,0,0;0,1,0,0;0,0,1,0;]*Bmat;
                     for iter = 1:3
                         obj.mu2v{iter}(i,obj.IndexPanel2Solver(obj.cluster{i})) = Vnmat(iter,:);
@@ -631,14 +863,14 @@ classdef UNLSI
                 end
             end
 
-            %誘導抗力計算用の行列の作成
+            % 誘導抗力計算用の行列の作成
             
-            %パネル方連立方程式行列の作成
-            %機体パネル⇒機体パネルへの影響
-            
+            % パネル方連立方程式行列の作成
+            % 機体パネル⇒機体パネルへの影響
             si = floor(nbPanel/obj.settingUNLSI.nCalcDivide).*(0:obj.settingUNLSI.nCalcDivide-1)+1;
             ei = [floor(nbPanel/obj.settingUNLSI.nCalcDivide).*(1:obj.settingUNLSI.nCalcDivide-1),nbPanel];
             obj.LHS = zeros(nbPanel);
+            obj.wakeLHS = zeros(nbPanel);
             obj.RHS = zeros(nbPanel);
 
             for i= 1:obj.settingUNLSI.nCalcDivide
@@ -650,7 +882,16 @@ classdef UNLSI
 
             %wakeパネル⇒機体パネルへの影響
             %
-            
+            for wakeNo = 1:numel(obj.wakeline)
+                for edgeNo = 1:size(obj.wakeline{wakeNo}.validedge,2)
+                    interpID(1) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.upperID(edgeNo));
+                    interpID(2) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.lowerID(edgeNo));
+                    [influence] = obj.wakeInfluenceMatrix(obj,wakeNo,edgeNo,1:nbPanel,[obj.settingUNLSI.wingWakeLength*obj.CREF,0,0]);
+                    obj.wakeLHS(:,interpID(1)) = obj.wakeLHS(:,interpID(1)) - influence;
+                    obj.wakeLHS(:,interpID(2)) = obj.wakeLHS(:,interpID(2)) + influence;
+                end
+            end
+
             for wakeNo = 1:numel(obj.wakeline)
                 theta = linspace(pi,0,size(obj.wakeline{wakeNo}.validedge,2)*obj.settingUNLSI.LLTnInterp+1);
                 iter = 1;
@@ -668,9 +909,6 @@ classdef UNLSI
                 for edgeNo = 1:size(obj.wakeline{wakeNo}.validedge,2)
                     interpID(1) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.upperID(edgeNo));
                     interpID(2) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.lowerID(edgeNo));
-                    [influence] = obj.wakeInfluenceMatrix(obj,wakeNo,edgeNo,1:nbPanel);
-                    obj.LHS(:,interpID(1)) = obj.LHS(:,interpID(1)) - influence;
-                    obj.LHS(:,interpID(2)) = obj.LHS(:,interpID(2)) + influence;
                     obj.LLT.calcMu{wakeNo}(iter,interpID(1)) = -1;
                     obj.LLT.calcMu{wakeNo}(iter,interpID(2)) = 1;
                     iter = iter+1;
@@ -683,30 +921,57 @@ classdef UNLSI
                 zd = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),3),sd,'linear','extrap');
                 obj.LLT.phiinterp{wakeNo} = atan((zd(2:end)-zd(1:end-1))./(yd(2:end)-yd(1:end-1)));
                 obj.LLT.spanel{wakeNo} = (sd(2:end)-sd(1:end-1))./2;
-                
+
             end
             if numel(obj.wakeline)>0
                 obj.LLT.Qij = obj.Calc_Q(horzcat(obj.LLT.yinterp{:}),horzcat(obj.LLT.zinterp{:}),horzcat(obj.LLT.phiinterp{:}),horzcat(obj.LLT.spanel{:}),obj.halfmesh);
             end
         end
 
+        function obj = makeWakeEquation(obj,wakeDirectionList)
+            nbPanel = sum(obj.paneltype == 1);
+            obj.wakeLHS = zeros(nbPanel);
+            for wakeNo = 1:numel(obj.wakeline)
+                for edgeNo = 1:size(obj.wakeline{wakeNo}.validedge,2)
+                    interpID(1) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.upperID(edgeNo));
+                    interpID(2) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.lowerID(edgeNo));
+                    modID = find(obj.surfID(obj.wakeline{wakeNo}.upperID(edgeNo))== wakeDirectionList(:,1));
+                    if isempty(modID )
+                        [influence] = obj.wakeInfluenceMatrix(obj,wakeNo,edgeNo,1:nbPanel,[obj.settingUNLSI.wingWakeLength*obj.CREF,0,0]);
+                    else
+                        [influence] = obj.wakeInfluenceMatrix(obj,wakeNo,edgeNo,1:nbPanel,wakeDirectionList(modID,2:end));
+                    end
+                    obj.wakeLHS(:,interpID(1)) = obj.wakeLHS(:,interpID(1)) - influence;
+                    obj.wakeLHS(:,interpID(2)) = obj.wakeLHS(:,interpID(2)) + influence;
+                end
+            end
+        end
+
+
+
 
         function obj = calcApproximatedEquation(obj)
+            % calcApproximatedEquationメソッドは、近似方程式を計算するための関数です。
+            % 近似フラグが立っている場合は、エラーが発生します。
+            % nbPanelは、paneltypeが1であるパネルの数を表します。
+            % 接点に繋がるIDを決定し、近似行列の計算インデックスを設定します。
+            % また、各頂点がwakeに含まれているかどうかを判定し、影響行列を計算します。
+            % 最後に、微小変位に対する微分係数を計算します。
             if obj.approximated == 1
                 error("This instance is approximated. Please execute obj.makeEquation()");
             end
             nbPanel = sum(obj.paneltype == 1);
-            %接点に繋がるIDを決定
+            % 接点に繋がるIDを決定
             vertAttach = obj.tri.vertexAttachments();
             pert = sqrt(eps);
             for i = 1:numel(vertAttach)
                 if mod(i,floor(numel(vertAttach)/100))==0 || i == 1
                     fprintf("%d/%d ",i,numel(vertAttach));
                 end
-                %paneltype == 1以外を削除する
+                % paneltype == 1以外を削除する
                 vertAttach{i}(obj.paneltype(vertAttach{i}) ~=1) = [];
                 obj.approxMat.calcIndex{i} = sort(obj.IndexPanel2Solver(vertAttach{i}));
-                %このvertsがwakeに含まれているか
+                % このvertsがwakeに含まれているか
                 for j = 1:3
                     newVerts = obj.tri.Points;
                     newVerts(i,j) = obj.tri.Points(i,j)+pert;
@@ -847,10 +1112,21 @@ classdef UNLSI
 
         end
 
-        function obj = makePropEquation(obj,propNo)
-            %とりあえずpaneltypeで計算しているが、IDで管理したい
-            %muとsigma両方
-            [VortexAi,VortexBi,VortexAo,VortexBo,propWakeA] = obj.propellerInfluenceMatrix(obj,propNo,obj.settingUNLSI.propWakeLength);
+
+        function obj = makePropEquation(obj, propNo)
+            % makePropEquationメソッドは、指定されたプロペラ番号に対してプロペラの影響行列を計算し、オブジェクトのプロパティに格納します。
+            % 
+            % 入力:
+            %   - obj: UNLSIオブジェクト
+            %   - propNo: プロペラ番号
+            %
+            % 出力:
+            %   - obj: 更新されたUNLSIオブジェクト
+            %
+            % 例:
+            %   obj = makePropEquation(obj, 1);
+            %
+            [VortexAi, VortexBi, VortexAo, VortexBo, propWakeA] = obj.propellerInfluenceMatrix(obj, propNo, obj.settingUNLSI.propWakeLength);
             obj.prop{propNo}.LHSi = VortexAi;
             obj.prop{propNo}.RHSi = VortexBi;
             obj.prop{propNo}.LHSo = VortexAo;
@@ -1085,7 +1361,7 @@ classdef UNLSI
                     else
                         RHV = obj.RHS*sigmas;
                     end
-                    u =  -obj.LHS\RHV;
+                    u =  -(obj.LHS+obj.wakeLHS)\RHV;
                     %figure(2);clf;
                     %plot(u);
                     dv = zeros(nPanel,3);
@@ -1243,8 +1519,8 @@ classdef UNLSI
                     else
                        RHV = obj.RHS*sigmas;
                     end
-                    usolve =  -obj.LHS\RHV;
-                    Rsolve = obj.LHS*usolve+RHV;
+                    usolve =  -(obj.LHS+obj.wakeLHS)\RHV;
+                    Rsolve = (obj.LHS+obj.wakeLHS)*usolve+RHV;
                     u = [u;usolve];
                     R = [R;Rsolve];
                 else
@@ -1432,7 +1708,7 @@ classdef UNLSI
                     if obj.settingUNLSI.propCalcFlag == 1
                         RHV = RHV+RHVprop;
                     end
-                    R(nbPanel*(iterflow-1)+1:nbPanel*iterflow,1) = obj.LHS*usolve+RHV;
+                    R(nbPanel*(iterflow-1)+1:nbPanel*iterflow,1) = (obj.LHS+obj.wakeLHS)*usolve+RHV;
                 else
                     R(nbPanel*(iterflow-1)+1:nbPanel*iterflow,1) = usolve-obj.flow{flowNo}.pp(delta);
                 end
@@ -1660,7 +1936,7 @@ classdef UNLSI
                         end
                     end
                     rhsdw = obj.RHS*vdw;
-                    udw(1+nbPanel*(iterflow-1):nbPanel*iterflow,1) = -obj.LHS\rhsdw;
+                    udw(1+nbPanel*(iterflow-1):nbPanel*iterflow,1) = -(obj.LHS+obj.wakeLHS)\rhsdw;
         
                     %alphaについて
                     Vinfdw = repmat([-sind(alpha(iterflow))*cosd(beta(iterflow))*dw,0,cosd(alpha(iterflow))*cosd(beta(iterflow))*dw],[nPanel,1]);
@@ -1673,15 +1949,16 @@ classdef UNLSI
                         end
                     end
                     rhsdw = obj.RHS*vdw;
-                    udw(1+nbPanel*(iterflow-1):nbPanel*iterflow,2) = -obj.LHS\rhsdw;
+                    udw(1+nbPanel*(iterflow-1):nbPanel*iterflow,2) = -(obj.LHS+obj.wakeLHS)\rhsdw;
                 end
 
                 for jter = 1:3%p,q,rについて差分をとる
-                    if isempty(obj.settingUNLSI.angularVelocity)
+                    %if isempty(obj.settingUNLSI.angularVelocity)
                         omegadw = zeros(1,3);
-                    else
-                        omegadw = obj.settingUNLSI.angularVelocity(iterflow,:);
-                    end
+                    %end
+                    %else
+                        %omegadw = obj.settingUNLSI.angularVelocity(iterflow,:);
+                    %end
                     omegadw(jter) = omegadw(jter)+dw;
                     Vinfdw = zeros(nPanel,3);
                     for i = 1:nPanel
@@ -1697,7 +1974,7 @@ classdef UNLSI
                         end
                     end
                     rhsdw = obj.RHS*vdw;
-                    buff = -obj.LHS\rhsdw;
+                    buff = -(obj.LHS+obj.wakeLHS)\rhsdw;
                     for iterflow = 1:numel(alpha)
                         udw(1+nbPanel*(iterflow-1):nbPanel*iterflow,2+jter) = buff;
                     end
@@ -2179,7 +2456,7 @@ classdef UNLSI
                 obj.femcenter(i,:) = [mean(obj.femtri.Points(obj.femtri.ConnectivityList(i,:),1)),mean(obj.femtri.Points(obj.femtri.ConnectivityList(i,:),2)),mean(obj.femtri.Points(obj.femtri.ConnectivityList(i,:),3))];
             end
             obj.femutils = [];
-            obj = obj.checkFemMesh(obj.settingUNLSI.checkMeshTol,obj.settingUNLSI.checkMeshMethod);
+            obj = obj.checkFemMesh(obj.settingUNLSI.checkMeshTol,"delete");
                 
             %取り急ぎ、解析用のメッシュと空力メッシュは同一。後でFEAメッシュ等からメッシュを入れられるようにする。
             usedVertsbuff = unique(obj.femtri.ConnectivityList);
@@ -2282,6 +2559,8 @@ classdef UNLSI
                 end
             end
         end
+
+        
 
         function obj = makeFemEquation(obj)
             nu = 0.34;
@@ -2536,7 +2815,7 @@ classdef UNLSI
                 end
     
                 femRHSp = Fp(obj.femutils.MatIndex==1,1);
-                delta_p = lsqminnorm(obj.femLHS,femRHSp);
+                delta_p = lsqminnorm(obj.femLHS,femRHSp,obj.settingUNLSI.lsqminnormTol);
                 %delta_p = obj.femMass\femRHSp;
                 disp_buff = zeros(size(obj.femtri.Points,1)*6,1);
                 disp_buff(obj.femutils.InvMatIndex,1)=delta_p;
@@ -2600,6 +2879,7 @@ classdef UNLSI
                 end
                 disp_buff = zeros(size(obj.femtri.Points,1)*6,1);
                 disp_buff(obj.femutils.InvMatIndex,1)=ybuff(end,1:numel(y))';
+                disp_buff(isnan(disp_buff)) = 0;
                 delta{iter} = zeros(size(obj.femtri.Points,1),6);    
                 delta{iter}(obj.femutils.usedVerts,1)=disp_buff(1:obj.femutils.nbVerts,1);
                 delta{iter}(obj.femutils.usedVerts,2)=disp_buff(obj.femutils.nbVerts+1:2*obj.femutils.nbVerts,1);
@@ -2626,6 +2906,30 @@ classdef UNLSI
             delta(obj.femutils.usedVerts,1)=disp_buff(1:obj.femutils.nbVerts,1);
             delta(obj.femutils.usedVerts,2)=disp_buff(obj.femutils.nbVerts+1:2*obj.femutils.nbVerts,1);
             delta(obj.femutils.usedVerts,3)=disp_buff(2*obj.femutils.nbVerts+1:3*obj.femutils.nbVerts,1);
+        end
+
+        function deltaInterp = interpFemDelta(obj,delta,xyzinAeroMesh)
+            deltaAero = zeros(size(obj.tri.Points));
+            deltaAero(obj.femutils.usedAeroVerts,1) = obj.fem2aeroMat*delta(obj.femutils.usedVerts,1);
+            deltaAero(obj.femutils.usedAeroVerts,2) = obj.fem2aeroMat*delta(obj.femutils.usedVerts,2);
+            deltaAero(obj.femutils.usedAeroVerts,3) = obj.fem2aeroMat*delta(obj.femutils.usedVerts,3);
+            deltaAero(obj.femutils.usedAeroVerts,4) = obj.fem2aeroMat*delta(obj.femutils.usedVerts,4);
+            deltaAero(obj.femutils.usedAeroVerts,5) = obj.fem2aeroMat*delta(obj.femutils.usedVerts,5);
+            deltaAero(obj.femutils.usedAeroVerts,6) = obj.fem2aeroMat*delta(obj.femutils.usedVerts,6);
+
+            %空力メッシュから補間点への補間
+            phi = @(r)obj.phi3(r,1);
+            Avv = phi(obj.calcRMat(obj.tri.Points,obj.tri.Points));
+            Acv = phi(obj.calcRMat(obj.tri.Points,xyzinAeroMesh));
+            
+            interpMat = Acv'*pinv(Avv);
+            deltaInterp(:,1)  = interpMat*deltaAero(:,1);
+            deltaInterp(:,2)  = interpMat*deltaAero(:,2);
+            deltaInterp(:,3)  = interpMat*deltaAero(:,3);
+            deltaInterp(:,4)  = interpMat*deltaAero(:,4);
+            deltaInterp(:,5)  = interpMat*deltaAero(:,5);
+            deltaInterp(:,6)  = interpMat*deltaAero(:,6);
+
         end
 
         function modVerts = calcModifiedVerts(obj,delta)
@@ -3134,7 +3438,7 @@ classdef UNLSI
             end
         end
 
-        function [VortexA] = wakeInfluenceMatrix(obj,wakeNo,edgeNo,rowIndex)
+        function [VortexA] = wakeInfluenceMatrix(obj,wakeNo,edgeNo,rowIndex,wakeShape)
             %%%%%%%%%%%%wakeからパネルへの影響関数%%%%%%%%%%%%%%%%%
             %wakeNoとedgeNoを指定して全パネルへの影響を計算
             %
@@ -3148,11 +3452,12 @@ classdef UNLSI
             POI.Z = center(rowIndex,3);
             nrow = numel(rowIndex);
             VortexA = zeros(nrow,1);
-            for i = 1:1
-                wakepos(1,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+[obj.settingUNLSI.wingWakeLength*obj.CREF*(i-1),0,0];
-                wakepos(2,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+[obj.settingUNLSI.wingWakeLength*obj.CREF*(i-1),0,0];
-                wakepos(3,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+[obj.settingUNLSI.wingWakeLength*obj.CREF*i,0,0];
-                wakepos(4,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+[obj.settingUNLSI.wingWakeLength*obj.CREF*i,0,0];
+            nwake = 5;
+            for i = 1:nwake
+                wakepos(1,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+wakeShape(:)'.*(i-1) .* norm(wakeShape)./nwake;
+                wakepos(2,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+wakeShape(:)'.*(i-1) .* norm(wakeShape)./nwake;
+                wakepos(3,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+wakeShape(:)'.*i .* norm(wakeShape)./nwake;
+                wakepos(4,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+wakeShape(:)'.*i .* norm(wakeShape)./nwake;
                 [~, ~, nbuff] = obj.vertex(wakepos(1,:),wakepos(2,:),wakepos(3,:));
                 
                 ulvec = obj.center(obj.wakeline{wakeNo}.lowerID(edgeNo),:)-obj.center(obj.wakeline{wakeNo}.upperID(edgeNo),:);
@@ -4474,7 +4779,7 @@ end
             %H2 = repmat(Xs',[nInterp,1]);
             %M = val_interp*pp.val_samp';
             %r = sqrt(H1-2.*M+H2);
-            r = obj.calcRMat(val_interp,pp.val_samp);
+            r = obj.calcRMat(pp.val_samp,val_interp);
             fi = phi(r,pp.R0)*pp.w(:);
         end
 

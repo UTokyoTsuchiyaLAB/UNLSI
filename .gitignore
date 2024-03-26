@@ -1,3 +1,4 @@
 *.asv
 *.DS_Store
+gmsh_read_mesh.m
 desktop.ini
