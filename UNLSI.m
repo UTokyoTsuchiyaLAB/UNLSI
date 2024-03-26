@@ -78,7 +78,6 @@ classdef UNLSI
     end
 
     methods(Access = public)
-
         % UNLSIクラスのコンストラクタ
         % verts: 頂点座標の行列
         % connectivity: 頂点の接続情報の行列
@@ -137,6 +136,7 @@ classdef UNLSI
             obj.settingUNLSI.nGriddedInterp = 90; % griddedInterpの補間点の数
             obj.settingUNLSI.ode23AbsTol = 1e-6; % ode23の絶対許容誤差
             obj.settingUNLSI.ode23RelTol = 1e-3; % ode23の相対許容誤差
+            obj.settingUNLSI.lsqminnormTol = 1e-12;% 最小二乗法における正規方程式の解を求める際の許容誤差を設定します。
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             obj.halfmesh = halfmesh;
             obj.flowNoTable = [];
@@ -246,31 +246,6 @@ classdef UNLSI
             obj.BREF = BREF;
         end
 
-        function obj = setREFS(obj,SREF,BREF,CREF)
-            % Referentials settingUNLSI
-            %   obj = setREFS(obj,SREF,BREF,CREF) は、基準面積、横方向基準長、縦方向基準長を設定するメソッドです。
-            %
-            %   入力:
-            %       obj: UNLSI オブジェクト
-            %       SREF: 基準面積
-            %       BREF: 横方向基準長 (例: 翼幅)
-            %       CREF: 縦方向基準長 (例: MAC, 機体全長)
-            %
-            %   出力:
-            %       obj: 更新された UNLSI オブジェクト
-            %
-            %   このメソッドは、UNLSI オブジェクトの基準面積、横方向基準長、縦方向基準長を設定します。
-            %   設定された値は、obj.SREF、obj.CREF、obj.BREF に格納されます。
-            %
-            %   例:
-            %       obj = setREFS(obj, 10, 5, 3)
-            %
-            
-            obj.SREF = SREF;
-            obj.CREF = CREF;
-            obj.BREF = BREF;
-        end
-
         function obj = setRotationCenter(obj,XYZREF)
             %%%%%%%%%%%Rotation Center settingUNLSI%%%%%%%%%%%%%
             %回転中心を設定する。
@@ -329,7 +304,7 @@ classdef UNLSI
         end
 
 
-        function plotGeometry(obj,figureNo,triColor,colorlim,method,extrapmethod)
+        function plotGeometry(obj,figureNo,triColor,colorlim,method,xyz,euler)
             % plotGeometry(obj,figureNo,triColor,colorlim,method,extrapmethod)
             %   機体メッシュもしくは状態量をプロットする。
             %   カラー値は各パネルごとの値（例えばCp）を入れると、接点の値に補間しプロットする
@@ -367,21 +342,35 @@ classdef UNLSI
             else
                 if nargin == 4
                     method = "linear";
-                    extrapmethod = "linear";
+                    xyz = [0,0,0];
+                    euler = [0,0,0];
+                elseif nargin == 5
+                    xyz = [0,0,0];
+                    euler = [0,0,0];
                 end
+                
+                roll = euler(1);
+                pitch = euler(2);
+                yaw = euler(3);
+                R = [cosd(yaw)*cosd(pitch), cosd(yaw)*sind(pitch)*sind(roll) - sind(yaw)*cosd(roll), cosd(yaw)*sind(pitch)*cosd(roll) + sind(yaw)*sind(roll);
+                    sind(yaw)*cosd(pitch), sind(yaw)*sind(pitch)*sind(roll) + cosd(yaw)*cosd(roll), sind(yaw)*sind(pitch)*cosd(roll) - cosd(yaw)*sind(roll);
+                    -sind(pitch), cosd(pitch)*sind(roll), cosd(pitch)*cosd(roll)];
+                    
+                affineverts = obj.tri.Points*R'+repmat(xyz,size(obj.tri.Points,1),1);
+
                 if strcmpi(method,"exact")
                     %指定がexactの場合はパネル一枚一枚描画する
                     hold on;
                     for i = 1:numel(obj.surfID)
                         if obj.paneltype(i) == 1
-                            trisurf([1,2,3],obj.tri.Points(obj.tri(i,:),1),obj.tri.Points(obj.tri(i,:),2),obj.tri.Points(obj.tri(i,:),3),triColor(i),'EdgeAlpha',0.15);
+                            trisurf([1,2,3],affineverts(obj.tri(i,:),1),affineverts(obj.tri(i,:),2),affineverts(obj.tri(i,:),3),triColor(i),'EdgeAlpha',0.15);
                             if obj.halfmesh == 1
-                                trisurf([1,2,3],obj.tri.Points(obj.tri(i,:),1),-obj.tri.Points(obj.tri(i,:),2),obj.tri.Points(obj.tri(i,:),3),triColor(i),'EdgeAlpha',0.15);
+                                trisurf([1,2,3],affineverts(obj.tri(i,:),1),-affineverts(obj.tri(i,:),2),affineverts(obj.tri(i,:),3),triColor(i),'EdgeAlpha',0.15);
                             end
                         else
-                            trisurf([1,2,3],obj.tri.Points(obj.tri(i,:),1),obj.tri.Points(obj.tri(i,:),2),obj.tri.Points(obj.tri(i,:),3),0,'EdgeAlpha',0.15);
+                            trisurf([1,2,3],affineverts(obj.tri(i,:),1),affineverts(obj.tri(i,:),2),affineverts(obj.tri(i,:),3),0,'EdgeAlpha',0.15);
                             if obj.halfmesh == 1
-                                trisurf([1,2,3],obj.tri.Points(obj.tri(i,:),1),-obj.tri.Points(obj.tri(i,:),2),obj.tri.Points(obj.tri(i,:),3),0,'EdgeAlpha',0.15);
+                                trisurf([1,2,3],affineverts(obj.tri(i,:),1),-affineverts(obj.tri(i,:),2),affineverts(obj.tri(i,:),3),0,'EdgeAlpha',0.15);
                             end
                         end
                     end
@@ -390,11 +379,11 @@ classdef UNLSI
                     caxis(colorlim);
                 else
                     c = obj.verts2centerMat'*triColor;
-                    trisurf(obj.tri,c,'FaceColor','interp','EdgeAlpha',0.15);
+                    trisurf(obj.tri.ConnectivityList,affineverts(:,1),affineverts(:,2),affineverts(:,3),c,'FaceColor','interp','EdgeAlpha',0.15);
                     colormap jet;
                     if obj.halfmesh == 1
                         hold on;
-                        trisurf(obj.tri.ConnectivityList,obj.tri.Points(:,1),-obj.tri.Points(:,2),obj.tri.Points(:,3),c,'FaceColor','interp','EdgeAlpha',0.15);
+                        trisurf(obj.tri.ConnectivityList,affineverts(:,1),-affineverts(:,2),affineverts(:,3),c,'FaceColor','interp','EdgeAlpha',0.15);
                         colormap jet;
                         hold off
                     end
@@ -403,7 +392,6 @@ classdef UNLSI
             end
             axis equal;xlabel("x");ylabel("y");zlabel("z");
             drawnow();pause(0.1);
-
         end
 
         function obj = setMesh(obj, verts, connectivity, surfID, wakelineID)
@@ -414,7 +402,6 @@ classdef UNLSI
             %   返り値は、メッシュが設定されたUNLSIオブジェクトです。
             % ワーニングメッセージをオフにする
             warning('off', 'MATLAB:triangulation:PtsNotInTriWarnId');
-            
             % vertsのチェックとマージ
             [verts, connectivity, wakelineID] = obj.mergeVerts(obj.settingUNLSI.vertsTol, verts, connectivity, wakelineID);
             
@@ -596,7 +583,7 @@ classdef UNLSI
         end
   
 
-        function [verts, cons, wedata] = mergeVerts(tol, verts, cons, wedata)
+        function [verts, cons, wedata] = mergeVerts(obj, tol, verts, cons, wedata)
     
          % 
             % mergeVerts関数は、指定された許容誤差(tol)を使用して、頂点(verts)と接続(cons)をマージします。
@@ -662,7 +649,7 @@ classdef UNLSI
                         cons(cons(:) > j) = cons(cons(:) > j) - 1;
                         
                         % オプションのwedata引数が指定された場合、追加データを更新
-                        if nargin > 3
+                        if nargin > 4
                             for k = 1:numel(wedata)
                                 wedata{k}(wedata{k} == j) = i;
                                 wedata{k}(wedata{k} > j) = wedata{k}(wedata{k} > j) - 1;
@@ -2828,7 +2815,7 @@ classdef UNLSI
                 end
     
                 femRHSp = Fp(obj.femutils.MatIndex==1,1);
-                delta_p = lsqminnorm(obj.femLHS,femRHSp,1e-12);
+                delta_p = lsqminnorm(obj.femLHS,femRHSp,obj.settingUNLSI.lsqminnormTol);
                 %delta_p = obj.femMass\femRHSp;
                 disp_buff = zeros(size(obj.femtri.Points,1)*6,1);
                 disp_buff(obj.femutils.InvMatIndex,1)=delta_p;
