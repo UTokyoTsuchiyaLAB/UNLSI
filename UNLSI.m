@@ -110,11 +110,11 @@ classdef UNLSI
             %%%%%%%%%%%settingUNLSIの初期設定%%%%%%%%%%%%%
             obj.settingUNLSI.checkMeshMethod = "delete";
             obj.settingUNLSI.checkMeshTol = sqrt(eps);
-            obj.settingUNLSI.vertsTol = 0.01;
+            obj.settingUNLSI.vertsTol = 0.001;%空力計算,surrogatemodelが上手くいかない場合はここを0.01→0.001で細かくする．近い節点のマージの設定
             obj.settingUNLSI.LLTnInterp = 10;
             obj.settingUNLSI.nCluster = 50;%クラスターの目標数（達成できなければそこで打ち切り）
             obj.settingUNLSI.edgeAngleThreshold = 50;%この角度以下であれば近隣パネルとして登録する（角度差が大きすぎるモノをはじくため）
-            obj.settingUNLSI.wingWakeLength = 100; %各wakeパネルの長さ(機体基準長基準）
+            obj.settingUNLSI.wingWakeLength = 2; %各wakeパネルの長さ(機体基準長基準）
             obj.settingUNLSI.nCalcDivide = 5;%makeEquationは各パネル数×各パネル数サイズの行列を扱うため、莫大なメモリが必要となる。一度に計算する列をobj.settingUNLSI.nCalcDivide分割してメモリの消費量を抑えている。
             obj.settingUNLSI.angularVelocity = [];
             obj.settingUNLSI.propCalcFlag = 1;
@@ -2536,7 +2536,7 @@ classdef UNLSI
                 end
     
                 femRHSp = Fp(obj.femutils.MatIndex==1,1);
-                delta_p = lsqminnorm(obj.femLHS,femRHSp);
+                delta_p = lsqminnorm(obj.femLHS,femRHSp,1e-12);
                 %delta_p = obj.femMass\femRHSp;
                 disp_buff = zeros(size(obj.femtri.Points,1)*6,1);
                 disp_buff(obj.femutils.InvMatIndex,1)=delta_p;
@@ -4474,8 +4474,9 @@ end
             %H2 = repmat(Xs',[nInterp,1]);
             %M = val_interp*pp.val_samp';
             %r = sqrt(H1-2.*M+H2);
-            r = obj.calcRMat(val_interp,pp.val_samp);
-            fi = phi(r,pp.R0)*pp.w(:);
+            % r = obj.calcRMat(val_interp,pp.val_samp);
+            r = obj.calcRMat(pp.val_samp,val_interp);
+            fi = phi(r,pp.R0)'*pp.w(:);
         end
 
     end
