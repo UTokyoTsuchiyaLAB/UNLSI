@@ -1,22 +1,33 @@
 %
 %%%%%%%%ここから
-clear;
+clear;tic
 %%%%%%%%%
 %パイプを等価な剛性を持つspar2本に変換
 [tspar,b,Rarea] = InatiaPipe2biRec(30,1.5,50); %mm単位
+
 %%%%%%%%%
 Vinf = 10;%7.2;
 Re = Vinf * 0.375 /1.512 *1e5;
 alpha = 0;%[-3,0,3];
 beta = 0;
 
+massPropName = "flora_MassProps.txt";
+[mass,cgPoint,Inatia] = readMassPropResult(massPropName);
 [con, p, uv1, uv2, uv3, wedata, id] = readvspgeom( "flora.vspgeom", 0);
 % [con, p, uv1, uv2, uv3, wedata, id] = readvspgeom( "FWpeller2.vspgeom", 0);
 wing = UNLSI(p',con',id',wedata,1);
 wing = wing.setREFS(3.675,9.6,0.375);
-wing = wing.setRotationCenter([-0.1,0,0]);
-wing = wing.setUNLSISettings("propCalcFlag",0,"laminarRatio",0.4,"propWakeLength",1,"Vinf",Vinf);
+wing = wing.setRotationCenter([-0.1,0,0]);%[-0.1,0,0]
+wing = wing.setUNLSISettings("propCalcFlag",0,"laminarRatio",0.4,"propWakeLength",1,"Vinf",Vinf,"nGriddedInterp",10);
 % wing = wing.setProp(1,4,1.6,1);
+
+% wing = wing.setDeflAngle(6,[0,1,0],0);%6番のIDを回転軸[0,1,0]、角度0degに設定（動翼として登録）
+% wing = wing.setDeflAngle(7,[0,1,0],0);%7番のIDを回転軸[0,1,0]、角度0degに設定（動翼として登録）
+% wing = wing.setDeflAngle(8,[0,0,1],0);%7番のIDを回転軸[0,1,0]、角度0degに設定（動翼として登録）
+% wing = wing.setDeflGroup(1,"elev",[6,7],[1,1]); % ID6番7番をgain[1,1](軸が同じなら同じ方向）に動かすことをelevatorとして登録(動翼ID1番） 
+% wing = wing.setDeflGroup(2,"ail",[6,7],[1,-1]); % ID6番7番をgain[1,1](軸が同じなら同じ方向）に動かすことをelevatorとして登録(動翼ID2番wing = wing.setDeflGroup(2,"ail",[6,7],[1,-1]); % ID6番7番をgain[1,1](軸が同じなら同じ方向）に動かすことをelevatorとして登録(動翼ID2番
+% wing = wing.setDeflGroup(3,"rud",8,1); 
+% wing = wing.solveFlow(0,0,0.001,200000);
 wing = wing.makeCluster();
 wing = wing.makeEquation();
 %}
@@ -40,16 +51,16 @@ wing.plotGeometry(1,wing.getCp(0),[-3,1.5]);%圧力係数のプロット
 disp(wing.getAERODATA(alpha));
 wing2 = wing;%変位後の空力解析用のインスタンスを準備
 
-%{
+%
 %空力係数の補間曲面の作成
-wing = wing.makeSurrogateModel([-10,-5,0,5,10],[-10,-5,0,5,10],0.0001,300000);%
-[ppCoef,ppDyn] = wing.getSurrogateModel();
-wing.plotSurrogateModel(ppCoef,ppDyn,linspace(-10,10,100),linspace(-10,10,100),0.001,1);
-UREF = 7.2;
-Mach = 0.001;
-REFS = [wing.SREF,wing.BREF,wing.CREF];
-save aeroRBF.mat ppCoef ppDyn REFS mass Inatia UREF Mach -mat;
-%}
+% wing = wing.makeSurrogateModel([-10,-5,0,5,10],[-10,-5,0,5,10],0.0001,300000);%
+% [ppCoef,ppDyn] = wing.getSurrogateModel();
+% wing.plotSurrogateModel(ppCoef,ppDyn,linspace(-10,10,100),linspace(-10,10,100),0.001,1);
+% UREF = Vinf;
+% Mach = 0.001;
+% REFS = [wing.SREF,wing.BREF,wing.CREF];
+% save aeroRBF.mat ppCoef ppDyn REFS mass Inatia UREF Mach -mat;
+%
 
 %
 dt = 0.01;

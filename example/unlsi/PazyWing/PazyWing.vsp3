@@ -9,14 +9,14 @@
         <CORX Value="0.000000000000000000e+00" ID="PXBXMETHGSG"/>
         <CORY Value="0.000000000000000000e+00" ID="BSOKXJDSYHH"/>
         <CORZ Value="0.000000000000000000e+00" ID="BDORVJLOEFB"/>
-        <PanX Value="-1.375458687543869019e-01" ID="KCYXNYRIRRE"/>
-        <PanY Value="-5.427102744579315186e-02" ID="ZVVLIESCXAN"/>
-        <RotationX Value="6.648178289010250808e+01" ID="DYJBUCYMLOF"/>
-        <RotationY Value="-5.877294537865462409e+00" ID="ZYFELGICEQK"/>
-        <RotationZ Value="-9.973265494907844086e+00" ID="ECXFULUPDIK"/>
+        <PanX Value="9.450814127922058105e-02" ID="KCYXNYRIRRE"/>
+        <PanY Value="-1.928654126822948456e-02" ID="ZVVLIESCXAN"/>
+        <RotationX Value="7.604575527541287272e+01" ID="DYJBUCYMLOF"/>
+        <RotationY Value="-2.745088202902350005e+01" ID="ZYFELGICEQK"/>
+        <RotationZ Value="-1.574542698630412074e+00" ID="ECXFULUPDIK"/>
         <ViewportX Value="1.439000000000000000e+03" ID="UVRCIXABKJN"/>
         <ViewportY Value="1.364000000000000000e+03" ID="VBPKAZGSXSW"/>
-        <Zoom Value="3.689172444865107536e-04" ID="JRUXOQREVRD"/>
+        <Zoom Value="3.504395135678350925e-04" ID="JRUXOQREVRD"/>
       </AdjustView>
       <AdvLinkSettings>
         <AdvLinkDefNameContainer Value="1.000000000000000000e+00" ID="JNEQSZWGIDF"/>
@@ -538,7 +538,7 @@
                   <EndWingSection Value="1.000000000000000000e+00" ID="XDXGECNEQIJ"/>
                   <LimitRibToSectionFlag Value="0.000000000000000000e+00" ID="FHUUMJZDSDW"/>
                   <MatchDihedralFlag Value="1.000000000000000000e+00" ID="KOPUEJTBEHW"/>
-                  <PerpendicularEdgeType Value="0.000000000000000000e+00" ID="TWPGMAMODIZ"/>
+                  <PerpendicularEdgeType Value="3.000000000000000000e+00" ID="TWPGMAMODIZ"/>
                   <PositiveDirectionFlag Value="1.000000000000000000e+00" ID="QPEHNMEEHPW"/>
                   <RelEndLocation Value="9.699999999999999734e-01" ID="WBPXCPHMZXS"/>
                   <RelStartLocation Value="7.499999999999999722e-02" ID="VJVDONGJUWP"/>
@@ -551,41 +551,31 @@
               </ParmContainer>
             </FeaPartInfo>
             <FeaPartInfo>
-              <FeaPartType>2</FeaPartType>
+              <FeaPartType>0</FeaPartType>
               <FeaPropertyID>KTFEPFLSCP</FeaPropertyID>
-              <CapFeaPropertyID>UINMKPQAXC</CapFeaPropertyID>
+              <CapFeaPropertyID/>
               <ParmContainer>
-                <ID>GOZBDKKWZV</ID>
-                <Name>Spar3</Name>
+                <ID>CISISZHZWQ</ID>
+                <Name>Slice4</Name>
                 <FeaPart>
-                  <AbsCenterLocation Value="5.000000000000000278e-02" ID="MWZBTCCYGJJ"/>
-                  <AbsRelParmFlag Value="1.000000000000000000e+00" ID="MUNMJHVNNCB"/>
-                  <CapFeaPropertyIndex Value="-1.000000000000000000e+00" ID="YSAJOSFNTJK"/>
-                  <CreateBeamElements Value="0.000000000000000000e+00" ID="CQVTURPCJAO"/>
-                  <DrawFeaPartFlag Value="0.000000000000000000e+00" ID="KPLNDLAZYPW"/>
-                  <FeaPropertyIndex Value="-1.000000000000000000e+00" ID="TSQKCQIFAQF"/>
-                  <IncludedElements Value="-1.000000000000000000e+00" ID="UABWFUTXLYA"/>
-                  <MarkDelShellElements Value="0.000000000000000000e+00" ID="JSRTKUWRPDO"/>
-                  <Orientation Value="6.000000000000000000e+00" ID="FDQHKMHNGCL"/>
-                  <RelCenterLocation Value="5.000000000000000000e-01" ID="VFGHFMDLQDK"/>
+                  <AbsCenterLocation Value="6.488059346755695352e-03" ID="VORQOAYEBOA"/>
+                  <AbsRelParmFlag Value="1.000000000000000000e+00" ID="KSXRGTPOYFE"/>
+                  <CapFeaPropertyIndex Value="-1.000000000000000000e+00" ID="EQTGLGETJBC"/>
+                  <CreateBeamElements Value="0.000000000000000000e+00" ID="PCJXSEAUOPT"/>
+                  <DrawFeaPartFlag Value="0.000000000000000000e+00" ID="HTYPUUKYPPX"/>
+                  <FeaPropertyIndex Value="-1.000000000000000000e+00" ID="XJJGBJLFGVX"/>
+                  <IncludedElements Value="-1.000000000000000000e+00" ID="QPEVNTXIUNP"/>
+                  <MarkDelShellElements Value="0.000000000000000000e+00" ID="PCMGPVQYPQY"/>
+                  <Orientation Value="6.000000000000000000e+00" ID="KRRZFDYPSBY"/>
+                  <RelCenterLocation Value="3.599999999999999867e-01" ID="HUUETIRCBNJ"/>
                 </FeaPart>
                 <FeaSlice>
-                  <OrientationPlane Value="1.000000000000000000e+00" ID="YKLXIBAQHFV"/>
-                  <RotationAxis Value="0.000000000000000000e+00" ID="AVQWAIKHHTJ"/>
-                  <XRot Value="0.000000000000000000e+00" ID="QKUAQXGEYTG"/>
-                  <YRot Value="0.000000000000000000e+00" ID="QQLKUFDTVZG"/>
-                  <ZRot Value="0.000000000000000000e+00" ID="UWQQBQYAIZD"/>
+                  <OrientationPlane Value="0.000000000000000000e+00" ID="EMNINFZNBGF"/>
+                  <RotationAxis Value="0.000000000000000000e+00" ID="VOPQQUZPJIC"/>
+                  <XRot Value="0.000000000000000000e+00" ID="SBLIUFCNUUD"/>
+                  <YRot Value="0.000000000000000000e+00" ID="ZEHFCZEEEDW"/>
+                  <ZRot Value="0.000000000000000000e+00" ID="PKRVEKZHNST"/>
                 </FeaSlice>
-                <FeaSpar>
-                  <BndBoxTrimFlag Value="0.000000000000000000e+00" ID="ZRPRIHQYVKA"/>
-                  <EndWingSection Value="1.000000000000000000e+00" ID="WYAUZORGTEV"/>
-                  <LimitSparToSectionFlag Value="0.000000000000000000e+00" ID="KUAJCFGQEAP"/>
-                  <PercentRootChord Value="5.000000000000000000e-01" ID="BPZYOXHMYNH"/>
-                  <PercentTipChord Value="5.000000000000000000e-01" ID="EHDTTYNPZMM"/>
-                  <StartWingSection Value="1.000000000000000000e+00" ID="DEWSDPVXGQE"/>
-                  <Theta Value="0.000000000000000000e+00" ID="NUOTAIPBMWK"/>
-                  <UsePercentChord Value="0.000000000000000000e+00" ID="JVQWCKOVVFM"/>
-                </FeaSpar>
               </ParmContainer>
             </FeaPartInfo>
             <StructSettings>
