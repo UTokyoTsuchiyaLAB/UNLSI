@@ -74,43 +74,12 @@ v.Quality = 100;
 % ビデオの書き込みを開始
 open(v);
 
-% for iter = 1
-%     [delta,deltadot] = wing.solveAeroelastic([0,dt],[],[],wing2.getCp(0).*Vinf.^2.*1.225.*0.5,1);
-%     % delta = wing.solveFem(wing2.getCp(0).*Vinf.^2.*1.225.*0.5,1); %femを解く 引数はdistLoad,selfLoadFlag
+
 %     % 最後のflag0→機体に働く重力無視，後ろから二番目の荷重を100倍とかにして変形が普通じゃない→lsqminnormの精度不足
 %     % solveaeroelasticに変えればdtでるのでcm
 %     % 空力弾性やりたいときはUNLSIのクラスをコピーしてそこに変形後の空力メッシュを入れて積分していくその時剛性マトリクスは変形後にするとそこが中立点になってしまうので元のものを入れる
 %     % でも今の変形は半裁で中央を抑えているけれど実際はちゅうおうもグネグネしているので運動方程式との練成を考える必要がある．
-%     modVerts = wing.calcModifiedVerts(delta{1}); %結果を空力メッシュに投影する
-%     wing2 = wing2.setVerts(modVerts); %変位後の空力メッシュをセット
-%     wing2 = wing2.makeEquation(); %パネル法行列の作成
-%     wing2 = wing2.solveFlow(alpha,beta,0.001,Re);%パネル法を解く
-%     disp(wing2.getAERODATA(alpha));
-%     wing2.plotGeometry(2,wing2.getCp(0),[-3,1.5]);%圧力係数のプロット
-%         % フレームを作成
-%     frame = getframe(gcf);
-%     % フレームをビデオに書き込み
-%     writeVideo(v, frame);
-% end
-% tic;
-% for i = 1:5
-%     [delta,deltadot] = wing.solveAeroelastic([0,dt],delta,deltadot,wing2.getCp(0).*Vinf.^2.*1.225.*0.5,1); %femを解く 引数はdistLoad,selfLoadFlag
-%     % 最後のflag0→機体に働く重力無視，後ろから二番目の荷重を100倍とかにして変形が普通じゃない→lsqminnormの精度不足
-%     % solveaeroelasticに変えればdtでるのでcm
-%     % 空力弾性やりたいときはUNLSIのクラスをコピーしてそこに変形後の空力メッシュを入れて積分していくその時剛性マトリクスは変形後にするとそこが中立点になってしまうので元のものを入れる
-%     % でも今の変形は半裁で中央を抑えているけれど実際はちゅうおうもグネグネしているので運動方程式との練成を考える必要がある．
-%     modVerts = wing.calcModifiedVerts(delta{1}); %結果を空力メッシュに投影する
-%     wing2 = wing2.setVerts(modVerts); %変位後の空力メッシュをセット
-%     wing2 = wing2.makeEquation(); %パネル法行列の作成
-%     wing2 = wing2.solveFlow(alpha,beta,0.001,Re);%パネル法を解く
-%     disp(wing2.getAERODATA(alpha));
-%     wing2.plotGeometry(2,wing2.getCp(0),[-3,1.5]);%圧力係数のプロット
-%         % フレームを作成
-%     frame = getframe(gcf);
-%     % フレームをビデオに書き込み
-%     writeVideo(v, frame);
-% end
-% close(v);
+
 
 
 

@@ -9,14 +9,14 @@
         <CORX Value="0.000000000000000000e+00" ID="PXBXMETHGSG"/>
         <CORY Value="0.000000000000000000e+00" ID="BSOKXJDSYHH"/>
         <CORZ Value="0.000000000000000000e+00" ID="BDORVJLOEFB"/>
-        <PanX Value="9.450814127922058105e-02" ID="KCYXNYRIRRE"/>
-        <PanY Value="-1.928654126822948456e-02" ID="ZVVLIESCXAN"/>
-        <RotationX Value="7.604575527541287272e+01" ID="DYJBUCYMLOF"/>
-        <RotationY Value="-2.745088202902350005e+01" ID="ZYFELGICEQK"/>
-        <RotationZ Value="-1.574542698630412074e+00" ID="ECXFULUPDIK"/>
+        <PanX Value="-1.019155606627464294e-01" ID="KCYXNYRIRRE"/>
+        <PanY Value="-1.744596064090728760e-01" ID="ZVVLIESCXAN"/>
+        <RotationX Value="1.245021396061910579e+01" ID="DYJBUCYMLOF"/>
+        <RotationY Value="-9.899926338694832850e+00" ID="ZYFELGICEQK"/>
+        <RotationZ Value="-2.245650427393760751e+01" ID="ECXFULUPDIK"/>
         <ViewportX Value="1.439000000000000000e+03" ID="UVRCIXABKJN"/>
         <ViewportY Value="1.364000000000000000e+03" ID="VBPKAZGSXSW"/>
-        <Zoom Value="3.504395135678350925e-04" ID="JRUXOQREVRD"/>
+        <Zoom Value="1.264776685275137424e-03" ID="JRUXOQREVRD"/>
       </AdjustView>
       <AdvLinkSettings>
         <AdvLinkDefNameContainer Value="1.000000000000000000e+00" ID="JNEQSZWGIDF"/>
@@ -660,13 +660,13 @@
                   <GrowRatio Value="1.300000000000000044e+00" ID="EAXYMTLPWKU"/>
                   <MaxFar Value="2.000000000000000000e+00" ID="AUTDRQIUOHX"/>
                   <MaxFarGap Value="2.000000000000000042e-02" ID="KRVOZAGJWQE"/>
-                  <MaxGap Value="5.000000000000000104e-04" ID="REHFPNCKOYC"/>
+                  <MaxGap Value="5.000000000000000104e-03" ID="REHFPNCKOYC"/>
                   <MaxGapAbsRel Value="0.000000000000000000e+00" ID="BQEUYYUXTZP"/>
-                  <MaxGapFrac Value="1.000000000000000021e-03" ID="MSMVXZFSZSN"/>
+                  <MaxGapFrac Value="1.000000000000000021e-02" ID="MSMVXZFSZSN"/>
                   <MinAbsRel Value="0.000000000000000000e+00" ID="GBYCPNZSKOL"/>
                   <MinFrac Value="5.000000000000000278e-02" ID="BAMJLHNTBTQ"/>
                   <MinLen Value="2.500000000000000139e-02" ID="ZKTQYXKBDEB"/>
-                  <NCircSeg Value="4.000000000000000000e+00" ID="QEBMYHUVPKD"/>
+                  <NCircSeg Value="1.000000000000000021e-08" ID="QEBMYHUVPKD"/>
                   <RigorLimit Value="0.000000000000000000e+00" ID="VVHYCCANMUO"/>
                 </FEAGridDensity>
               </ParmContainer>
@@ -1816,7 +1816,7 @@
         <HighOrderElementFlag Value="0.000000000000000000e+00" ID="UNOYDDUGMNH"/>
         <IntersectSubSurfs Value="1.000000000000000000e+00" ID="CGQFHTVDAYB"/>
         <RelCurveTol Value="5.000000000000000104e-03" ID="EMKJAGEKTPC"/>
-        <Set Value="1.000000000000000000e+00" ID="ITLWIRVQICX"/>
+        <Set Value="0.000000000000000000e+00" ID="ITLWIRVQICX"/>
       </Global>
     </ParmContainer>
   </CFDMeshSettings>
@@ -1878,7 +1878,7 @@
       <Name>CFDGridDensity</Name>
       <CFDGridDensity>
         <BaseAbsRel Value="1.000000000000000000e+00" ID="KCOYRSPSDXD"/>
-        <BaseLen Value="3.464101615137754517e+11" ID="UKOFTDXHBKU"/>
+        <BaseLen Value="1.247350750431509142e-01" ID="UKOFTDXHBKU"/>
         <BaseLenFrac Value="1.000000000000000056e-01" ID="RSCXLOZTNBZ"/>
         <FarAbsRel Value="0.000000000000000000e+00" ID="KGVIRSTPNIB"/>
         <FarFrac Value="2.886751345948129210e-01" ID="XUQCLJFAHXL"/>
@@ -1888,12 +1888,12 @@
         <GrowRatio Value="1.300000000000000044e+00" ID="DIEPUFDEMWM"/>
         <MaxFar Value="2.000000000000000000e+00" ID="ROCBCVIFBAN"/>
         <MaxFarGap Value="2.000000000000000042e-02" ID="JBCKPFUSEFM"/>
-        <MaxGap Value="6.928203230275508881e+09" ID="ORKFMLTELQN"/>
+        <MaxGap Value="2.494701500863018371e-03" ID="ORKFMLTELQN"/>
         <MaxGapAbsRel Value="1.000000000000000000e+00" ID="JXADXRHPVAS"/>
         <MaxGapFrac Value="2.000000000000000042e-02" ID="LUPYTVJIMQU"/>
         <MinAbsRel Value="1.000000000000000000e+00" ID="KRATCNNNLRJ"/>
         <MinFrac Value="1.000000000000000021e-02" ID="ODTMWFKSXZF"/>
-        <MinLen Value="3.464101615137754440e+09" ID="JDVNVEJJBTO"/>
+        <MinLen Value="1.247350750431509185e-03" ID="JDVNVEJJBTO"/>
         <NCircSeg Value="1.000000000000000021e-08" ID="GEZIRIBCOFE"/>
         <RigorLimit Value="0.000000000000000000e+00" ID="OTXPZAJMRBC"/>
       </CFDGridDensity>
