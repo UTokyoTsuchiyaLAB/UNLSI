@@ -9,14 +9,14 @@
         <CORX Value="0.000000000000000000e+00" ID="PXBXMETHGSG"/>
         <CORY Value="0.000000000000000000e+00" ID="BSOKXJDSYHH"/>
         <CORZ Value="0.000000000000000000e+00" ID="BDORVJLOEFB"/>
-        <PanX Value="-1.019155606627464294e-01" ID="KCYXNYRIRRE"/>
-        <PanY Value="-1.744596064090728760e-01" ID="ZVVLIESCXAN"/>
+        <PanX Value="-4.387602210044860840e-02" ID="KCYXNYRIRRE"/>
+        <PanY Value="-1.502046585083007812e-01" ID="ZVVLIESCXAN"/>
         <RotationX Value="1.245021396061910579e+01" ID="DYJBUCYMLOF"/>
         <RotationY Value="-9.899926338694832850e+00" ID="ZYFELGICEQK"/>
         <RotationZ Value="-2.245650427393760751e+01" ID="ECXFULUPDIK"/>
         <ViewportX Value="1.439000000000000000e+03" ID="UVRCIXABKJN"/>
         <ViewportY Value="1.364000000000000000e+03" ID="VBPKAZGSXSW"/>
-        <Zoom Value="1.264776685275137424e-03" ID="JRUXOQREVRD"/>
+        <Zoom Value="1.099806278944015503e-03" ID="JRUXOQREVRD"/>
       </AdjustView>
       <AdvLinkSettings>
         <AdvLinkDefNameContainer Value="1.000000000000000000e+00" ID="JNEQSZWGIDF"/>
@@ -624,15 +624,15 @@
                   <SymmetrySplitting Value="0.000000000000000000e+00" ID="GSDRHJMNVGY"/>
                 </FarField>
                 <Global>
-                  <ConvertToQuadsFlag Value="1.000000000000000000e+00" ID="BUBPEQTMKHC"/>
+                  <ConvertToQuadsFlag Value="0.000000000000000000e+00" ID="BUBPEQTMKHC"/>
                   <CubicSurfTolerance Value="9.999999999999999547e-07" ID="OXEGGDXEPLT"/>
                   <DemoteSurfsCubicFlag Value="0.000000000000000000e+00" ID="HMCQMIHMULR"/>
-                  <HighOrderElementFlag Value="1.000000000000000000e+00" ID="DDSRWOZWBPG"/>
+                  <HighOrderElementFlag Value="0.000000000000000000e+00" ID="DDSRWOZWBPG"/>
                   <IntersectSubSurfs Value="1.000000000000000000e+00" ID="ENCACPBEJNS"/>
                   <RelCurveTol Value="5.000000000000000104e-03" ID="HMPDVHMUYMX"/>
                 </Global>
                 <StructSettings>
-                  <BeamPerElementNormal Value="1.000000000000000000e+00" ID="JTHQUFJJHXN"/>
+                  <BeamPerElementNormal Value="0.000000000000000000e+00" ID="JTHQUFJJHXN"/>
                   <DrawBCNodesFlag Value="0.000000000000000000e+00" ID="HHXFIIQAJBH"/>
                   <DrawElementOrientVecFlag Value="0.000000000000000000e+00" ID="ZOJFAINYKJA"/>
                   <DrawNodesFlag Value="0.000000000000000000e+00" ID="GXNIUAKNPIE"/>
