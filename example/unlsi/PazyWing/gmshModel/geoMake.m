@@ -1,12 +1,12 @@
 clear;
-N=100;
+N=20;
+N_rib = 3;
 airfoil = CST_airfoil([-0.1294 -0.0036 -0.0666], [0.206 0.2728 0.2292],0,N);
 lc   = 3;                        % mesh size
-% formatSpecPoint = 'Point(%4.0f)={%4.2f,%4.2f,}'
 
 point = airfoil(1:N,:);
-% FILEPATH: /c:/Users/aimit/git/UAVdesignTools/geoMake.m
-% Create a matrix L of size N-by-2 filled with zeros.
+
+
 L = zeros([N,2]);
 for i = 1:N-1
     L(i,:) = [i,i+1];
@@ -18,30 +18,64 @@ L(N,:) = [N,1];
 %https://kawakamik.com/post/gmsh/
 fileID = fopen('geofile.geo','w');
 fprintf(fileID,'// Gmsh project created on Fri Dec 20 20:36:50 2019 \n SetFactory("OpenCASCADE");\n');
-for i=1:N
-fprintf(fileID,'Point(%d)={%d,%d,0,3};\n',i,point(i,:));%Poit(番号)= {x,y,z,メッシュサイズ}
-end
-for i = 1:N
-fprintf(fileID,'Line(%d) = {%d,%d};\n',i,L(i,:));
-end
-% fprintf(fileID,'Curve Loop(1) ={'+linspace(1,N,N)+'};\n');
-fprintf(fileID,'Curve Loop(1)={');
-for i = 1:N-1
-    fprintf(fileID,'-%d,',i);
-end
-fprintf(fileID,'%d};\n',N);
 
-fprintf(fileID,'Plane Surface(1) = {1};\n');
-fprintf(fileID,'Physical Surface("rib1") = {1};');
+%%%%%%%%%%点列の作成
+for k=0:N_rib-1
+    y = 0.1*k;
+    for i=1:N
+    fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',i+N*k,point(i,1),y,point(i,2),lc);%Poit(番号)= {x,y,z,メッシュサイズ}
+    end
+end
+%center aluminun plate
+fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+1,0.4455,0,0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
+fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+2,0.5545,0,0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
+fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+3,0.5545,0.1*k,0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
+fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+4,0.4455,0.1*k,0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
 
-% for i=1:4
-% fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',B(i,:));
+%%%%%%%%%%線分の作成
+for k=0:N_rib-1
+    for i = 1:N
+    fprintf(fileID,'Line(%d) = {%d,%d};\n',i+N*k,L(i,:));
+    end
+    L=N+L;
+end
+%center aluminun plate
+fprintf(fileID,'Line(%d) = {%d,%d};\n',N*N_rib+1,N*N_rib+1,N*N_rib+2);
+fprintf(fileID,'Line(%d) = {%d,%d};\n',N*N_rib+2,N*N_rib+2,N*N_rib+3);
+fprintf(fileID,'Line(%d) = {%d,%d};\n',N*N_rib+3,N*N_rib+3,N*N_rib+4);
+fprintf(fileID,'Line(%d) = {%d,%d};\n',N*N_rib+4,N*N_rib+4,N*N_rib+1);
+
+%%%%%%%%%%線分のループ
+for k=0:N_rib-1
+    fprintf(fileID,'Curve Loop(%d)={',k+1);
+    for i = 1:N-1
+        fprintf(fileID,'-%d,',i+k*N);
+    end
+    fprintf(fileID,'%d};\n',N*(k+1));
+end
+%center aluminun plate
+fprintf(fileID,'Curve Loop(%d)={%d,%d,%d,%d};\n',N_rib+1,N*N_rib+1,N*N_rib+2,N*N_rib+3,N*N_rib+4);
+
+%%%%%%%%%%面の作成
+for k=0:N_rib-1
+    fprintf(fileID,'Plane Surface(%d) = {%d};\n',k+1,k+1);
+end
+%center aluminun plate
+fprintf(fileID,'Plane Surface(%d) = {%d};\n',N_rib+1,N_rib+1);
+
+%%%%%%%%%%面の物理的な境界条件
+fprintf(fileID,'Physical Surface("rib") = {');
+for k=1:N_rib-1
+    fprintf(fileID,'%d,',k);
+end
+fprintf(fileID,'%d};\n',N_rib);
+%center aluminun plate
+fprintf(fileID,'Physical Surface("aluminun_plate") = {%d};\n',N_rib+1);
+
+% for k=0:N_rib-1
+%     fprintf(fileID,'Physical Surface("rib") = {%d};\n',k+1);
 % end
-% for i=1:4
-% fprintf(fileID,'Point{%d} In Surface{6};\n',B(i,1));
-% end
+
 fclose(fileID);
-% type geofile.geo
-% uiopen('C:\ROOT GEOMETRY\RootSys Surface\geofile.txt',1)
 
 GmshRun;
