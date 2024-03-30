@@ -1,10 +1,10 @@
 clear;
 N=20;
 N_rib = 3;
+chord = 0.1;
 airfoil = CST_airfoil([-0.1294 -0.0036 -0.0666], [0.206 0.2728 0.2292],0,N);
 lc   = 3;                        % mesh size
-
-point = airfoil(1:N,:);
+point = airfoil(1:N,:)*chord;
 
 
 L = zeros([N,2]);
