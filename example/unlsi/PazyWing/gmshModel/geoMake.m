@@ -2,8 +2,9 @@ clear;
 N=20;
 N_rib = 3;
 chord = 0.1;
+span = 0.55;
 airfoil = CST_airfoil([-0.1294 -0.0036 -0.0666], [0.206 0.2728 0.2292],0,N);
-lc   = 3;                        % mesh size
+lc   = 1;                        % mesh size
 point = airfoil(1:N,:)*chord;
 
 
@@ -27,10 +28,27 @@ for k=0:N_rib-1
     end
 end
 %center aluminun plate
-fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+1,0.4455,0,0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
-fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+2,0.5545,0,0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
-fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+3,0.5545,0.1*k,0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
-fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+4,0.4455,0.1*k,0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
+yList = linspace(0,span,N_rib*10)
+xList = linspace(0.4455*chord,0.5545*chord,N);
+for i=1:N_rib*10
+    fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+i,0.4455*chord,yList(i),0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
+end
+
+for i=1:N
+    fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',(N+10)*N_rib+i,xList(i),span,0,lc);
+end
+
+for i=1:N_rib*10
+    fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',(N+10)*N_rib+N+i,0.5545*chord,yList(N_rib*10-i+1),0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
+end
+for i=1:N
+    fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',(N+20)*N_rib+N+i,xList(N-i+1),0,0,lc);
+end
+
+% fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+1,0.4455*chord,0,0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
+% fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+2,0.5545*chord,0,0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
+% fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+3,0.5545*chord,0.1*k,0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
+% fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+4,0.4455*chord,0.1*k,0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
 
 %%%%%%%%%%線分の作成
 for k=0:N_rib-1
@@ -40,10 +58,12 @@ for k=0:N_rib-1
     L=N+L;
 end
 %center aluminun plate
-fprintf(fileID,'Line(%d) = {%d,%d};\n',N*N_rib+1,N*N_rib+1,N*N_rib+2);
-fprintf(fileID,'Line(%d) = {%d,%d};\n',N*N_rib+2,N*N_rib+2,N*N_rib+3);
-fprintf(fileID,'Line(%d) = {%d,%d};\n',N*N_rib+3,N*N_rib+3,N*N_rib+4);
-fprintf(fileID,'Line(%d) = {%d,%d};\n',N*N_rib+4,N*N_rib+4,N*N_rib+1);
+
+
+% fprintf(fileID,'Line(%d) = {%d,%d};\n',N*N_rib+1,N*N_rib+1,N*N_rib+2);
+% fprintf(fileID,'Line(%d) = {%d,%d};\n',N*N_rib+2,N*N_rib+2,N*N_rib+3);
+% fprintf(fileID,'Line(%d) = {%d,%d};\n',N*N_rib+3,N*N_rib+3,N*N_rib+4);
+% fprintf(fileID,'Line(%d) = {%d,%d};\n',N*N_rib+4,N*N_rib+4,N*N_rib+1);
 
 %%%%%%%%%%線分のループ
 for k=0:N_rib-1
