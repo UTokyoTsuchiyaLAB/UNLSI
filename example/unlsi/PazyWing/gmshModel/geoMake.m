@@ -4,9 +4,9 @@ N_rib = 3;
 chord = 0.1;
 span = 0.55;
 airfoil = CST_airfoil([-0.1294 -0.0036 -0.0666], [0.206 0.2728 0.2292],0,N);
-lc   = 1;                        % mesh size
+lc   = 3;                        % mesh size
 point = airfoil(1:N,:)*chord;
-
+yRib = linspace(0.005,span,N_rib);
 
 L = zeros([N,2]);
 for i = 1:N-1
@@ -22,7 +22,7 @@ fprintf(fileID,'// Gmsh project created on Fri Dec 20 20:36:50 2019 \n SetFactor
 
 %%%%%%%%%%点列の作成
 for k=0:N_rib-1
-    y = 0.1*k;
+    y = yRib(k+1);
     for i=1:N
     fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',i+N*k,point(i,1),y,point(i,2),lc);%Poit(番号)= {x,y,z,メッシュサイズ}
     end
@@ -76,7 +76,7 @@ end
 %center aluminun plate
 fprintf(fileID,'Curve Loop(%d)={%d,%d,%d,%d};\n',N_rib+1,N*N_rib+1,N*N_rib+2,N*N_rib+3,N*N_rib+4);
 
-fprintf(fileID,'Mesh.CharacteristicLengthMax = 0.2; // 最大メッシュサイズを設定\n Mesh.CharacteristicLengthMin = 0.1; // 最小メッシュサイズを設定\n');
+fprintf(fileID,'Mesh.CharacteristicLengthMax = 0.05; // 最大メッシュサイズを設定\n Mesh.CharacteristicLengthMin = 0.01; // 最小メッシュサイズを設定\n');
 fprintf(fileID,'Mesh.Algorithm = 1; // Delaunay法に基づく三角形メッシュ生成を強制\n');
 %%%%%%%%%%面の作成
 for k=0:N_rib-1
@@ -104,6 +104,6 @@ fprintf(fileID,'Physical Surface("aluminun_plate") = {%d};\n',N_rib+1);
 
 fclose(fileID);
 
-command = 'gmsh geofile.geo -2 -format msh2 -o airfoiltest0110.msh';
+command = 'gmsh geofile.geo -2 -format msh2 -o PazyWing.msh';
 system(command);
 % GmshRun;

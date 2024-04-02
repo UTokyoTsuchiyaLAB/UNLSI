@@ -1,6 +1,6 @@
 %
 %%%%%%%%ここから
-%{
+%
 clear;
 [con, p, uv1, uv2, uv3, wedata, id] = readvspgeom( "PazyWing.vspgeom", 0); %形状の読み込み
 wing = UNLSI(p',con',id',wedata); %コンストラクタの実行
@@ -13,13 +13,13 @@ wing = wing.makeEquation(); %パネル法行列の作成
 %}
 %%%%%%%%ここまでは一度計算すればスキップできる
 %
-alpha = 10;
-Vinf =50;
+alpha = 1;
+Vinf =15;
 Re = Vinf * 0.1 / 1.512 * 1e5;
 wing = wing.solveFlow(alpha,0,0.001,Re);%パネル法を解く
 wing.plotGeometry(1,wing.getCp(alpha,0,0.001,Re),[-3,1.5]);%圧力係数のプロット
 disp(wing.getAERODATA(alpha,0));
-[con,verts,femID] = readFemMesh('fem3.msh');
+[con,verts,femID] = readFemMesh('PazyWing.msh');
 wing = wing.setFemMesh(verts,con,femID);%すべての空力メッシュIDとfemメッシュを関連付ける（第二引数省略）
 [wing,weight] = wing.setFemMaterials([1,2,3],[50e-3,0.003,0.0025],[250e6,1.31e9,71.7e9],[0.92,1000,2810],[1000,1000,1000]);%物性値をセット 肉厚,ヤング率,密度,減衰パラメータ skin rib sparの順
 disp("weight");
