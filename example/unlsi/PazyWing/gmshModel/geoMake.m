@@ -1,6 +1,6 @@
 clear;
-N=20;
-N_rib = 3;
+N=100;
+N_rib = 10;
 chord = 0.1;
 span = 0.55;
 airfoil = CST_airfoil([-0.1294 -0.0036 -0.0666], [0.206 0.2728 0.2292],0,N);
@@ -47,8 +47,8 @@ end
 
 fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+1,0.4455*chord,0,0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
 fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+2,0.5545*chord,0,0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
-fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+3,0.5545*chord,0.1*k,0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
-fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+4,0.4455*chord,0.1*k,0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
+fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+3,0.5545*chord,span,0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
+fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+4,0.4455*chord,span,0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
 
 %%%%%%%%%%線分の作成
 for k=0:N_rib-1
@@ -106,4 +106,5 @@ fclose(fileID);
 
 command = 'gmsh geofile.geo -2 -format msh2 -o PazyWing.msh';
 system(command);
+system('gmsh PazyWing.msh');
 % GmshRun;
