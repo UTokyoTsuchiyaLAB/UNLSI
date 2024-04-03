@@ -1,6 +1,6 @@
 clear;
 N=100;
-N_rib = 10;
+N_rib = 15;
 chord = 0.1;
 span = 0.55;
 airfoil = CST_airfoil([-0.1294 -0.0036 -0.0666], [0.206 0.2728 0.2292],0,N);
@@ -28,27 +28,10 @@ for k=0:N_rib-1
     end
 end
 %center aluminun plate
-% yList = linspace(0,span,N_rib*10);
-% xList = linspace(0.4455*chord,0.5545*chord,N);
-% for i=1:N_rib*10
-%     fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+i,0.4455*chord,yList(i),0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
-% end
-
-% for i=1:N
-%     fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',(N+10)*N_rib+i,xList(i),span,0,lc);
-% end
-
-% for i=1:N_rib*10
-%     fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',(N+10)*N_rib+N+i,0.5545*chord,yList(N_rib*10-i+1),0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
-% end
-% for i=1:N
-%     fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',(N+20)*N_rib+N+i,xList(N-i+1),0,0,lc);
-% end
-
-fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+1,0.4455*chord,0,0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
-fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+2,0.5545*chord,0,0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
-fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+3,0.5545*chord,span,0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
-fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+4,0.4455*chord,span,0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
+fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+1,0.02,0,0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
+fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+2,0.08,0,0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
+fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+3,0.08,span,0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
+fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+4,0.02,span,0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
 
 %%%%%%%%%%線分の作成
 for k=0:N_rib-1
@@ -58,8 +41,6 @@ for k=0:N_rib-1
     L=N+L;
 end
 %center aluminun plate
-
-
 fprintf(fileID,'Line(%d) = {%d,%d};\n',N*N_rib+1,N*N_rib+1,N*N_rib+2);
 fprintf(fileID,'Line(%d) = {%d,%d};\n',N*N_rib+2,N*N_rib+2,N*N_rib+3);
 fprintf(fileID,'Line(%d) = {%d,%d};\n',N*N_rib+3,N*N_rib+3,N*N_rib+4);
@@ -76,7 +57,7 @@ end
 %center aluminun plate
 fprintf(fileID,'Curve Loop(%d)={%d,%d,%d,%d};\n',N_rib+1,N*N_rib+1,N*N_rib+2,N*N_rib+3,N*N_rib+4);
 
-fprintf(fileID,'Mesh.CharacteristicLengthMax = 0.05; // 最大メッシュサイズを設定\n Mesh.CharacteristicLengthMin = 0.01; // 最小メッシュサイズを設定\n');
+fprintf(fileID,'Mesh.CharacteristicLengthMax = 0.02; // 最大メッシュサイズを設定\n Mesh.CharacteristicLengthMin = 0.01; // 最小メッシュサイズを設定\n');
 fprintf(fileID,'Mesh.Algorithm = 1; // Delaunay法に基づく三角形メッシュ生成を強制\n');
 %%%%%%%%%%面の作成
 for k=0:N_rib-1
