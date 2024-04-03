@@ -84,7 +84,7 @@ for k=1:2
     fprintf(fileID,'Curve Loop(%d)={%d,%d,%d,%d};\n',N_rib+k+1,N*N_rib+4*k+1,N*N_rib+4*k+2,N*N_rib+4*k+3,N*N_rib+4*k+4);
 end
 for k=1:4
-    fprintf(fileID,'Curve Loop(%d)={%d,%d,%d,%d};\n',N_rib+3+k,N*N_rib+8+k,N*N_rib+12+k,N*N_rib+16+k,N*N_rib+4+k);
+    fprintf(fileID,'Curve Loop(%d)={%d,%d,%d,%d};\n',N_rib+3+k,N*N_rib+4+k,N*N_rib+5+k,N*N_rib+10+k,N*N_rib+9+k);
 end
 
 
@@ -96,6 +96,11 @@ for k=0:N_rib-1
 end
 %center aluminun plate
 fprintf(fileID,'Plane Surface(%d) = {%d};\n',N_rib+1,N_rib+1);
+
+%tip rod
+for k=1:6
+    fprintf(fileID,'Plane Surface(%d) = {%d};\n',N_rib+k+1,N_rib+k+1);
+end
 
 % fprintf(fileID,'Mesh.CharacteristicLengthMax = 0.2; // 最大メッシュサイズを設定 \n Mesh.CharacteristicLengthMin = 0.1; // 最小メッシュサイズを設定\n');
 % fprintf(fileID,'Mesh.Algorithm = 2; // Delaunay法に基づく三角形メッシュ生成を強制\n');
@@ -110,9 +115,9 @@ fprintf(fileID,'%d};\n',N_rib);
 %center aluminun plate
 fprintf(fileID,'Physical Surface("aluminun_plate") = {%d};\n',N_rib+1);
 
-% for k=0:N_rib-1
-%     fprintf(fileID,'Physical Surface("rib") = {%d};\n',k+1);
-% end
+%tip rod
+surfGroup = linspace(N_rib+2,N_rib+7,6);
+fprintf(fileID,'Physical Surface("tip_rod") = {%d,%d,%d,%d,%d,%d};\n',surfGroup);
 
 fclose(fileID);
 

@@ -21,7 +21,7 @@ wing.plotGeometry(1,wing.getCp(alpha,0,0.001,Re),[-3,1.5]);%圧力係数のプ�
 disp(wing.getAERODATA(alpha,0));
 [con,verts,femID] = readFemMesh('PazyWing.msh');
 wing = wing.setFemMesh(verts,con,femID);%すべての空力メッシュIDとfemメッシュを関連付ける（第二引数省略）
-[wing,weight] = wing.setFemMaterials([1,2],[0.003,0.0025],[1.31e9*1000,71.7e9*1000],[1000,2810],[1000,1000]);%物性値をセット 肉厚,ヤング率,密度,減衰パラメータ skin rib sparの順
+[wing,weight] = wing.setFemMaterials([1,2,3],[0.003,0.0025,0.03],[1.31e9*1000,71.7e9*1000,71.7e9*1000],[1000,2810,2810],[1000,1000,1000]);%物性値をセット 肉厚,ヤング率,密度,減衰パラメータ skin rib sparの順
 disp("weight");
 disp(weight);
 wing = wing.makeFemEquation();
