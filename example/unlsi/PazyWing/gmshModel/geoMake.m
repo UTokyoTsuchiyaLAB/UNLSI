@@ -33,6 +33,16 @@ fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+2,0.08,0,0,lc);%Point(番号
 fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+3,0.08,span,0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
 fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+4,0.02,span,0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
 
+%tip rod
+fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+5,-0.1,0.55,-0.005,lc);%Point(番号)= {x,y,z,メッシュサイズ}
+fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+6,-0.1,0.555,0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
+fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+7,-0.1,0.55,0.005,lc);%Point(番号)= {x,y,z,メッシュサイズ}
+fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+8,-0.1,0.545,0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
+fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+9,0.2,0.55,-0.005,lc);%Point(番号)= {x,y,z,メッシュサイズ}
+fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+10,0.2,0.555,0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
+fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+11,0.2,0.55,0.005,lc);%Point(番号)= {x,y,z,メッシュサイズ}
+fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+12,0.2,0.545,0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
+
 %%%%%%%%%%線分の作成
 for k=0:N_rib-1
     for i = 1:N
@@ -46,6 +56,18 @@ fprintf(fileID,'Line(%d) = {%d,%d};\n',N*N_rib+2,N*N_rib+2,N*N_rib+3);
 fprintf(fileID,'Line(%d) = {%d,%d};\n',N*N_rib+3,N*N_rib+3,N*N_rib+4);
 fprintf(fileID,'Line(%d) = {%d,%d};\n',N*N_rib+4,N*N_rib+4,N*N_rib+1);
 
+%tip rod
+for k = 0:1
+    for i = 1:3
+        fprintf(fileID,'Line(%d) = {%d,%d};\n',N*N_rib+4+i+4*k,N*N_rib+4+i+4*k,N*N_rib+i+5+4*k);
+    end
+    fprintf(fileID,'Line(%d) = {%d,%d};\n',N*N_rib+8+4*k,N*N_rib+8+4*k,N*N_rib+5+4*k);
+end
+
+for i=1:4
+    fprintf(fileID,'Line(%d) = {%d,%d};\n',N*N_rib+12+i,N*N_rib+4+i,N*N_rib+8+i);
+end
+
 %%%%%%%%%%線分のループ
 for k=0:N_rib-1
     fprintf(fileID,'Curve Loop(%d)={',k+1);
@@ -56,6 +78,15 @@ for k=0:N_rib-1
 end
 %center aluminun plate
 fprintf(fileID,'Curve Loop(%d)={%d,%d,%d,%d};\n',N_rib+1,N*N_rib+1,N*N_rib+2,N*N_rib+3,N*N_rib+4);
+
+%tip rod
+for k=1:2
+    fprintf(fileID,'Curve Loop(%d)={%d,%d,%d,%d};\n',N_rib+k+1,N*N_rib+4*k+1,N*N_rib+4*k+2,N*N_rib+4*k+3,N*N_rib+4*k+4);
+end
+for k=1:4
+    fprintf(fileID,'Curve Loop(%d)={%d,%d,%d,%d};\n',N_rib+3+k,N*N_rib+8+k,N*N_rib+12+k,N*N_rib+16+k,N*N_rib+4+k);
+end
+
 
 fprintf(fileID,'Mesh.CharacteristicLengthMax = 0.02; // 最大メッシュサイズを設定\n Mesh.CharacteristicLengthMin = 0.01; // 最小メッシュサイズを設定\n');
 fprintf(fileID,'Mesh.Algorithm = 1; // Delaunay法に基づく三角形メッシュ生成を強制\n');
