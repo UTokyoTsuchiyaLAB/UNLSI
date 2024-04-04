@@ -6,7 +6,7 @@ span = 0.55;
 airfoil = CST_airfoil([-0.26 -0.22 -0.27], [0.26 0.22 0.27],0,N);
 lc   = 3;                        % mesh size
 point = airfoil(1:N,:)*chord;
-yRib = linspace(0.003,span,N_rib);
+yRib = linspace(0,span,N_rib);
 
 L = zeros([N,2]);
 for i = 1:N-1

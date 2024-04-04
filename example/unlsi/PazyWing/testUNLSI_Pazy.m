@@ -1,7 +1,7 @@
 tic
 %
 %%%%%%%%ここから
-%
+%{
 clear;
 [con, p, uv1, uv2, uv3, wedata, id] = readvspgeom( "PazyWingnorod.vspgeom", 0); %形状の読み込み
 wing = UNLSI(p',con',id',wedata); %コンストラクタの実行
@@ -22,7 +22,7 @@ wing.plotGeometry(1,wing.getCp(alpha,0,0.001,Re),[-3,1.5]);%圧力係数のプ�
 disp(wing.getAERODATA(alpha,0));
 [con,verts,femID] = readFemMesh('Pazynorod.msh');
 wing = wing.setFemMesh(verts,con,femID);%すべての空力メッシュIDとfemメッシュを関連付ける（第二引数省略）
-[wing,weight] = wing.setFemMaterials([1,2,3],[0.003*100,0.0025*10,0.03],[1.31e9*1000,71.7e9*1000,71.7e9*1000],[1000,2810,2810],[1000,1000,1000]);%物性値をセット 肉厚,ヤング率,密度,減衰パラメータ skin rib sparの順
+[wing,weight] = wing.setFemMaterials([1,2],[0.005,0.0025*10000],[1.31e9*100000,71.7e9*10000],[1000,2810],[1000,1000]);%物性値をセット 肉厚,ヤング率,密度,減衰パラメータ skin rib sparの順
 disp("weight");
 disp(weight);
 wing = wing.makeFemEquation();
@@ -30,7 +30,7 @@ wing = wing.makeFemEquation();
 
 %%%%%%%以下空力弾性計算
 wing2 = wing;
-dt = 0.01;
+dt = 0.005;
 % % VideoWriter オブジェクトを作成
 % v = VideoWriter('AeroAnalysis1.mp4', 'MPEG-4');
 % % 時間区切りからフレームレートの計算と適用
@@ -42,7 +42,7 @@ dt = 0.01;
 % open(v);
 
 
-for i = 1:5
+for i = 1:20
     disp(i)
  
     if i == 1
@@ -51,7 +51,7 @@ for i = 1:5
         [delta,deltadot]  = wing.solveAeroelastic([0,dt],delta,deltadot,wing2.getCp(alpha,0,0.001,Re).*Vinf.^2.*1.225.*0.5,1);%初期値deltaとdeltadotから、tspan間での空力弾性応答を計算
     end
     modVerts = wing.calcModifiedVerts(delta{1});
-    disp(delta{1})
+    % disp(delta{1})
     wing2 = wing2.setVerts(modVerts);
     wing2 = wing2.makeEquation(); %パネル法行列の作成
     wing2 = wing2.solveFlow(alpha,0,0.001,Re);%パネル法を解く
