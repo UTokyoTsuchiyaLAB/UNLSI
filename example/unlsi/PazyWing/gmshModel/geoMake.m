@@ -1,6 +1,6 @@
 clear;
 N=20;
-N_rib = 15;
+N_rib = 10;
 chord = 0.1;
 span = 0.55;
 airfoil = CST_airfoil([-0.26 -0.22 -0.27], [0.26 0.22 0.27],0,N);
@@ -95,12 +95,21 @@ for k=0:N_rib-1
     fprintf(fileID,'Plane Surface(%d) = {%d};\n',k+1,k+1);
 end
 %center aluminun plate
+
 fprintf(fileID,'Plane Surface(%d) = {%d};\n',N_rib+1,N_rib+1);
 
 %tip rod
 % for k=1:6
 %     fprintf(fileID,'Plane Surface(%d) = {%d};\n',N_rib+k+1,N_rib+k+1);
 % end
+
+%Intersect
+% fprintf(fileID,'Intersect{Surface{2}; Surface{%d};} {Surface{%d};};\n',N_rib+1,N_rib+2);
+% fprintf(fileID,'// test; \n');
+% fprintf(fileID,'BooleanIntersection(1)={Surface{1};}{Surface{%d}};\n',N_rib+1);
+fprintf(fileID,'BooleanFragments{ Surface{1:%d}; Delete;}{};\n',N_rib+1);
+% fprintf(fileID,'BooleanFragments{ Surface{4,6}; Delete;}{};\n');
+
 
 % fprintf(fileID,'Mesh.CharacteristicLengthMax = 0.2; // 最大メッシュサイズを設定 \n Mesh.CharacteristicLengthMin = 0.1; // 最小メッシュサイズを設定\n');
 % fprintf(fileID,'Mesh.Algorithm = 2; // Delaunay法に基づく三角形メッシュ生成を強制\n');
@@ -113,11 +122,11 @@ for k=1:N_rib-1
 end
 fprintf(fileID,'%d};\n',N_rib);
 %center aluminun plate
-fprintf(fileID,'Physical Surface("aluminun_plate") = {%d};\n',N_rib+1);
-
+% fprintf(fileID,'Physical Surface("aluminun_plate") = {%d};\n',N_rib+1);
+fprintf(fileID,'Physical Surface("aluminun_plate") = {%d:%d};\n',N_rib+1,N_rib*2-1);
 %tip rod
-% surfGroup = linspace(N_rib+2,N_rib+7,6);
-% fprintf(fileID,'Physical Surface("tip_rod") = {%d,%d,%d,%d,%d,%d};\n',surfGroup);
+surfGroup = linspace(N_rib+2,N_rib+7,6);
+fprintf(fileID,'Physical Surface("tip_rod") = {%d,%d,%d,%d,%d,%d};\n',surfGroup);
 
 fclose(fileID);
 
