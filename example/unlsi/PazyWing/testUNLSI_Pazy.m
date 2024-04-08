@@ -1,7 +1,7 @@
-tic
+% tic
 %
 %%%%%%%%ここから
-%{
+%
 clear;tic
 [con, p, uv1, uv2, uv3, wedata, id] = readvspgeom( "PazyWingnorod.vspgeom", 0); %形状の読み込み
 wing = UNLSI(p',con',id',wedata); %コンストラクタの実行
@@ -15,7 +15,7 @@ wing = wing.makeEquation(); %パネル法行列の作成
 %%%%%%%%ここまでは一度計算すればスキップできる
 %
 alpha = 5;
-Vinf =30;
+Vinf =50;
 Re = Vinf * 0.1 / 1.512 * 1e5;
 wing = wing.solveFlow(alpha,0,0.001,Re);%パネル法を解く
 wing.plotGeometry(1,wing.getCp(alpha,0,0.001,Re),[-3,1.5]);%圧力係数のプロット
@@ -42,7 +42,7 @@ v.Quality = 100;
 open(v);
 
 
-for i = 1:500
+for i = 1:3
     disp(i)
  
     if i == 1
