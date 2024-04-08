@@ -2561,7 +2561,7 @@ classdef UNLSI
                     delta{iter} = zeros(obj.femutils.nbVerts,6);
                     deltadot{iter} = zeros(obj.femutils.nbVerts,6);
                 end
-                Fp = sparse(6*size(obj.femutils.usedVerts,2),1);
+                Fp = sparse(6*size(obj.femutils.usedVerts,2),1);%S = sparse(m,n) は、すべての要素がゼロである m 行 n 列のスパース行列を作成
                 interpLoad = obj.verts2centerMat'*(distLoad(:,iter).*obj.area);
                 vNormal = vertexNormal(obj.tri);
                 %femPointLoad = obj.fem2aeroMat'*interpLoad;

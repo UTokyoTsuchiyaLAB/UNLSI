@@ -1,6 +1,6 @@
 clear;
 N=20;
-N_rib = 10;
+N_rib = 15;
 chord = 0.1;
 span = 0.55;
 airfoil = CST_airfoil([-0.26 -0.22 -0.27], [0.26 0.22 0.27],0,N);
@@ -22,7 +22,7 @@ fprintf(fileID,'// Gmsh project created on Fri Dec 20 20:36:50 2019 \n SetFactor
 
 %%%%%%%%%%点列の作成
 for k=0:N_rib-1
-    y = yRib(k+1);
+    y = -yRib(k+1);
     for i=1:N
     fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',i+N*k,point(i,1),y,point(i,2),lc);%Poit(番号)= {x,y,z,メッシュサイズ}
     end
@@ -30,8 +30,8 @@ end
 %center aluminun plate
 fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+1,0.02,0,0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
 fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+2,0.08,0,0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
-fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+3,0.08,span,0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
-fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+4,0.02,span,0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
+fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+3,0.08,-span,0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
+fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+4,0.02,-span,0,lc);%Point(番号)= {x,y,z,メッシュサイズ}
 
 %tip rod
 % fprintf(fileID,'Point(%d)={%d,%d,%d,%d};\n',N*N_rib+5,-0.1,0.55,-0.005,lc);%Point(番号)= {x,y,z,メッシュサイズ}
