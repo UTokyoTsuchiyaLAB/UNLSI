@@ -137,6 +137,10 @@ classdef UNLSI
             obj.settingUNLSI.ode23AbsTol = 1e-6; % ode23の絶対許容誤差
             obj.settingUNLSI.ode23RelTol = 1e-3; % ode23の相対許容誤差
             obj.settingUNLSI.lsqminnormTol = 1e-12;% 最小二乗法における正規方程式の解を求める際の許容誤差を設定します。
+            obj.settingUNLSI.xWakeAttach = 0.5;
+            obj.settingUNLSI.wingWakeLength = 100; % 各wakeパネルの長さ（機体基準長基準）
+            obj.settingUNLSI.nWakeMax = 20;%marchwakeにおけるwakeの最大個数
+            obj.settingUNLSI.deltaVortexCore = 0.1;
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             obj.halfmesh = halfmesh;
             obj.flowNoTable = [];
@@ -505,6 +509,16 @@ classdef UNLSI
                 end
             end
             
+            %デフォルトのwake形状を定義する
+            for wakeNo = 1:numel(obj.wakeline)
+                for edgeNo = 1:size(obj.wakeline{wakeNo}.validedge,2)
+                    obj.wakeline{wakeNo}.wakeShape{edgeNo} =  [obj.settingUNLSI.wingWakeLength*obj.CREF,0,0];
+                end
+                obj.wakeline{wakeNo}.wakeOrg = obj.getWakePosition(wakeNo);
+            end
+            
+ 
+
             % propが存在する場合、設定を反映
             if numel(obj.prop) > 0
                 for propNo = 1:numel(obj.prop)
@@ -928,25 +942,198 @@ classdef UNLSI
             end
         end
 
-        function obj = makeWakeEquation(obj,wakeDirectionList)
+        function obj = setWakeShape(obj,wakeShape,wakeNo,edgeNo)
+            %%%%%%%%%%%%%%%%wake形状の指定関数%%%%%%%%%%%%%%%%
+            %wakeNo : wake番号
+            %edgeNo : edge番号
+            %wakeShape : [x,y,z]の形状
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            if nargin == 2
+                for wakeNo = 1:numel(obj.wakeline)
+                    for edgeNo = 1:size(obj.wakeline{wakeNo}.validedge,2)+1
+                        obj.wakeline{wakeNo}.wakeShape{edgeNo} = wakeShape;
+                    end
+                end
+            elseif nargin == 3
+                for edgeNo = 1:size(obj.wakeline{wakeNo}.validedge,2)+1
+                    obj.wakeline{wakeNo}.wakeShape{edgeNo} = wakeShape;
+                end
+            else
+                obj.wakeline{wakeNo}.wakeShape{edgeNo} = wakeShape;
+            end
+        end
+
+        function obj = marchWake(obj,wakeNo,dt,alpha,beta,Mach,Re)
+            %%%%%%%%%%%%%%%%wake形状の更新関数%%%%%%%%%%%%%%%%
+            %flowVec : 流速ベクトル
+            %dt : 時間ステップ
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            if isempty(obj.flowNoTable)
+                if nargin == 7
+                    obj = obj.flowCondition(1,Mach,Re);
+                else
+                    obj = obj.flowCondition(1,Mach);
+                end
+                flowNo = 1;
+            else
+                flowNo = 0;
+                for i = 1:size(obj.flowNoTable,1)
+                    if obj.flowNoTable(i,1) == Mach && obj.flowNoTable(i,2) == Re
+                        flowNo = i;
+                    end
+                end
+                if flowNo == 0
+                    if nargin == 7
+                        obj = obj.flowCondition(size(obj.flowNoTable,1)+1,Mach,Re);
+                    else
+                        obj = obj.flowCondition(size(obj.flowNoTable,1)+1,Mach);
+                    end
+                    flowNo = size(obj.flowNoTable,1);
+                end
+            end
+            if any(size(alpha) ~= size(beta))
+                error("analysis points are not match");
+            end
+
+            wakeOrg = obj.getWakePosition(wakeNo);
+            for i = 1:size(wakeOrg,1)
+                wakePos{i} = obj.wakeline{wakeNo}.wakeOrg(i,:)+obj.wakeline{wakeNo}.wakeShape{i};
+            end
+            u0 = obj.solvePertPotential(flowNo,alpha,beta);
+            flowVec = obj.settingUNLSI.Vinf.*[cosd(alpha)*cosd(beta),-sind(beta),sind(alpha)*cosd(beta)];
+            if size(wakePos{1},1) == obj.settingUNLSI.nWakeMax
+                nWake = size(wakePos{1},1)-1;
+            else
+                nWake = size(wakePos{1},1);
+            end
+            for k = nWake:-1:1
+                for iter = 1:numel(wakePos)
+                    initPos(iter+(k-1)*numel(wakePos),:) = wakePos{iter}(k,:);
+                end
+            end
+            [VmuWake,VmuBody]  = obj.makeVelocityInfluence(initPos);
+            vel = obj.calcVelocity(u0,VmuWake,VmuBody);
+            vel = obj.settingUNLSI.Vinf.*vel+flowVec;
+            k1 = dt .* vel(:);
+            [VmuWake,VmuBody] = obj.makeVelocityInfluence(reshape(initPos(:)+0.5.*k1,[],3));
+            vel = obj.calcVelocity(u0,VmuWake,VmuBody);
+            vel = obj.settingUNLSI.Vinf.*vel+flowVec;
+            k2 = dt .* vel(:);
+            [VmuWake,VmuBody] = obj.makeVelocityInfluence(reshape(initPos(:)+0.5.*k2,[],3));
+            vel = obj.calcVelocity(u0,VmuWake,VmuBody);
+            vel = obj.settingUNLSI.Vinf.*vel+flowVec;
+            k3 = dt .* vel(:);
+            [VmuWake,VmuBody] = obj.makeVelocityInfluence(reshape(initPos(:)+k3,[],3));
+            vel = obj.calcVelocity(u0,VmuWake,VmuBody);
+            vel = obj.settingUNLSI.Vinf.*vel+flowVec;
+            k4 = dt .* vel(:);
+            newPos = reshape(initPos(:)+(k1+2.*k2+2.*k3+k4)./6,[],3);
+%                 options = odeset("RelTol",1e-2,"AbsTol",1e-2);
+%                 [~,yspan] = ode113(@(t,y)obj.marchWakeShapeODE(t,y,u0,flowVec,obj.settingUNLSI.Vinf),[0,dt],initPos(:),options);
+%                 newPos = reshape(yspan(end,:)',[],3);
+            for k = nWake:-1:1
+                for iter = 1:numel(wakePos)
+                    wakePos{iter}(k+1,:) = newPos(iter+numel(wakePos)*(k-1),:);
+                end
+            end
+
+            for i = 1:size(wakeOrg,1)
+                wakePos{i}(1,:) = wakeOrg(i,:) + [obj.settingUNLSI.xWakeAttach*obj.CREF,0,0];
+                obj = obj.setWakeShape(wakePos{i}-wakeOrg(i,:),wakeNo,i);
+            end
+            obj.wakeline{wakeNo}.wakeOrg = wakeOrg;
+            obj = obj.makeWakeEquation();
+        end
+
+        function dy = marchWakeShapeODE(obj,t,y,u0,flowVec,Vnorm)
+            %%%%%%%%%%%%%%%%wake形状の更新関数%%%%%%%%%%%%%%%%
+            %flowVec : 流速ベクトル
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            [VmuWake,VmuBody] = obj.makeVelocityInfluence(reshape(y,[],3));
+            vel = obj.calcVelocity(u0,VmuWake,VmuBody);
+            vel = Vnorm.*vel+flowVec;
+            dy = vel(:);
+        end
+
+        function controlPoint = getWakePosition(obj,wakeNo)
+            %%%%%%%%%%%%%%%%wake位置の取得関数%%%%%%%%%%%%%%%%
+            %wakeNo : wake番号
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            controlPoint = zeros(size(obj.wakeline{wakeNo}.validedge,2),3);
+            for edgeNo = 1:size(obj.wakeline{wakeNo}.validedge,2)
+                controlPoint(edgeNo,:) = (obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:))./2;
+            end
+        end
+
+        function plotWakeShape(obj,figNo)
+            %%%%%%%%%%%%%%%%wake形状のプロット関数%%%%%%%%%%%%%%%%
+            %figNo : figure番号
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            figure(figNo);
+            hold on;
+            for wakeNo = 1:numel(obj.wakeline)
+                for edgeNo = 1:size(obj.wakeline{wakeNo}.validedge,2)
+                    wakeLine1 = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+[0,0,0;obj.wakeline{wakeNo}.wakeShape{edgeNo}];
+                    wakeLine2 = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+[0,0,0;obj.wakeline{wakeNo}.wakeShape{edgeNo}];
+                    plot3(wakeLine1(:,1),wakeLine1(:,2),wakeLine1(:,3),'r');
+                    plot3(wakeLine2(:,1),wakeLine2(:,2),wakeLine2(:,3),'r');
+                    for i = 1:size(wakeLine1,1)
+                        plot3([wakeLine1(i,1);wakeLine2(i,1)],[wakeLine1(i,2);wakeLine2(i,2)],[wakeLine1(i,3);wakeLine2(i,3)],'r');
+                    end
+                    if obj.halfmesh == 1
+                        plot3(wakeLine1(:,1),-wakeLine1(:,2),wakeLine1(:,3),'r');
+                        plot3(wakeLine2(:,1),-wakeLine2(:,2),wakeLine2(:,3),'r');
+                        for i = 1:size(wakeLine1,1)
+                            plot3([wakeLine1(i,1);wakeLine2(i,1)],-[wakeLine1(i,2);wakeLine2(i,2)],[wakeLine1(i,3);wakeLine2(i,3)],'r');
+                        end
+                    end
+                end
+            end
+            hold off;drawnow();
+        end
+
+
+        function obj = makeWakeEquation(obj)
             nbPanel = sum(obj.paneltype == 1);
             obj.wakeLHS = zeros(nbPanel);
             for wakeNo = 1:numel(obj.wakeline)
                 for edgeNo = 1:size(obj.wakeline{wakeNo}.validedge,2)
                     interpID(1) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.upperID(edgeNo));
                     interpID(2) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.lowerID(edgeNo));
-                    modID = find(obj.surfID(obj.wakeline{wakeNo}.upperID(edgeNo))== wakeDirectionList(:,1));
-                    if isempty(modID )
-                        [influence] = obj.wakeInfluenceMatrix(obj,wakeNo,edgeNo,1:nbPanel,[obj.settingUNLSI.wingWakeLength*obj.CREF,0,0]);
-                    else
-                        [influence] = obj.wakeInfluenceMatrix(obj,wakeNo,edgeNo,1:nbPanel,wakeDirectionList(modID,2:end));
-                    end
+                    [influence] = obj.wakeInfluenceMatrix(obj,wakeNo,edgeNo,1:nbPanel,obj.wakeline{wakeNo}.wakeShape{edgeNo});
                     obj.wakeLHS(:,interpID(1)) = obj.wakeLHS(:,interpID(1)) - influence;
                     obj.wakeLHS(:,interpID(2)) = obj.wakeLHS(:,interpID(2)) + influence;
                 end
             end
         end
 
+        function [VmuWake,VmuBody] = makeVelocityInfluence(obj,controlPoint)
+        
+            bPanel = sum(obj.paneltype == 1);
+            VmuWake.X = zeros(size(controlPoint,1),bPanel);
+            VmuWake.Y = zeros(size(controlPoint,1),bPanel);
+            VmuWake.Z = zeros(size(controlPoint,1),bPanel);
+
+            %wakeパネル⇒機体パネルへの影響
+            for wakeNo = 1:numel(obj.wakeline)
+                for edgeNo = 1:size(obj.wakeline{wakeNo}.validedge,2)
+                    interpID(1) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.upperID(edgeNo));
+                    interpID(2) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.lowerID(edgeNo));
+                    [influence] = obj.wakeVelocityInfluence(obj,wakeNo,edgeNo,controlPoint,obj.wakeline{wakeNo}.wakeShape{edgeNo});
+                    
+                    VmuWake.X(:,interpID(1)) = VmuWake.X(:,interpID(1)) - influence.X;
+                    VmuWake.X(:,interpID(2)) = VmuWake.X(:,interpID(2)) + influence.X;
+                    VmuWake.Y(:,interpID(1)) = VmuWake.Y(:,interpID(1)) - influence.Y;
+                    VmuWake.Y(:,interpID(2)) = VmuWake.Y(:,interpID(2)) + influence.Y;
+                    VmuWake.Z(:,interpID(1)) = VmuWake.Z(:,interpID(1)) - influence.Z;
+                    VmuWake.Z(:,interpID(2)) = VmuWake.Z(:,interpID(2)) + influence.Z;
+                end
+            end
+
+            if nargout > 1
+                VmuBody = obj.velocityInfluence(obj,controlPoint);
+            end
+        end
 
 
 
@@ -1541,6 +1728,23 @@ classdef UNLSI
                     R = [R;Rsolve];
                 end
             end
+        end
+
+        function [vel] = calcVelocity(obj,u,VmuWake,VmuBody,VsigmaBody)
+            %%%%%%%%%%%%%LSIの求解%%%%%%%%%%%%%%%%%%%%%
+            %ポテンシャルから力を求める
+            %結果は配列に出力される
+            % 1:Beta 2:Mach 3:AoA 4:Re/1e6 5:CL 6:CDo 7:CDi 8:CDtot 9:CDt 10:CDtot_t 11:CS 12:L/D E CFx CFy CFz CMx CMy       CMz       CMl       CMm       CMn      FOpt 
+            %上記で求めていないものは0が代入される
+            %u: doubletの強さ
+            %flowNo:解きたい流れのID
+            %alpha:迎角[deg]
+            %beta:横滑り角[deg]
+            %omega:主流の回転角速度(deg/s)
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            vel(:,1) = -((VmuBody.X+VmuWake.X)*u)./4./pi;
+            vel(:,2) = -((VmuBody.Y+VmuWake.Y)*u)./4./pi;
+            vel(:,3) = -((VmuBody.Z+VmuWake.Z)*u)./4./pi;
         end
         
         function [AERODATA,Cp,Cfe,R,obj] = solveFlowForAdjoint(obj,u,flowNo,alpha,beta)
@@ -2785,6 +2989,182 @@ classdef UNLSI
 
         end
 
+        function obj = modifyMassDampingMatrix(obj)
+            nu = 0.34;
+            qps = [1/6,1/6;2/3,1/6;1/6,2/3];
+            obj.femMass = sparse(6*numel(obj.femutils.usedVerts),6*numel(obj.femutils.usedVerts));
+            obj.femDamp = sparse(6*numel(obj.femutils.usedVerts),6*numel(obj.femutils.usedVerts));
+            for iter = 1:size(obj.femtri.ConnectivityList,1)
+                Dp(1,1) = 1.0; Dp(1,2) = nu;
+                Dp(2,1) = nu;  Dp(2,2) = 1.0;
+                Dp(3,3) = (1.0-nu)/2.0;
+                Dp = Dp.*(obj.femE(iter,1)*obj.femThn(iter,1)^3/(12.0*(1.0-nu*nu)));
+                U = obj.femtri.Points(obj.femtri.ConnectivityList(iter,2),:)-obj.femtri.Points(obj.femtri.ConnectivityList(iter,1),:);
+                V = obj.femtri.Points(obj.femtri.ConnectivityList(iter,3),:)-obj.femtri.Points(obj.femtri.ConnectivityList(iter,1),:);
+                transUV(:,1) = U;
+                transUV(:,2) = V;
+                W = cross(U,V);
+                trafo(1,:) = U./norm(U);
+                trafo(3,:) = W./norm(W);
+                trafo(2,:) = cross(trafo(3,:),trafo(1,:));
+                transUV = trafo*transUV;
+                dphi(1,1) = -transUV(1,1); % x12 = x1-x2 = 0-x2 = -x2
+                dphi(2,1) =  transUV(1,2); % x31 = x3-x1 = x3-0 = x3
+                dphi(3,1) =  transUV(1,1)-transUV(1,2); % x23 = x2-x3
+                dphi(1,2) = -transUV(2,1); % y12 = y1-y2 = -y2 = 0 (stays zero, as node B and A lie on local x-axis and therefore)
+                dphi(2,2) =  transUV(2,2); % y31 = y3-y1 = y3-0 = y3
+                dphi(3,2) =  transUV(2,1)-transUV(2,2); % y23 = y2-y3 = 0-y3 = -y3
+
+                M_m= diag(ones(1,6).*0.5);
+                M_m(1,3) = 0.25;
+                M_m(1,5) = 0.25;
+                M_m(2,4) = 0.25;
+                M_m(2,6) = 0.25;
+                M_m(3,1) = 0.25;
+                M_m(3,5) = 0.25;
+                M_m(4,2) = 0.25;
+                M_m(4,6) = 0.25;
+                M_m(5,1) = 0.25;
+                M_m(5,3) = 0.25;
+                M_m(6,2) = 0.25;
+                M_m(6,4) = 0.25;
+                M_m = M_m .* obj.femarea(iter,1).*obj.femRho(iter,1).*obj.femThn(iter,1)./3;
+
+                
+                sidelen(1) = dphi(1,1)^2+dphi(1,2)^2;
+                sidelen(2) = dphi(2,1)^2+dphi(2,2)^2;
+                sidelen(3) = dphi(3,1)^2+dphi(3,2)^2;
+                Y(1,1) = dphi(3,2)^2.0;
+                Y(1,2) = dphi(2,2)^2.0;
+                Y(1,3) = dphi(3,2)*dphi(2,2);
+                Y(2,1) = dphi(3,1)^2.0;
+                Y(2,2) = dphi(2,1)^2.0;
+                Y(2,3) = dphi(2,1)*dphi(3,1);
+                Y(3,1) = -2.0*dphi(3,1)*dphi(3,2);
+                Y(3,2) = -2.0*dphi(2,1)*dphi(2,1);
+                Y(3,3) = -dphi(3,1)*dphi(2,2)-dphi(2,1)*dphi(3,2);
+                Y = Y.* 1.0/(4.0*obj.femarea(iter,1)^2.0);
+                Ainv = zeros(9,9);
+                x12 = -transUV(1,1);
+                y12 = -transUV(2,1);
+                x31 = transUV(1,2);
+                y31 = transUV(2,2);
+                x23 = transUV(1,1)-transUV(1,2); 
+                y23 =  transUV(2,1)-transUV(2,2);
+                Ainv(1,1) = 1;
+                Ainv(2,4) = 1;
+                Ainv(3,7) = 1;
+                Ainv(4,1) = -1;
+                Ainv(4,4) = 1;
+                Ainv(4,5) = y12;
+                Ainv(4,6) = -x12;
+                Ainv(5,4) = -1;
+                Ainv(5,7) = 1;
+                Ainv(5,8) = y23;
+                Ainv(5,9) = -x23;
+                Ainv(6,1) = 1;
+                Ainv(6,2) = y31;
+                Ainv(6,3) = -x31;
+                Ainv(6,7) = -1;
+                Ainv(7,1) = 2;
+                Ainv(7,2) = -y12;
+                Ainv(7,3) = x12;
+                Ainv(7,4) = -2;
+                Ainv(7,5) = -y12;
+                Ainv(7,6) = x12;
+                Ainv(8,4) = 2;
+                Ainv(8,5) = -y23;
+                Ainv(8,6) = x23;
+                Ainv(8,7) = -2;
+                Ainv(8,8) = -y23;
+                Ainv(8,9) = x23;
+                Ainv(9,1) = -2;
+                Ainv(9,2) = -y31;
+                Ainv(9,3) =  x31;
+                Ainv(9,7) = 2;
+                Ainv(9,8) = -y31;
+                Ainv(9,9) = x31;
+                M_p = zeros(9,9);
+                M_m2 = zeros(6,6);
+                for j = 1:3
+                    N = obj.evalNTri(sidelen, qps(j,1), qps(j,2), Ainv);
+                    Nm = obj.evalNmTri(sidelen, qps(j,1), qps(j,2), Ainv);
+                    temp2 = N*N'./6;
+                    temp3 = Nm'*Nm./6;
+                    M_p = M_p+temp2;
+                    M_m2 = M_m2+temp3;
+                end
+                M_p = M_p*obj.femRho(iter,1)*obj.femThn(iter,1)*2.*obj.femarea(iter,1);
+                M_out = zeros(18,18);
+                for i=0:2
+                    for j = 0:2 
+                        M_out(  6*i+1,    6*j+1)   = M_m(2*i+1,  2*j+1);   % uu
+                        M_out(  6*i+1,    6*j+1+1) = M_m(2*i+1,  2*j+1+1); % uv
+                        M_out(  6*i+1+1,  6*j+1)   = M_m(2*i+1+1,2*j+1);   % vu
+                        M_out(  6*i+1+1,  6*j+1+1) = M_m(2*i+1+1,2*j+1+1); % vv
+                        M_out(2+6*i+1,  2+6*j+1)   = M_p(3*i+1,  3*j+1);   % ww
+                        M_out(2+6*i+1,  2+6*j+1+1) = M_p(3*i+1,  3*j+1+1); % wx
+                        M_out(2+6*i+1,  2+6*j+2+1) = M_p(3*i+1,  3*j+2+1); % wy
+                        M_out(2+6*i+1+1,2+6*j+1)   = M_p(3*i+1+1,3*j+1);   % xw
+                        M_out(2+6*i+1+1,2+6*j+1+1) = M_p(3*i+1+1,3*j+1+1); % xx
+                        M_out(2+6*i+1+1,2+6*j+2+1) = M_p(3*i+1+1,3*j+2+1); % xy
+                        M_out(2+6*i+2+1,2+6*j+1)   = M_p(3*i+2+1,3*j+1);   % yw
+                        M_out(2+6*i+2+1,2+6*j+1+1) = M_p(3*i+2+1,3*j+1+1); % yx
+                        M_out(2+6*i+2+1,2+6*j+2+1) = M_p(3*i+2+1,3*j+2+1); % yy
+                    end
+                end
+                TSub = [trafo,zeros(3,3);zeros(3,3),trafo];
+                MSub = zeros(6,6);
+                MNew = zeros(18,18);
+                %Kl = K_out;
+                Mg = zeros(18,18);
+                for i=0:2
+                    for j = 0:2
+                        % copy values into temporary sub-matrix for correct format to transformation
+                        for k=0:5
+                            for l=0:5
+                                MSub(k+1,l+1) = M_out(i*6+k+1,j*6+l+1);
+                            end
+                        end
+                        % the actual transformation step
+                        MSub=TSub'*MSub*TSub;
+                        % copy transformed values into new global stiffness matrix
+                        for k=0:5
+                            for l=0:5
+                                MNew(i*6+k+1,j*6+l+1) = MSub(k+1,l+1);
+                            end
+                        end
+                    end
+                end
+        
+                for alpha = 0:5
+                    for beta=0:5
+                        for i=0:2
+                            for j=0:2
+                                Mg(3*alpha+i+1,3*beta+j+1) = MNew(6*i+alpha+1,6*j+beta+1);
+                            end  
+                        end
+                    end
+                end
+                linearidx = zeros(1,size(obj.femutils.IndexRow{iter}(:),1));
+                for i = 1:size(obj.femutils.IndexRow{iter}(:),1)
+                    linearidx(i) = sub2ind(size(obj.femLHS),obj.femutils.IndexRow{iter}(i),obj.femutils.IndexCol{iter}(i));
+                    %obj.femLHS(obj.femutils.IndexRow{iter}(i),obj.femutils.IndexCol{iter}(i)) = obj.femLHS(obj.femutils.IndexRow{iter}(i),obj.femutils.IndexCol{iter}(i))+Kg(i);
+                end
+                obj.femMass(linearidx) = obj.femMass(linearidx)+Mg(:)';
+                obj.femDamp(linearidx) = obj.femDamp(linearidx)+Mg(:)'./obj.femRho(iter,1).*obj.femVisc(iter,1);
+                if mod(iter,floor(size(obj.femtri.ConnectivityList,1)/10))==1
+                    fprintf("%d / %d \n",iter,size(obj.femtri.ConnectivityList,1));
+                end
+                
+            end
+            obj.femMass(obj.femutils.MatIndex==0,:)=[];
+            obj.femMass(:,obj.femutils.MatIndex==0)=[];
+            obj.femDamp(obj.femutils.MatIndex==0,:)=[];
+            obj.femDamp(:,obj.femutils.MatIndex==0)=[];
+
+        end
+
         function [delta,deltadot] = solveFem(obj,distLoad,selfLoadFlag)
             %distLoad:空力解析メッシュにかかる分布加重。圧力など
             if nargin < 3
@@ -3452,12 +3832,19 @@ classdef UNLSI
             POI.Z = center(rowIndex,3);
             nrow = numel(rowIndex);
             VortexA = zeros(nrow,1);
-            nwake = 5;
-            for i = 1:nwake
-                wakepos(1,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+wakeShape(:)'.*(i-1) .* norm(wakeShape)./nwake;
-                wakepos(2,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+wakeShape(:)'.*(i-1) .* norm(wakeShape)./nwake;
-                wakepos(3,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+wakeShape(:)'.*i .* norm(wakeShape)./nwake;
-                wakepos(4,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+wakeShape(:)'.*i .* norm(wakeShape)./nwake;
+             for i = 1:size(wakeShape,1)
+                if i == 1
+                    wakepos(1,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:);
+                    wakepos(2,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:);
+                    wakepos(3,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+wakeShape(i,:);
+                    wakepos(4,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+wakeShape(i,:);
+                else
+                    wakepos(1,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+wakeShape(i-1,:);
+                    wakepos(2,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+wakeShape(i-1,:);
+                    wakepos(3,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+wakeShape(i,:);
+                    wakepos(4,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+wakeShape(i,:);
+                end
+
                 [~, ~, nbuff] = obj.vertex(wakepos(1,:),wakepos(2,:),wakepos(3,:));
                 
                 ulvec = obj.center(obj.wakeline{wakeNo}.lowerID(edgeNo),:)-obj.center(obj.wakeline{wakeNo}.upperID(edgeNo),:);
@@ -3682,7 +4069,474 @@ classdef UNLSI
             end
 
         end
-        
+        function VelocityA = velocityInfluence(obj,controlPoint)
+            %%%%%%%%%%%%%%%%%%%影響係数の計算　パネル⇒パネル%%%%%%%%%%%%%%%
+            %rowIndex : 計算する行
+            %colIndex : 計算する列
+            %Velocity~r : numel(rowIndex)×nbPanelの影響係数
+            %Velocity~c : nbPanel×numel(rowIndex)の影響係数
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+            verts = obj.tri.Points;
+            con  = obj.tri.ConnectivityList(obj.paneltype==1,:);
+            center = obj.center(obj.paneltype==1,:);
+            normal = obj.orgNormal(obj.paneltype==1,:);
+
+            nbPanel = size(con,1);
+
+            POI.X(:,1) = controlPoint(:,1);
+            POI.Y(:,1) = controlPoint(:,2);
+            POI.Z(:,1) = controlPoint(:,3);
+            
+            c.X(1,:) = center(:,1)';
+            c.Y(1,:) = center(:,2)';
+            c.Z(1,:) = center(:,3)';
+            n.X(1,:) = normal(:,1)';
+            n.Y(1,:) = normal(:,2)';
+            n.Z(1,:) = normal(:,3)';
+            N1.X(1,:) = verts(con(:,1),1)';
+            N1.Y(1,:) = verts(con(:,1),2)';
+            N1.Z(1,:) = verts(con(:,1),3)';
+            N2.X(1,:) = verts(con(:,2),1)';
+            N2.Y(1,:) = verts(con(:,2),2)';
+            N2.Z(1,:) = verts(con(:,2),3)';
+            N3.X(1,:) = verts(con(:,3),1)';
+            N3.Y(1,:) = verts(con(:,3),2)';
+            N3.Z(1,:) = verts(con(:,3),3)';
+            POI.X = repmat(POI.X,[1,nbPanel]);
+            POI.Y = repmat(POI.Y,[1,nbPanel]);
+            POI.Z = repmat(POI.Z,[1,nbPanel]);
+
+            c.X = repmat(c.X,[size(controlPoint,1),1]);
+            c.Y = repmat(c.Y,[size(controlPoint,1),1]);
+            c.Z = repmat(c.Z,[size(controlPoint,1),1]);
+            n.X = repmat(n.X,[size(controlPoint,1),1]);
+            n.Y = repmat(n.Y,[size(controlPoint,1),1]);
+            n.Z = repmat(n.Z,[size(controlPoint,1),1]);
+            N1.X = repmat(N1.X,[size(controlPoint,1),1]);
+            N1.Y = repmat(N1.Y,[size(controlPoint,1),1]);
+            N1.Z = repmat(N1.Z,[size(controlPoint,1),1]);
+            N2.X = repmat(N2.X,[size(controlPoint,1),1]);
+            N2.Y = repmat(N2.Y,[size(controlPoint,1),1]);
+            N2.Z = repmat(N2.Z,[size(controlPoint,1),1]);
+            N3.X = repmat(N3.X,[size(controlPoint,1),1]);
+            N3.Y = repmat(N3.Y,[size(controlPoint,1),1]);
+            N3.Z = repmat(N3.Z,[size(controlPoint,1),1]);
+
+%             n12.X = (N1.X+N2.X)./2;
+%             n12.Y = (N1.Y+N2.Y)./2;
+%             n12.Z = (N1.Z+N2.Z)./2;
+
+            pjk.X = POI.X-c.X;
+            pjk.Y = POI.Y-c.Y;
+            pjk.Z = POI.Z-c.Z;
+            %PN = obj.matrix_dot(pjk,n);
+
+            %1回目
+            a.X = POI.X-N1.X;
+            a.Y = POI.Y-N1.Y;
+            a.Z = POI.Z-N1.Z;
+            b.X = POI.X-N2.X;
+            b.Y = POI.Y-N2.Y;
+            b.Z = POI.Z-N2.Z;
+            anorm = obj.matrix_norm(a);
+            bnorm = obj.matrix_norm(b);
+            %m = obj.getUnitVector(c,n12);
+            %l = obj.matrix_cross(m,n);
+            s.X = N2.X-N1.X;
+            s.Y = N2.Y-N1.Y;
+            s.Z = N2.Z-N1.Z;
+            %smdot = obj.matrix_dot(s,m);
+            %sldot = obj.matrix_dot(s,l);
+            snorm = obj.matrix_norm(s);
+            %Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
+            %PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
+            %PB = PA-Al.*smdot;
+            %phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+            Vmu = obj.matrix_cross(a,b);
+            VelocityA.X = (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.X;
+            VelocityA.Y = (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Y;
+            VelocityA.Z = (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Z;
+%             VelocityB.X =  (log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm).*(smdot.*l.X-sldot.*m.X)+phiV.*n.X;
+%             VelocityB.Y =  (log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm).*(smdot.*l.Y-sldot.*m.Y)+phiV.*n.Y;
+%             VelocityB.Z =  (log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm).*(smdot.*l.Z-sldot.*m.Z)+phiV.*n.Z;
+
+            
+            %2回目
+            a.X = POI.X-N2.X;
+            a.Y = POI.Y-N2.Y;
+            a.Z = POI.Z-N2.Z;
+            b.X = POI.X-N3.X;
+            b.Y = POI.Y-N3.Y;
+            b.Z = POI.Z-N3.Z;
+            anorm = obj.matrix_norm(a);
+            bnorm = obj.matrix_norm(b);
+            %m = obj.getUnitVector(c,n12);
+            %l = obj.matrix_cross(m,n);
+            s.X = N3.X-N2.X;
+            s.Y = N3.Y-N2.Y;
+            s.Z = N3.Z-N2.Z;
+            %smdot = obj.matrix_dot(s,m);
+%             sldot = obj.matrix_dot(s,l);
+            snorm = obj.matrix_norm(s);
+%             Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
+%             PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
+%             PB = PA-Al.*smdot;
+            %phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+            Vmu = obj.matrix_cross(a,b);
+            VelocityA.X = VelocityA.X + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.X;
+            VelocityA.Y = VelocityA.Y + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Y;
+            VelocityA.Z = VelocityA.Z + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Z;
+%             VelocityB.X = VelocityB.X + (log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm).*(smdot.*l.X-sldot.*m.X)+phiV.*n.X;
+%             VelocityB.Y = VelocityB.Y + (log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm).*(smdot.*l.Y-sldot.*m.Y)+phiV.*n.Y;
+%             VelocityB.Z = VelocityB.Z + (log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm).*(smdot.*l.Z-sldot.*m.Z)+phiV.*n.Z;
+            %3回目
+            a.X = POI.X-N3.X;
+            a.Y = POI.Y-N3.Y;
+            a.Z = POI.Z-N3.Z;
+            b.X = POI.X-N1.X;
+            b.Y = POI.Y-N1.Y;
+            b.Z = POI.Z-N1.Z;
+            anorm = obj.matrix_norm(a);
+            bnorm = obj.matrix_norm(b);
+%             m = obj.getUnitVector(c,n12);
+%             l = obj.matrix_cross(m,n);
+            s.X = N1.X-N3.X;
+            s.Y = N1.Y-N3.Y;
+            s.Z = N1.Z-N3.Z;
+%             smdot = obj.matrix_dot(s,m);
+%             sldot = obj.matrix_dot(s,l);
+            snorm = obj.matrix_norm(s);
+%             Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
+%             PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
+%             PB = PA-Al.*smdot;
+%             phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+            Vmu = obj.matrix_cross(a,b);
+            VelocityA.X = VelocityA.X + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.X;
+            VelocityA.Y = VelocityA.Y + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Y;
+            VelocityA.Z = VelocityA.Z + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Z;
+%             VelocityB.X = VelocityB.X + (log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm).*(smdot.*l.X-sldot.*m.X)+phiV.*n.X;
+%             VelocityB.Y = VelocityB.Y + (log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm).*(smdot.*l.Y-sldot.*m.Y)+phiV.*n.Y;
+%             VelocityB.Z = VelocityB.Z + (log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm).*(smdot.*l.Z-sldot.*m.Z)+phiV.*n.Z;
+
+            %半裁の考慮
+            if obj.halfmesh == 1
+                POI.Y = -POI.Y;
+                pjk.X = POI.X-c.X;
+                pjk.Y = POI.Y-c.Y;
+                pjk.Z = POI.Z-c.Z;
+                %PN = obj.matrix_dot(pjk,n);
+                %1回目
+                a.X = POI.X-N1.X;
+                a.Y = POI.Y-N1.Y;
+                a.Z = POI.Z-N1.Z;
+                b.X = POI.X-N2.X;
+                b.Y = POI.Y-N2.Y;
+                b.Z = POI.Z-N2.Z;
+                anorm = obj.matrix_norm(a);
+                bnorm = obj.matrix_norm(b);
+%                 m = obj.getUnitVector(c,n12);
+%                 l = obj.matrix_cross(m,n);
+                s.X = N2.X-N1.X;
+                s.Y = N2.Y-N1.Y;
+                s.Z = N2.Z-N1.Z;
+%                 smdot = obj.matrix_dot(s,m);
+%                 sldot = obj.matrix_dot(s,l);
+                snorm = obj.matrix_norm(s);
+%                 Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
+%                 PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
+%                 PB = PA-Al.*smdot;
+%                 phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                Vmu = obj.matrix_cross(a,b);
+                VelocityA.X = VelocityA.X + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.X;
+                VelocityA.Y = VelocityA.Y + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Y;
+                VelocityA.Z = VelocityA.Z + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Z;
+%                 VelocityB.X = VelocityB.X + (log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm).*(smdot.*l.X-sldot.*m.X)+phiV.*n.X;
+%                 VelocityB.Y = VelocityB.Y - (log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm).*(smdot.*l.Y-sldot.*m.Y)+phiV.*n.Y;
+%                 VelocityB.Z = VelocityB.Z + (log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm).*(smdot.*l.Z-sldot.*m.Z)+phiV.*n.Z;
+                %2回目
+                a.X = POI.X-N2.X;
+                a.Y = POI.Y-N2.Y;
+                a.Z = POI.Z-N2.Z;
+                b.X = POI.X-N3.X;
+                b.Y = POI.Y-N3.Y;
+                b.Z = POI.Z-N3.Z;
+                anorm = obj.matrix_norm(a);
+                bnorm = obj.matrix_norm(b);
+%                 m = obj.getUnitVector(c,n12);
+%                 l = obj.matrix_cross(m,n);
+                s.X = N3.X-N2.X;
+                s.Y = N3.Y-N2.Y;
+                s.Z = N3.Z-N2.Z;
+%                 smdot = obj.matrix_dot(s,m);
+%                 sldot = obj.matrix_dot(s,l);
+                snorm = obj.matrix_norm(s);
+%                 Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
+%                 PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
+%                 PB = PA-Al.*smdot;
+%                 phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                Vmu = obj.matrix_cross(a,b);
+                VelocityA.X = VelocityA.X + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.X;
+                VelocityA.Y = VelocityA.Y + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Y;
+                VelocityA.Z = VelocityA.Z + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Z;
+%                 VelocityB.X = VelocityB.X + (log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm).*(smdot.*l.X-sldot.*m.X)+phiV.*n.X;
+%                 VelocityB.Y = VelocityB.Y - (log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm).*(smdot.*l.Y-sldot.*m.Y)+phiV.*n.Y;
+%                 VelocityB.Z = VelocityB.Z + (log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm).*(smdot.*l.Z-sldot.*m.Z)+phiV.*n.Z;
+                %3回目
+                a.X = POI.X-N3.X;
+                a.Y = POI.Y-N3.Y;
+                a.Z = POI.Z-N3.Z;
+                b.X = POI.X-N1.X;
+                b.Y = POI.Y-N1.Y;
+                b.Z = POI.Z-N1.Z;
+                anorm = obj.matrix_norm(a);
+                bnorm = obj.matrix_norm(b);
+%                 m = obj.getUnitVector(c,n12);
+%                 l = obj.matrix_cross(m,n);
+                s.X = N1.X-N3.X;
+                s.Y = N1.Y-N3.Y;
+                s.Z = N1.Z-N3.Z;
+%                 smdot = obj.matrix_dot(s,m);
+%                 sldot = obj.matrix_dot(s,l);
+                snorm = obj.matrix_norm(s);
+%                 Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
+%                 PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
+%                 PB = PA-Al.*smdot;
+%                 phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                Vmu = obj.matrix_cross(a,b);
+                VelocityA.X = VelocityA.X + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.X;
+                VelocityA.Y = VelocityA.Y + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Y;
+                VelocityA.Z = VelocityA.Z + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Z;
+%                 VelocityB.X = VelocityB.X + (log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm).*(smdot.*l.X-sldot.*m.X)+phiV.*n.X;
+%                 VelocityB.Y = VelocityB.Y - (log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm).*(smdot.*l.Y-sldot.*m.Y)+phiV.*n.Y;
+%                 VelocityB.Z = VelocityB.Z + (log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm).*(smdot.*l.Z-sldot.*m.Z)+phiV.*n.Z;
+            end
+        end
+
+        function [VelocityA] = wakeVelocityInfluence(obj,wakeNo,edgeNo,controlPoint,wakeShape)
+            %%%%%%%%%%%%wakeからパネルへの影響関数%%%%%%%%%%%%%%%%%
+            %wakeNoとedgeNoを指定して全パネルへの影響を計算
+            %
+            %
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+            POI.X = controlPoint(:,1);
+            POI.Y = controlPoint(:,2);
+            POI.Z = controlPoint(:,3);
+            nrow = size(controlPoint,1);
+            VelocityA.X = zeros(nrow,1);
+            VelocityA.Y = zeros(nrow,1);
+            VelocityA.Z = zeros(nrow,1);
+            for i = 1:size(wakeShape,1)
+                if i == 1
+                    wakepos(1,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:);
+                    wakepos(2,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:);
+                    wakepos(3,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+wakeShape(i,:);
+                    wakepos(4,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+wakeShape(i,:);
+                else
+                    wakepos(1,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+wakeShape(i-1,:);
+                    wakepos(2,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+wakeShape(i-1,:);
+                    wakepos(3,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+wakeShape(i,:);
+                    wakepos(4,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+wakeShape(i,:);
+                end
+                [~, ~, nbuff] = obj.vertex(wakepos(1,:),wakepos(2,:),wakepos(3,:));
+                ulvec = obj.center(obj.wakeline{wakeNo}.lowerID(edgeNo),:)-obj.center(obj.wakeline{wakeNo}.upperID(edgeNo),:);
+                uldist = dot(ulvec,nbuff);
+                if uldist >= 0
+                    Nw1.X = repmat(wakepos(1,1),[nrow,1]);
+                    Nw1.Y = repmat(wakepos(1,2),[nrow,1]);
+                    Nw1.Z = repmat(wakepos(1,3),[nrow,1]);
+                    Nw2.X = repmat(wakepos(2,1),[nrow,1]);
+                    Nw2.Y = repmat(wakepos(2,2),[nrow,1]);
+                    Nw2.Z = repmat(wakepos(2,3),[nrow,1]);
+                    Nw3.X = repmat(wakepos(3,1),[nrow,1]);
+                    Nw3.Y = repmat(wakepos(3,2),[nrow,1]);
+                    Nw3.Z = repmat(wakepos(3,3),[nrow,1]);
+                    Nw4.X = repmat(wakepos(4,1),[nrow,1]);
+                    Nw4.Y = repmat(wakepos(4,2),[nrow,1]);
+                    Nw4.Z = repmat(wakepos(4,3),[nrow,1]);
+                else
+                    Nw1.X = repmat(wakepos(2,1),[nrow,1]);
+                    Nw1.Y = repmat(wakepos(2,2),[nrow,1]);
+                    Nw1.Z = repmat(wakepos(2,3),[nrow,1]);
+                    Nw2.X = repmat(wakepos(1,1),[nrow,1]);
+                    Nw2.Y = repmat(wakepos(1,2),[nrow,1]);
+                    Nw2.Z = repmat(wakepos(1,3),[nrow,1]);
+                    Nw3.X = repmat(wakepos(4,1),[nrow,1]);
+                    Nw3.Y = repmat(wakepos(4,2),[nrow,1]);
+                    Nw3.Z = repmat(wakepos(4,3),[nrow,1]);
+                    Nw4.X = repmat(wakepos(3,1),[nrow,1]);
+                    Nw4.Y = repmat(wakepos(3,2),[nrow,1]);
+                    Nw4.Z = repmat(wakepos(3,3),[nrow,1]);
+                end
+                [b1, b2, nw] = obj.vertex([Nw1.X(1),Nw1.Y(1),Nw1.Z(1)],[Nw2.X(1),Nw2.Y(1),Nw2.Z(1)],[Nw3.X(1),Nw3.Y(1),Nw3.Z(1)]);
+                cw = mean([[Nw1.X(1),Nw1.Y(1),Nw1.Z(1)];[Nw2.X(1),Nw2.Y(1),Nw2.Z(1)];[Nw3.X(1),Nw3.Y(1),Nw3.Z(1)];[Nw4.X(1),Nw4.Y(1),Nw4.Z(1)]],1);
+                n.X = repmat(nw(1),[nrow,1]);
+                n.Y = repmat(nw(2),[nrow,1]);
+                n.Z = repmat(nw(3),[nrow,1]);
+                %Amat = repmat(b1*2,[nbPanel,1]);
+                c.X = repmat(cw(1),[nrow,1]);
+                c.Y = repmat(cw(2),[nrow,1]);
+                c.Z = repmat(cw(3),[nrow,1]);
+                n12.X = (Nw3.X+Nw4.X)./2;
+                n12.Y = (Nw3.Y+Nw4.Y)./2;
+                n12.Z = (Nw3.Z+Nw4.Z)./2;
+
+                pjk.X = POI.X-c.X;
+                pjk.Y = POI.Y-c.Y;
+                pjk.Z = POI.Z-c.Z;
+                %PN = obj.matrix_dot(pjk,n);
+                
+                %1回目
+%                 a.X = POI.X-Nw1.X;
+%                 a.Y = POI.Y-Nw1.Y;
+%                 a.Z = POI.Z-Nw1.Z;
+%                 b.X = POI.X-Nw2.X;
+%                 b.Y = POI.Y-Nw2.Y;
+%                 b.Z = POI.Z-Nw2.Z;
+%                 s.X = Nw2.X-Nw1.X;
+%                 s.Y = Nw2.Y-Nw1.Y;
+%                 s.Z = Nw2.Z-Nw1.Z;
+%                 anorm = obj.matrix_norm(a);
+%                 bnorm = obj.matrix_norm(b);
+%                 Vmu = obj.matrix_cross(a,b);
+%                 VelocityA.X = (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))).*Vmu.X;
+%                 VelocityA.Y = (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))).*Vmu.Y;
+%                 VelocityA.Z = (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))).*Vmu.Z;
+                %2回目
+                a.X = POI.X-Nw2.X;
+                a.Y = POI.Y-Nw2.Y;
+                a.Z = POI.Z-Nw2.Z;
+                b.X = POI.X-Nw3.X;
+                b.Y = POI.Y-Nw3.Y;
+                b.Z = POI.Z-Nw3.Z;
+                s.X = Nw3.X-Nw2.X;
+                s.Y = Nw3.Y-Nw2.Y;
+                s.Z = Nw3.Z-Nw2.Z;
+                anorm = obj.matrix_norm(a);
+                bnorm = obj.matrix_norm(b);
+                snorm = obj.matrix_norm(s);
+                Vmu = obj.matrix_cross(a,b);
+%                 VelocityA.X = VelocityA.X + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))).*Vmu.X;
+%                 VelocityA.Y = VelocityA.Y + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))).*Vmu.Y;
+%                 VelocityA.Z = VelocityA.Z + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))).*Vmu.Z;
+                VelocityA.X = VelocityA.X + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.X;
+                VelocityA.Y = VelocityA.Y + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Y;
+                VelocityA.Z = VelocityA.Z + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Z;
+                %3回目
+%                 a.X = POI.X-Nw3.X;
+%                 a.Y = POI.Y-Nw3.Y;
+%                 a.Z = POI.Z-Nw3.Z;
+%                 b.X = POI.X-Nw4.X;
+%                 b.Y = POI.Y-Nw4.Y;
+%                 b.Z = POI.Z-Nw4.Z;
+%                 s.X = Nw4.X-Nw3.X;
+%                 s.Y = Nw4.Y-Nw3.Y;
+%                 s.Z = Nw4.Z-Nw3.Z;
+%                 anorm = obj.matrix_norm(a);
+%                 bnorm = obj.matrix_norm(b);
+%                 Vmu = obj.matrix_cross(a,b);
+%                 VelocityA.X = VelocityA.X + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))).*Vmu.X;
+%                 VelocityA.Y = VelocityA.Y + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))).*Vmu.Y;
+%                 VelocityA.Z = VelocityA.Z + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))).*Vmu.Z;
+                %4回目
+                a.X = POI.X-Nw4.X;
+                a.Y = POI.Y-Nw4.Y;
+                a.Z = POI.Z-Nw4.Z;
+                b.X = POI.X-Nw1.X;
+                b.Y = POI.Y-Nw1.Y;
+                b.Z = POI.Z-Nw1.Z;
+                s.X = Nw1.X-Nw4.X;
+                s.Y = Nw1.Y-Nw4.Y;
+                s.Z = Nw1.Z-Nw4.Z;
+                anorm = obj.matrix_norm(a);
+                bnorm = obj.matrix_norm(b);
+                snorm = obj.matrix_norm(s);
+                Vmu = obj.matrix_cross(a,b);
+                VelocityA.X = VelocityA.X + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.X;
+                VelocityA.Y = VelocityA.Y + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Y;
+                VelocityA.Z = VelocityA.Z + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Z;
+
+                %半裁
+                if obj.halfmesh == 1
+                    POI.Y = -POI.Y;
+                    pjk.X = POI.X-c.X;
+                    pjk.Y = POI.Y-c.Y;
+                    pjk.Z = POI.Z-c.Z;
+                    %PN = obj.matrix_dot(pjk,n);
+                    
+                    %1回目
+%                     a.X = POI.X-Nw1.X;
+%                     a.Y = POI.Y-Nw1.Y;
+%                     a.Z = POI.Z-Nw1.Z;
+%                     b.X = POI.X-Nw2.X;
+%                     b.Y = POI.Y-Nw2.Y;
+%                     b.Z = POI.Z-Nw2.Z;
+%                     s.X = Nw2.X-Nw1.X;
+%                     s.Y = Nw2.Y-Nw1.Y;
+%                     s.Z = Nw2.Z-Nw1.Z;
+%                     anorm = obj.matrix_norm(a);
+%                     bnorm = obj.matrix_norm(b);
+%                     Vmu = obj.matrix_cross(a,b);
+%                     VelocityA.X = VelocityA.X + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))).*Vmu.X;
+%                     VelocityA.Y = VelocityA.Y - (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))).*Vmu.Y;
+%                     VelocityA.Z = VelocityA.Z + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))).*Vmu.Z;
+                    
+                    %2回目
+                    a.X = POI.X-Nw2.X;
+                    a.Y = POI.Y-Nw2.Y;
+                    a.Z = POI.Z-Nw2.Z;
+                    b.X = POI.X-Nw3.X;
+                    b.Y = POI.Y-Nw3.Y;
+                    b.Z = POI.Z-Nw3.Z;
+                    s.X = Nw3.X-Nw2.X;
+                    s.Y = Nw3.Y-Nw2.Y;
+                    s.Z = Nw3.Z-Nw2.Z;
+                    anorm = obj.matrix_norm(a);
+                    bnorm = obj.matrix_norm(b);
+                    snorm = obj.matrix_norm(s);
+                    Vmu = obj.matrix_cross(a,b);
+                    VelocityA.X = VelocityA.X + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.X;
+                    VelocityA.Y = VelocityA.Y + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Y;
+                    VelocityA.Z = VelocityA.Z + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Z;
+                    %3回目
+%                     a.X = POI.X-Nw3.X;
+%                     a.Y = POI.Y-Nw3.Y;
+%                     a.Z = POI.Z-Nw3.Z;
+%                     b.X = POI.X-Nw4.X;
+%                     b.Y = POI.Y-Nw4.Y;
+%                     b.Z = POI.Z-Nw4.Z;
+%                     s.X = Nw4.X-Nw3.X;
+%                     s.Y = Nw4.Y-Nw3.Y;
+%                     s.Z = Nw4.Z-Nw3.Z;
+%                     anorm = obj.matrix_norm(a);
+%                     bnorm = obj.matrix_norm(b);
+%                     Vmu = obj.matrix_cross(a,b);
+%                     VelocityA.X = VelocityA.X + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))).*Vmu.X;
+%                     VelocityA.Y = VelocityA.Y - (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))).*Vmu.Y;
+%                     VelocityA.Z = VelocityA.Z + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))).*Vmu.Z;
+                    %4回目
+                    a.X = POI.X-Nw4.X;
+                    a.Y = POI.Y-Nw4.Y;
+                    a.Z = POI.Z-Nw4.Z;
+                    b.X = POI.X-Nw1.X;
+                    b.Y = POI.Y-Nw1.Y;
+                    b.Z = POI.Z-Nw1.Z;
+                    s.X = Nw1.X-Nw4.X;
+                    s.Y = Nw1.Y-Nw4.Y;
+                    s.Z = Nw1.Z-Nw4.Z;
+                    anorm = obj.matrix_norm(a);
+                    bnorm = obj.matrix_norm(b);
+                    snorm = obj.matrix_norm(s);
+                    Vmu = obj.matrix_cross(a,b);
+                    VelocityA.X = VelocityA.X + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.X;
+                    VelocityA.Y = VelocityA.Y + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Y;
+                    VelocityA.Z = VelocityA.Z + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Z;
+                end
+            end
+
+        end
+ 
         function [VortexAi,VortexBi,VortexAo,VortexBo,wakeVA] = propellerInfluenceMatrix(obj,propNo,propWakeLength)
             ID = obj.prop{propNo}.ID;
             verts = obj.tri.Points;
