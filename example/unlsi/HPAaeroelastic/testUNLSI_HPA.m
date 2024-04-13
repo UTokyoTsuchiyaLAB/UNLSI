@@ -24,7 +24,7 @@ wing = wing.makeEquation();
 %
 [confem,vertsfem,idfem] = readFemMesh('FWpeller2_WingGeom_Struct0.msh'); %FEMメッシュを読み込み
 wing = wing.setFemMesh(vertsfem,confem,idfem,[1]); %空力メッシュID1番をFEMメッシュに対応付ける
-[wing,weight] = wing.setFemMaterials([1,2,3,4],[0.0005,tspar/1000,0.01,tspar/1000],[5*1e9,12*1e9,5*1e9,12*1e9],[10,1600*Rarea,100,1600*Rarea],[10,10,10,10]);%物性値をセット 肉厚,ヤング率,密度,減衰パラメータ
+[wing,weight] = wing.setFemMaterials([1,2,3,4],[0.0005,tspar/1000,0.01,tspar/1000],[5*1e9,5*1e9,5*1e9,5*1e9],[10,1600*Rarea,100,1600*Rarea],[10,10,10,10]);%物性値をセット 肉厚,ヤング率,密度,減衰パラメータ
 disp("weight");
 disp(weight);
 wing = wing.makeFemEquation(); %FEM行列の作成
@@ -49,7 +49,8 @@ for i = 1:100
     toc;
     modVerts = wing.calcModifiedVerts(delta{1}); %構造メッシュの変形に従って空力メッシュを変形
     wing2 = wing2.setVerts(modVerts); %節点の移動のみ
-    wing2 = wing2.marchWake(1,dt,alpha,beta,0.001,Re);
+    wing2 = wing2.marchWake(dt,alpha,beta,0.001,Re);
+
     wing2 = wing2.makeEquation(); %パネル法行列の作成
     wing2 = wing2.solveFlow(alpha,0,0.001,Re);%パネル法を解く
     disp(wing2.getAERODATA(alpha,0));

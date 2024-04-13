@@ -9,15 +9,20 @@
         <CORX Value="0.000000000000000000e+00" ID="GFNMWHZODZF"/>
         <CORY Value="0.000000000000000000e+00" ID="IXLZKKUZVKT"/>
         <CORZ Value="0.000000000000000000e+00" ID="AHHWBKPBTKS"/>
-        <PanX Value="-2.797645568847656250e+00" ID="YMBBJEBHWRB"/>
-        <PanY Value="4.352438449859619141e-01" ID="KFSPMHGTGXY"/>
+        <PanX Value="2.008833646774291992e+00" ID="YMBBJEBHWRB"/>
+        <PanY Value="-1.024640321731567383e+00" ID="KFSPMHGTGXY"/>
         <RotationX Value="2.043320587384119236e+01" ID="LWSGBJNWNJW"/>
         <RotationY Value="-6.702510309423587387e+00" ID="QOSJMLHOZOC"/>
         <RotationZ Value="-6.048989271900304665e+00" ID="DRLJEPUGSFC"/>
         <ViewportX Value="0.000000000000000000e+00" ID="QXZRPGKPWMV"/>
         <ViewportY Value="0.000000000000000000e+00" ID="FOQCVPNKGDS"/>
-        <Zoom Value="2.069999836385250092e-02" ID="KVDEYNTENOU"/>
+        <Zoom Value="3.148210793733596802e-02" ID="KVDEYNTENOU"/>
       </AdjustView>
+      <AdvLinkSettings>
+        <AdvLinkDefNameContainer Value="1.000000000000000000e+00" ID="JDFRZERAGQX"/>
+        <AdvLinkDefNameGroup Value="0.000000000000000000e+00" ID="FQURYVTGMQX"/>
+        <AdvLinkGenDefName Value="0.000000000000000000e+00" ID="IMAGISXSPCT"/>
+      </AdvLinkSettings>
       <AirfoilExport>
         <AFAppendGeomIDFlag Value="1.000000000000000000e+00" ID="SGOKSNDAPUV"/>
         <AFExportType Value="1.000000000000000000e+00" ID="IISUHSDIWIH"/>
@@ -313,6 +318,7 @@
       </Light7>
     </Lights>
     <Measure>
+      <Num_of_Protractors>0</Num_of_Protractors>
       <Num_of_Rulers>0</Num_of_Rulers>
       <Num_of_Probes>0</Num_of_Probes>
       <Num_of_RSTprobes>0</Num_of_RSTprobes>
@@ -322,6 +328,7 @@
         <ID>ZAXWQEUVZC</ID>
         <Name>WingGeom</Name>
         <Attach>
+          <Eta_Attach_Location Value="0.000000000000000000e+00" ID="HQNJKZXEQME"/>
           <L_01 Value="1.000000000000000000e+00" ID="OCHFCNVCZSO"/>
           <L_Attach_Location Value="0.000000000000000000e+00" ID="NICSXENISER"/>
           <L_Attach_Location0Len Value="0.000000000000000000e+00" ID="QTOIUETTGCX"/>
@@ -2451,7 +2458,7 @@
         <FarYScale Value="4.000000000000000000e+00" ID="INJYPTREQMN"/>
         <FarZLocation Value="0.000000000000000000e+00" ID="ZZNLPKYUSTO"/>
         <FarZScale Value="4.000000000000000000e+00" ID="WEOGBQZAVYH"/>
-        <HalfMesh Value="1.000000000000000000e+00" ID="SSBAMHIWLVH"/>
+        <HalfMesh Value="0.000000000000000000e+00" ID="SSBAMHIWLVH"/>
         <SymmetrySplitting Value="0.000000000000000000e+00" ID="EZEPIPYRLSV"/>
       </FarField>
       <Global>

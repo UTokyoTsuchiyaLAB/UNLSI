@@ -1,6 +1,7 @@
 # VSPGEOM Tag Key File
 orgMesh.vspgeom
-1
+2
 
 # tag#,geom#,surf#,gname,gid,ssname1,ssname2,...,ssid1,ssid2,...
 1,0,0,WingGeom_S,ZAXWQEUVZC
+2,0,1,WingGeom_S,ZAXWQEUVZC

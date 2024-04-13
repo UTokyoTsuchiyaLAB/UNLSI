@@ -13,12 +13,9 @@ wing = wing.makeCluster(); %速度分布を求めるためのパネルクラス�
 wing = wing.makeEquation(); %パネル法行列の作成
 %%%%%%%%ここまでは一度計算すればスキップできる
 %}
+
 ad = [];
 for i = 1:numel(winddata.alpha)
-    wakeDir = [5,100*[cosd(winddata.alpha(i)),0,sind(winddata.alpha(i))];
-        3,100*[cosd(winddata.alpha(i)),0,sind(winddata.alpha(i))];
-        4,100*[cosd(winddata.alpha(i)),0,sind(winddata.alpha(i))];];
-    wing = wing.makeWakeEquation(wakeDir); %パネル法行列の作成
     wing = wing.solveFlow(winddata.alpha(i),0,0.001,2.3*10^6); %パネル法を解く
     if winddata.alpha(i) == 0
         wing.plotGeometry(1,wing.getCp(0,0,0.001,2.3*10^6),[-2,1]); %圧力係数のプロット

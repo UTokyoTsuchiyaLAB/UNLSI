@@ -117,7 +117,6 @@ classdef UNLSI
             obj.settingUNLSI.LLTnInterp = 10; % LLT法の補間点の数
             obj.settingUNLSI.nCluster = 50; % パネルクラスターの目標数
             obj.settingUNLSI.edgeAngleThreshold = 50; % 近隣パネルとして登録するための角度の閾値
-            obj.settingUNLSI.wingWakeLength = 100; % 各wakeパネルの長さ（機体基準長基準）
             obj.settingUNLSI.nCalcDivide = 5; % makeEquationの計算を分割するための分割数
             obj.settingUNLSI.angularVelocity = []; % 正規化された主流の角速度
             obj.settingUNLSI.propCalcFlag = 1; % プロペラの計算フラグ
@@ -141,6 +140,9 @@ classdef UNLSI
             obj.settingUNLSI.wingWakeLength = 100; % 各wakeパネルの長さ（機体基準長基準）
             obj.settingUNLSI.nWakeMax = 20;%marchwakeにおけるwakeの最大個数
             obj.settingUNLSI.deltaVortexCore = 0.1;
+            obj.settingUNLSI.pnThreshold = 1;
+            obj.settingUNLSI.CpLimit = [-2.5,1.5];
+            obj.settingUNLSI.CpSlope = 5;
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             obj.halfmesh = halfmesh;
             obj.flowNoTable = [];
@@ -900,7 +902,7 @@ classdef UNLSI
                 for edgeNo = 1:size(obj.wakeline{wakeNo}.validedge,2)
                     interpID(1) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.upperID(edgeNo));
                     interpID(2) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.lowerID(edgeNo));
-                    [influence] = obj.wakeInfluenceMatrix(obj,wakeNo,edgeNo,1:nbPanel,[obj.settingUNLSI.wingWakeLength*obj.CREF,0,0]);
+                    [influence] = obj.wakeInfluenceMatrix(obj,wakeNo,edgeNo,1:nbPanel,obj.wakeline{wakeNo}.wakeShape{edgeNo});
                     obj.wakeLHS(:,interpID(1)) = obj.wakeLHS(:,interpID(1)) - influence;
                     obj.wakeLHS(:,interpID(2)) = obj.wakeLHS(:,interpID(2)) + influence;
                 end
@@ -963,13 +965,39 @@ classdef UNLSI
             end
         end
 
-        function obj = marchWake(obj,wakeNo,dt,alpha,beta,Mach,Re)
+        function obj = setHelixWake(obj,wakeNo,dt,rpm,rotAxis,rotOrigin)
+            %%%%%%%%%%%%%%%%wake形状の指定関数%%%%%%%%%%%%%%%%
+            %wakeShape : [x,y,z]の形状
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            for wakeIter = 1:numel(wakeNo)
+                wakeOrg = obj.getWakePosition(wakeIter);
+                K = [0, -rotAxis(3), rotAxis(2);
+                     rotAxis(3), 0, -rotAxis(1);
+                    -rotAxis(2), rotAxis(1), 0];
+                rotAngle = -rpm*pi/30 * dt;
+                dcm = eye(3) + sin(rotAngle) * K + (1 - cos(rotAngle)) * K^2;
+                for edgeNo = 1:size(obj.wakeline{wakeIter}.validedge,2)
+                    for i = 1:obj.settingUNLSI.nWakeMax
+                        if i == 1
+                            nextR = (wakeOrg(edgeNo,:)-rotOrigin)*dcm-(wakeOrg(edgeNo,:)-rotOrigin);
+                            obj.wakeline{wakeIter}.wakeShape{edgeNo}(i,1:3) = nextR + dt * obj.settingUNLSI.Vinf.*rotAxis(:)';
+                        else
+                            nextR = (obj.wakeline{wakeIter}.wakeShape{edgeNo}(i-1,1:3)+wakeOrg(edgeNo,:)-rotOrigin)*dcm-wakeOrg(edgeNo,:)+rotOrigin;
+                            obj.wakeline{wakeIter}.wakeShape{edgeNo}(i,1:3) = nextR + dt * obj.settingUNLSI.Vinf.*rotAxis(:)';
+                        end
+                    end
+                end
+            end
+            obj = obj.makeWakeEquation();
+        end
+
+        function obj = marchWake(obj,dt,alpha,beta,Mach,Re)
             %%%%%%%%%%%%%%%%wake形状の更新関数%%%%%%%%%%%%%%%%
             %flowVec : 流速ベクトル
             %dt : 時間ステップ
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             if isempty(obj.flowNoTable)
-                if nargin == 7
+                if nargin == 6
                     obj = obj.flowCondition(1,Mach,Re);
                 else
                     obj = obj.flowCondition(1,Mach);
@@ -983,7 +1011,7 @@ classdef UNLSI
                     end
                 end
                 if flowNo == 0
-                    if nargin == 7
+                    if nargin == 6
                         obj = obj.flowCondition(size(obj.flowNoTable,1)+1,Mach,Re);
                     else
                         obj = obj.flowCondition(size(obj.flowNoTable,1)+1,Mach);
@@ -994,24 +1022,38 @@ classdef UNLSI
             if any(size(alpha) ~= size(beta))
                 error("analysis points are not match");
             end
-
-            wakeOrg = obj.getWakePosition(wakeNo);
-            for i = 1:size(wakeOrg,1)
-                wakePos{i} = obj.wakeline{wakeNo}.wakeOrg(i,:)+obj.wakeline{wakeNo}.wakeShape{i};
-            end
-            u0 = obj.solvePertPotential(flowNo,alpha,beta);
-            flowVec = obj.settingUNLSI.Vinf.*[cosd(alpha)*cosd(beta),-sind(beta),sind(alpha)*cosd(beta)];
-            if size(wakePos{1},1) == obj.settingUNLSI.nWakeMax
-                nWake = size(wakePos{1},1)-1;
-            else
-                nWake = size(wakePos{1},1);
-            end
-            for k = nWake:-1:1
-                for iter = 1:numel(wakePos)
-                    initPos(iter+(k-1)*numel(wakePos),:) = wakePos{iter}(k,:);
+            
+            wakePos = {};
+            wakeOrgBuff = {};
+            for wakeNo = 1:numel(obj.wakeline)
+                wakeOrg{wakeNo} = obj.getWakePosition(wakeNo);
+                for i = 1:size(wakeOrg{wakeNo},1)
+                    wakePos = [wakePos,obj.wakeline{wakeNo}.wakeOrg(i,:)+obj.wakeline{wakeNo}.wakeShape{i}];
+                    wakeOrgBuff = [wakeOrgBuff,wakeOrg{wakeNo}(i,:)];
                 end
             end
-            [VmuWake,VmuBody]  = obj.makeVelocityInfluence(initPos);
+            u0 = obj.solvePertPotential(flowNo,alpha,beta);
+            initPos = [];
+            for iter = 1:numel(wakePos)
+                if size(wakePos{1},1) == obj.settingUNLSI.nWakeMax
+                    nWake(iter) = size(wakePos{iter},1)-1;
+                else
+                    nWake(iter) = size(wakePos{iter},1);
+                end
+                for k = nWake(iter):-1:1
+                    initPos= [initPos;wakePos{iter}(k,:)];
+                end
+            end
+            if not(isempty(obj.settingUNLSI.angularVelocity))
+                flowVec = zeros(size(initPos,1),3);
+                for i = 1:size(initPos,1)
+                   rvec = initPos(i,:)'-obj.XYZREF(:);
+                   flowVec(i,:) = obj.settingUNLSI.Vinf.*[cosd(alpha)*cosd(beta),-sind(beta),sind(alpha)*cosd(beta)]-((cross(obj.settingUNLSI.angularVelocity(1,:)./180.*pi,rvec(:)')'))';
+                end
+            else
+                flowVec = obj.settingUNLSI.Vinf.*[cosd(alpha)*cosd(beta),-sind(beta),sind(alpha)*cosd(beta)];
+            end
+           [VmuWake,VmuBody]  = obj.makeVelocityInfluence(initPos);
             vel = obj.calcVelocity(u0,VmuWake,VmuBody);
             vel = obj.settingUNLSI.Vinf.*vel+flowVec;
             k1 = dt .* vel(:);
@@ -1031,17 +1073,25 @@ classdef UNLSI
 %                 options = odeset("RelTol",1e-2,"AbsTol",1e-2);
 %                 [~,yspan] = ode113(@(t,y)obj.marchWakeShapeODE(t,y,u0,flowVec,obj.settingUNLSI.Vinf),[0,dt],initPos(:),options);
 %                 newPos = reshape(yspan(end,:)',[],3);
-            for k = nWake:-1:1
-                for iter = 1:numel(wakePos)
-                    wakePos{iter}(k+1,:) = newPos(iter+numel(wakePos)*(k-1),:);
+            
+            for iter = 1:numel(wakePos)
+                for k = nWake(iter):-1:1
+                    wakePos{iter}(k+1,:) = newPos(1,:);
+                    newPos(1,:) = [];
                 end
             end
-
-            for i = 1:size(wakeOrg,1)
-                wakePos{i}(1,:) = wakeOrg(i,:) + [obj.settingUNLSI.xWakeAttach*obj.CREF,0,0];
-                obj = obj.setWakeShape(wakePos{i}-wakeOrg(i,:),wakeNo,i);
+            for i = 1:numel(wakePos)
+                wakePos{i}(1,:) = wakeOrgBuff{i}(1,:) + [obj.settingUNLSI.xWakeAttach*obj.CREF,0,0];
             end
-            obj.wakeline{wakeNo}.wakeOrg = wakeOrg;
+            id = 1;
+            for wakeNo = 1:numel(obj.wakeline)
+                for iter = 1:size(wakeOrg{wakeNo},1)
+                    obj = obj.setWakeShape(wakePos{id}-wakeOrgBuff{id}(1,:),wakeNo,iter);
+                    id = id+1;
+                end
+                obj.wakeline{wakeNo}.wakeOrg = wakeOrg{wakeNo};
+            end
+                   
             obj = obj.makeWakeEquation();
         end
 
@@ -1065,16 +1115,33 @@ classdef UNLSI
             end
         end
 
-        function plotWakeShape(obj,figNo)
+        function plotWakeShape(obj,figNo,xyz,euler)
             %%%%%%%%%%%%%%%%wake形状のプロット関数%%%%%%%%%%%%%%%%
             %figNo : figure番号
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            if nargin == 2
+                xyz = [0,0,0];
+                euler = [0,0,0];
+            elseif nargin == 3
+                euler = [0,0,0];
+            end
+            
+            roll = euler(1);
+            pitch = euler(2);
+            yaw = euler(3);
+            R = [cosd(yaw)*cosd(pitch), cosd(yaw)*sind(pitch)*sind(roll) - sind(yaw)*cosd(roll), cosd(yaw)*sind(pitch)*cosd(roll) + sind(yaw)*sind(roll);
+                sind(yaw)*cosd(pitch), sind(yaw)*sind(pitch)*sind(roll) + cosd(yaw)*cosd(roll), sind(yaw)*sind(pitch)*cosd(roll) - cosd(yaw)*sind(roll);
+                -sind(pitch), cosd(pitch)*sind(roll), cosd(pitch)*cosd(roll)];
+                
+                
             figure(figNo);
             hold on;
             for wakeNo = 1:numel(obj.wakeline)
                 for edgeNo = 1:size(obj.wakeline{wakeNo}.validedge,2)
                     wakeLine1 = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+[0,0,0;obj.wakeline{wakeNo}.wakeShape{edgeNo}];
+                    wakeLine1 = wakeLine1 * R' + xyz(:)';
                     wakeLine2 = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+[0,0,0;obj.wakeline{wakeNo}.wakeShape{edgeNo}];
+                    wakeLine2 = wakeLine2 * R' + xyz(:)';
                     plot3(wakeLine1(:,1),wakeLine1(:,2),wakeLine1(:,3),'r');
                     plot3(wakeLine2(:,1),wakeLine2(:,2),wakeLine2(:,3),'r');
                     for i = 1:size(wakeLine1,1)
@@ -1164,7 +1231,7 @@ classdef UNLSI
                     newVerts(i,j) = obj.tri.Points(i,j)+pert;
                     obj2 = obj.setVerts(newVerts);
                     [VortexAr,VortexBr,VortexAc,VortexBc] = obj2.influenceMatrix(obj2,obj.approxMat.calcIndex{i},obj.approxMat.calcIndex{i});
-                    %
+                    
                     for wakeNo = 1:numel(obj.wakeline)
                         for edgeNo = 1:size(obj.wakeline{wakeNo}.validedge,2)
                             interpID(1) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.upperID(edgeNo));
@@ -1266,37 +1333,38 @@ classdef UNLSI
 
         function obj = setProp(obj,propNo,ID,diameter,XZsliced)
             %IDのパネルタイプをプロペラ==4に変更
-            obj = obj.setPanelType(ID,'prop');
-            obj.prop{propNo}.ID = ID;
-            nPanel = numel(obj.paneltype);
-            %プロペラディスク⇒bodyパネルへの影響係数
-            obj.prop{propNo}.diameter = diameter;
-            obj.prop{propNo}.area = pi*(obj.prop{propNo}.diameter/2)^2;
-            obj.prop{propNo}.XZsliced  = XZsliced;
-            %ペラパネルの重心位置を計算
-            mom = [0,0,0];
-            propArea = 0;
-            for i = 1:nPanel
-                if obj.surfID(i) == ID
-                    darea = obj.vertex(obj.tri.Points(obj.tri(i,1),:),obj.tri.Points(obj.tri(i,2),:),obj.tri.Points(obj.tri(i,3),:));
-                    propArea = propArea + darea;
-                    mom = mom + darea.*obj.center(i,:);
-                    if XZsliced == 1
-                        mom = mom + darea.*[obj.center(i,1),-obj.center(i,2),obj.center(i,3)];
+            for iter = 1:numel(propNo)
+                obj = obj.setPanelType(ID(iter),'prop');
+                obj.prop{propNo(iter)}.ID = ID(iter);
+                nPanel = numel(obj.paneltype);
+                %プロペラディスク⇒bodyパネルへの影響係数
+                obj.prop{propNo(iter)}.diameter = diameter(iter);
+                obj.prop{propNo(iter)}.area = pi*(obj.prop{propNo(iter)}.diameter/2)^2;
+                obj.prop{propNo(iter)}.XZsliced  = XZsliced(iter);
+                %ペラパネルの重心位置を計算
+                mom = [0,0,0];
+                propArea = 0;
+                for i = 1:nPanel
+                    if obj.surfID(i) == ID(iter)
+                        darea = obj.vertex(obj.tri.Points(obj.tri(i,1),:),obj.tri.Points(obj.tri(i,2),:),obj.tri.Points(obj.tri(i,3),:));
+                        propArea = propArea + darea;
+                        mom = mom + darea.*obj.center(i,:);
+                        if XZsliced(iter) == 1
+                            mom = mom + darea.*[obj.center(i,1),-obj.center(i,2),obj.center(i,3)];
+                        end
                     end
                 end
+                if XZsliced(iter) == 1
+                    propArea = 2*propArea;
+                end
+                obj.prop{propNo(iter)}.normal = mean(obj.orgNormal(obj.surfID == ID(iter),:),1);
+                obj.prop{propNo(iter)}.center = mom./propArea;
+                obj = obj.setPropState(propNo(iter),sqrt(eps),sqrt(eps),sqrt(eps));
             end
-            if XZsliced == 1
-                propArea = 2*propArea;
+            
+            for iter = 1:numel(obj.prop)
+                obj = makePropEquation(obj,iter);
             end
-            obj.prop{propNo}.normal = mean(obj.orgNormal(obj.surfID == ID,:),1);
-            obj.prop{propNo}.center = mom./propArea;
-
-            obj = obj.setPropState(propNo,sqrt(eps),sqrt(eps),sqrt(eps));
-
-            obj = makePropEquation(obj,propNo);
-
-
         end
 
 
@@ -1561,6 +1629,7 @@ classdef UNLSI
                     obj.Cp{flowNo}(obj.paneltype==1 & obj.cpcalctype == 3,iterflow) = (-2*(dv(obj.paneltype==1 & obj.cpcalctype == 3,1))-dv(obj.paneltype==1 & obj.cpcalctype == 3,2).^2-dv(obj.paneltype==1 & obj.cpcalctype == 3,3).^2)./(1-obj.flow{flowNo}.Mach^2);
                     obj.Cp{flowNo}(obj.paneltype==1 & obj.cpcalctype == 2,iterflow) = (-2*(dv(obj.paneltype==1 & obj.cpcalctype == 2,1)-Vinf(obj.paneltype==1 & obj.cpcalctype == 2,1)))./(1-obj.flow{flowNo}.Mach^2);
                     obj.Cp{flowNo}(obj.paneltype==2,iterflow) = (-0.139-0.419.*(obj.flow{flowNo}.Mach-0.161).^2);
+                    obj.Cp{flowNo} = obj.valLimiter(obj.Cp{flowNo},obj.settingUNLSI.CpLimit(1),obj.settingUNLSI.CpLimit(2),obj.settingUNLSI.CpSlope);
                     uinterp = [];
                     for i = 1:numel(obj.wakeline)
                         uinterp = [uinterp,interp1(obj.LLT.sp{i},obj.LLT.calcMu{i}*u,obj.LLT.sinterp{i},'linear','extrap')];
@@ -1730,11 +1799,61 @@ classdef UNLSI
             end
         end
 
+        function [obj,CT,Cp,Cq,efficiency] = solveSteadyProp(obj,rpm,rotAxis,rotOrigin,alpha,beta,Mach,Re,fig)
+            %%%%%%%%%%%%%LSIの求解%%%%%%%%%%%%%%%%%%%%%
+            %プロペラ計算を行う
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            obj = obj.setRotationCenter(rotOrigin);
+            obj = obj.setHelixWake(1:numel(obj.wakeline),0.02,rpm,rotAxis,rotOrigin);
+            obj = obj.setUNLSISettings("angularVelocity",[-rpm*pi/30*180/pi,0,0]/obj.settingUNLSI.Vinf);
+            obj = obj.solveFlow(alpha,beta,Mach,Re);%パネル法を解く
+            data = obj.getAERODATA(alpha,beta,Mach,Re);
+            if nargin == 9
+                obj.plotGeometry(fig,obj.getCp(alpha,beta,Mach,Re),[-20,1]);%圧力係数のプロット
+                obj.plotWakeShape(fig);
+            end
+            CT = -data(15) * 0.5 * (obj.settingUNLSI.Vinf*cosd(alpha)*cosd(beta)) ^2 * obj.SREF / ((rpm/60)^2*obj.BREF^4);
+            Cq = data(18) * 0.5 * (obj.settingUNLSI.Vinf*cosd(alpha)*cosd(beta)) ^2 * obj.SREF * obj.BREF / ((rpm/60)^2*obj.BREF^5);
+            Cp = Cq * 2 * pi;
+            J = obj.settingUNLSI.Vinf*cosd(alpha)*cosd(beta)/(rpm/60)/obj.BREF;
+            efficiency = CT*J/Cp;
+        end
+        
+        function [obj,CT,Cp,Cq,efficiency] = solveUnsteadyProp(obj,dt,rpm,rotAxis,rotOrigin,alpha,beta,Mach,Re,fig)
+            %%%%%%%%%%%%%LSIの求解%%%%%%%%%%%%%%%%%%%%%
+            %プロペラ計算を行う
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            obj = obj.setRotationCenter(rotOrigin);
+            obj = obj.setUNLSISettings("angularVelocity",[-rpm*pi/30*180/pi,0,0]/obj.settingUNLSI.Vinf);
+            obj = obj.solveFlow(alpha,beta,Mach,Re);%パネル法を解く
+            data = obj.getAERODATA(alpha,beta,Mach,Re);
+            obj = obj.marchWake(dt,alpha,beta,Mach,Re);
+            if nargin == 10
+                obj.plotGeometry(fig,obj.getCp(alpha,beta,Mach,Re),[-20,1]);%圧力係数のプロット
+                obj.plotWakeShape(fig);
+            end
+
+
+            rotAxis = rotAxis ./ norm(rotAxis);
+            K = [0, -rotAxis(3), rotAxis(2);
+                 rotAxis(3), 0, -rotAxis(1);
+                -rotAxis(2), rotAxis(1), 0];
+            rotAngle = -rpm*pi/30 * dt;
+            dcm = eye(3) + sin(rotAngle) * K + (1 - cos(rotAngle)) * K^2;
+            p = dcm * (obj.tri.Points'-rotOrigin(:))+rotOrigin(:);
+            obj = obj.setVerts(p');
+            CT = -data(15) * 0.5 * (obj.settingUNLSI.Vinf*cosd(alpha)*cosd(beta)) ^2 * obj.SREF / ((rpm/60)^2*obj.BREF^4);
+            Cq = data(18) * 0.5 * (obj.settingUNLSI.Vinf*cosd(alpha)*cosd(beta)) ^2 * obj.SREF * obj.BREF / ((rpm/60)^2*obj.BREF^5);
+            Cp = Cq * 2 * pi;
+            J = obj.settingUNLSI.Vinf*cosd(alpha)*cosd(beta)/(rpm/60)/obj.BREF;
+            efficiency = CT*J/Cp;
+        end
+
         function [vel] = calcVelocity(obj,u,VmuWake,VmuBody,VsigmaBody)
             %%%%%%%%%%%%%LSIの求解%%%%%%%%%%%%%%%%%%%%%
             %ポテンシャルから力を求める
             %結果は配列に出力される
-            % 1:Beta 2:Mach 3:AoA 4:Re/1e6 5:CL 6:CDo 7:CDi 8:CDtot 9:CDt 10:CDtot_t 11:CS 12:L/D E CFx CFy CFz CMx CMy       CMz       CMl       CMm       CMn      FOpt 
+            % 1:Beta 2:Mach 3:AoA 4:Re/1e6 5:CL 6:CLt 7:CDo 8:CDi 9:CDtot 10:CDt 11:CDtot_t 12:CS 13:L/D 14:E(翼効率) 15:CFx 16:CFy 17:CFz 18:CMx 19:CMy 20:CMz 21:CMl 22:CMm 23:CMn 24:FOpt 
             %上記で求めていないものは0が代入される
             %u: doubletの強さ
             %flowNo:解きたい流れのID
@@ -1818,6 +1937,7 @@ classdef UNLSI
                     obj.Cp{flowNo}(obj.paneltype==1 & obj.cpcalctype == 3,iterflow) = (-2*(dv(obj.paneltype==1 & obj.cpcalctype == 3,1)+-1)-dv(obj.paneltype==1 & obj.cpcalctype == 3,3).^2)./(1-obj.flow{flowNo}.Mach^2);
                     obj.Cp{flowNo}(obj.paneltype==1 & obj.cpcalctype == 2,iterflow) = (-2*(dv(obj.paneltype==1 & obj.cpcalctype == 2,1)-Vinf(obj.paneltype==1 & obj.cpcalctype == 2,1)))./(1-obj.flow{flowNo}.Mach^2);
                     obj.Cp{flowNo}(obj.paneltype==2,iterflow) = (-0.139-0.419.*(obj.flow{flowNo}.Mach-0.161).^2);
+                    obj.Cp{flowNo} = obj.valLimiter(obj.Cp{flowNo},obj.settingUNLSI.CpLimit(1),obj.settingUNLSI.CpLimit(2),obj.settingUNLSI.CpSlope);
                     uinterp = [];
                     for i = 1:numel(obj.wakeline)
                         uinterp = [uinterp,interp1(obj.LLT.sp{i},obj.LLT.calcMu{i}*(usolve),obj.LLT.sinterp{i},'linear','extrap')];
@@ -3327,10 +3447,15 @@ classdef UNLSI
             res = 1./beta * log(1+exp(beta.*x));
         end
 
-        function res = sigmoid(x,c,a)
-            res = 1./(1 + exp(-a.*(x-c)));
-        end
         
+        function val = valLimiter(val,minVal,maxVal,a)
+            sigmoid = @(x)1./(1 + exp(-a.*(x)));
+            maxCoef = 1-sigmoid(val - maxVal);
+            val = val .* maxCoef + maxVal .* (1-maxCoef);
+            minCoef = 1-sigmoid(-val + minVal);
+            val = val .* minCoef + minVal .* (1-minCoef);
+        end
+
         function dcm = rod2dcm(ra,angle)
             %angleはdegreeなので注意
             dcm = zeros(3,3);
@@ -3466,7 +3591,10 @@ classdef UNLSI
                 Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                 PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                 PB = PA-Al.*smdot;
-                phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0;
+                
                 srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
                 VortexAr = phiV;
                 VortexBr = srcV;
@@ -3489,7 +3617,10 @@ classdef UNLSI
                 Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                 PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                 PB = PA-Al.*smdot;
-                phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0;
+                
                 srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
                 VortexAr = VortexAr+phiV;
                 VortexBr = VortexBr+srcV;
@@ -3512,7 +3643,10 @@ classdef UNLSI
                 Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                 PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                 PB = PA-Al.*smdot;
-                phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0;
+                
                 srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
                 VortexAr = VortexAr+phiV;
                 VortexBr = VortexBr+srcV;
@@ -3543,7 +3677,10 @@ classdef UNLSI
                     Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                     PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                     PB = PA-Al.*smdot;
-                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                    dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                    phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0;
+                    
                     srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
                     VortexAr = VortexAr+phiV;
                     VortexBr = VortexBr+srcV;
@@ -3566,7 +3703,10 @@ classdef UNLSI
                     Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                     PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                     PB = PA-Al.*smdot;
-                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                    dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                    phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0;
+                    
                     srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
                     VortexAr = VortexAr+phiV;
                     VortexBr = VortexBr+srcV;
@@ -3589,7 +3729,10 @@ classdef UNLSI
                     Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                     PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                     PB = PA-Al.*smdot;
-                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                    dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                    phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0;
+                    
                     srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
                     VortexAr = VortexAr+phiV;
                     VortexBr = VortexBr+srcV;
@@ -3670,7 +3813,10 @@ classdef UNLSI
                     Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                     PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                     PB = PA-Al.*smdot;
-                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                    dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                    phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0;
+                    
                     srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
                     VortexAcb = phiV;
                     VortexBcb = srcV;
@@ -3693,7 +3839,10 @@ classdef UNLSI
                     Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                     PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                     PB = PA-Al.*smdot;
-                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                    dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                    phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0;
+                    
                     srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
                     VortexAcb = VortexAcb+phiV;
                     VortexBcb = VortexBcb+srcV;
@@ -3716,7 +3865,10 @@ classdef UNLSI
                     Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                     PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                     PB = PA-Al.*smdot;
-                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                    dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                    phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0;
+                    
                     srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
                     VortexAcb = VortexAcb+phiV;
                     VortexBcb = VortexBcb+srcV;
@@ -3747,7 +3899,10 @@ classdef UNLSI
                         Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                         PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                         PB = PA-Al.*smdot;
-                        phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                        dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                        phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                        phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0;
+                        
                         srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
                         VortexAcb = VortexAcb+phiV;
                         VortexBcb = VortexBcb+srcV;
@@ -3770,7 +3925,9 @@ classdef UNLSI
                         Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                         PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                         PB = PA-Al.*smdot;
-                        phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                        dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                        phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                        phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0; 
                         srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
                         VortexAcb = VortexAcb+phiV;
                         VortexBcb = VortexBcb+srcV;
@@ -3793,7 +3950,9 @@ classdef UNLSI
                         Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                         PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                         PB = PA-Al.*smdot;
-                        phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                        dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                        phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                        phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0;
                         srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
                         VortexAcb = VortexAcb+phiV;
                         VortexBcb = VortexBcb+srcV;
@@ -3909,11 +4068,14 @@ classdef UNLSI
                 m = obj.getUnitVector(c,n12);
                 l = obj.matrix_cross(m,n);
                 smdot = obj.matrix_dot(s,m);
+                snorm = obj.matrix_norm(s);
                 Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                 PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                 PB = PA-Al.*smdot;
                 dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
                 phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0;
+                
                 VortexA = VortexA+phiV;
                 %2回目
                 a.X = POI.X-Nw2.X;
@@ -3930,10 +4092,14 @@ classdef UNLSI
                 m = obj.getUnitVector(c,n12);
                 l = obj.matrix_cross(m,n);
                 smdot = obj.matrix_dot(s,m);
+                snorm = obj.matrix_norm(s);
                 Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                 PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                 PB = PA-Al.*smdot;
-                phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0;
+                
                 VortexA = VortexA+phiV;
                 %3回目
                 a.X = POI.X-Nw3.X;
@@ -3950,10 +4116,13 @@ classdef UNLSI
                 m = obj.getUnitVector(c,n12);
                 l = obj.matrix_cross(m,n);
                 smdot = obj.matrix_dot(s,m);
+                snorm = obj.matrix_norm(s);
                 Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                 PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                 PB = PA-Al.*smdot;
-                phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0;
                 VortexA = VortexA+phiV;
                 %4回目
                 a.X = POI.X-Nw4.X;
@@ -3970,10 +4139,14 @@ classdef UNLSI
                 m = obj.getUnitVector(c,n12);
                 l = obj.matrix_cross(m,n);
                 smdot = obj.matrix_dot(s,m);
+                snorm = obj.matrix_norm(s);
                 Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                 PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                 PB = PA-Al.*smdot;
-                phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0;
+                
                 VortexA = VortexA+phiV;
 
                 %半裁
@@ -3999,10 +4172,14 @@ classdef UNLSI
                     m = obj.getUnitVector(c,n12);
                     l = obj.matrix_cross(m,n);
                     smdot = obj.matrix_dot(s,m);
+                    snorm = obj.matrix_norm(s);
                     Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                     PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                     PB = PA-Al.*smdot;
-                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                    dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                    phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0;
+                    
                     
                     VortexA = VortexA+phiV;
                     %2回目
@@ -4020,10 +4197,14 @@ classdef UNLSI
                     m = obj.getUnitVector(c,n12);
                     l = obj.matrix_cross(m,n);
                     smdot = obj.matrix_dot(s,m);
+                    snorm = obj.matrix_norm(s);
                     Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                     PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                     PB = PA-Al.*smdot;
-                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                    dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                    phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0;
+                    
                     VortexA = VortexA+phiV;
                     %3回目
                     a.X = POI.X-Nw3.X;
@@ -4040,10 +4221,14 @@ classdef UNLSI
                     m = obj.getUnitVector(c,n12);
                     l = obj.matrix_cross(m,n);
                     smdot = obj.matrix_dot(s,m);
+                    snorm = obj.matrix_norm(s);
                     Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                     PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                     PB = PA-Al.*smdot;
-                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                    dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                    phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0;
+                    
                     VortexA = VortexA+phiV;
                     %4回目
                     a.X = POI.X-Nw4.X;
@@ -4060,10 +4245,14 @@ classdef UNLSI
                     m = obj.getUnitVector(c,n12);
                     l = obj.matrix_cross(m,n);
                     smdot = obj.matrix_dot(s,m);
+                    snorm = obj.matrix_norm(s);
                     Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                     PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                     PB = PA-Al.*smdot;
-                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                    dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                    phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0;
+                    
                     VortexA = VortexA+phiV;
                 end
             end

@@ -8,6 +8,7 @@ wing = wing.setREFS(80,20,4); %基準面積 基準長の設定
 wing = wing.setRotationCenter([0,0,0]); %回転中心の設定
 wing = wing.setUNLSISettings("nCalcDivide",2);%パネル法行列の作成における分割数を設定
 wing = wing.makeCluster(); %速度分布を求めるためのパネルクラスターを作成
+wing = wing.setWakeShape([1,0,0]);
 wing = wing.makeEquation(); %パネル法行列の作成
 %}
 %}
@@ -41,10 +42,12 @@ for i = 1:100
     toc;
     modVerts = wing.calcModifiedVerts(delta{1});
     wing2 = wing2.setVerts(modVerts);
+    wing2 = wing2.marchWake(1,dt,alpha,0,0.001,Re);
     wing2 = wing2.makeEquation(); %パネル法行列の作成
     wing2 = wing2.solveFlow(alpha,0,0.001,Re);%パネル法を解く
     disp(wing2.getAERODATA(alpha,0));
     wing2.plotGeometry(2,wing2.getCp(alpha,0,0.001,Re),[-3,1.5]);
+    wing2.plotWakeShape(2);
     M(i) = getframe;
 end
 movie(M,1,1/dt);

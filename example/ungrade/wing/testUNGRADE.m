@@ -11,10 +11,10 @@ ub = [  4,     4,   4,4 4,4]; %設計変数の上限値
 cmin = [2.2, 0, 0, 0, 0, 0]';%制約条件の下限値
 cmax = [2.4 10,10,10,10,10]';%制約条件の上限値
 
-ungradetest = UNGRADE(@(x)vspMeshGen(x,"wing","org.des"),@(x)vspGeomGen(x,"wing","org.des"),orgVal,lb,ub,1);%コンストラクタの実行
+ungradetest = UNGRADE(@(x)vspMeshGen(x,"wing","org.des"),@(x)vspGeomGen(x,"wing","org.des"),orgVal,lb,ub,0);%コンストラクタの実行
 ungradetest.checkGeomGenWork(0.5);%設計変数が動いているかチェックする
 %%%%%%%%%%%%%%%%%%ここで種々の設定をする%%%%%%%%%%%%%%%%%%%
-
+ungradetest = ungradetest.setUNLSISettings("angularVelocity",[10,0,0]./ungradetest.settingUNLSI.Vinf);
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 ungradetest = ungradetest.setFlowCondition(alpharange,betarange,Machrange,500000);
 [Iorg,conorg,ungradetest] = ungradetest.evaluateObjFun(@objFun); %評価関数を計算する

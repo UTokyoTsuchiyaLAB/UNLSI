@@ -488,13 +488,13 @@
             for i = 1:size(obj.flowNoList,1)
                 if i == 1
                     if obj.flowNoList(i,3) == 1
-                        dR_du = -obj.LHS; %亜音速
+                        dR_du = -(obj.LHS+obj.wakeLHS); %亜音速
                     else
                         dR_du = eye(nbPanel);
                     end
                 else
                     if obj.flowNoList(i,3) == 1
-                        dR_du = blkdiag(dR_du,-obj.LHS);
+                        dR_du = blkdiag(dR_du,-(obj.LHS+obj.wakeLHS));
                     else
                         dR_du = blkdiag(dR_du,eye(nbPanel));
                     end
