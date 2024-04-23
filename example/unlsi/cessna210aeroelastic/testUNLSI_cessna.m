@@ -4,8 +4,8 @@ clear;
 [con, p, uv1, uv2, uv3, wedata, id] = readvspgeom( "Cessna-210.vspgeom", 0);%形状の読み込み
 [confem,vertsfem,idfem] = readFemMesh('Cessna-210_NormalWing_Struct0.msh');
 cessna = UNLSI(p',con',id',wedata,1); %コンストラクタの実行
-cessna = cessna.setREFS(175,36.75,4.91); %基準面積 基準長の設定
-cessna = cessna.setRotationCenter([0,0,0]); %回転中心の設定
+cessna = cessna.setREFS(175,36.75,4.91,[0,0,0]); %基準面積 基準長の設定
+cessna= cessna.setUNLSISettings("Vinf",70.82);
 cessna = cessna.makeCluster(); %速度分布を求めるためのパネルクラスターを作成
 cessna = cessna.makeEquation(); %パネル法行列の作成
 %}
@@ -19,11 +19,22 @@ cessna = cessna.makeFemEquation();
 %}
 %
 alpha = 0;
+cessna = cessna.setWakeShape([1,0,0]);
 cessna = cessna.solveFlow(alpha,0,0.001,2.3*10^6); %パネル法を解く
 cessna.plotGeometry(1,cessna.getCp(alpha),[-2,1]);%圧力係数のプロット
 disp(cessna.getAERODATA(alpha))
 cessna2 = cessna; %空力弾性計算用に元のインスタンスを取っておく
 dt = 0.05; %時間区切り
+% VideoWriter オブジェクトを作成
+v = VideoWriter('cessnaAeroElastic.mp4', 'MPEG-4');
+% 時間区切りからフレームレートの計算と適用
+framerate = 1/dt;
+v.FrameRate = framerate;
+% 保存する動画の画質。数字の大きいほうが高画質.[0~100]
+v.Quality = 95;
+% ビデオの書き込みを開始
+open(v);
+
 for i = 1:100
     disp(i);
     tic;
@@ -35,10 +46,14 @@ for i = 1:100
     toc;
     modVerts = cessna.calcModifiedVerts(delta{1}); %構造メッシュの変形に従って空力メッシュを変形
     cessna2 = cessna2.setVerts(modVerts); %節点の移動のみ
+    cessna2 = cessna2.marchWake(dt,alpha,0,0.001,2.3*10^6);
     cessna2 = cessna2.makeEquation(); %パネル法行列の作成
     cessna2 = cessna2.solveFlow(alpha,0,0.001,2.3*10^6);%パネル法を解く
     disp(cessna2.getAERODATA(alpha,0));
     cessna2.plotGeometry(2,cessna2.getCp(alpha,0,0.001,2.3*10^6),[-3,1.5]);
-    M(i) = getframe; %動画用のフレームを取得
+    cessna2.plotWakeShape(2);
+    M(i) = getframe(gcf);
+    writeVideo(v, M(i));
 end
+close(v);
 movie(M,1,1/dt);

@@ -13,8 +13,7 @@ beta = 0; %横滑り角
 [con, p, uv1, uv2, uv3, wedata, id] = readvspgeom( "FWpeller2.vspgeom", 0); %空力メッシュの作成
 
 wing = UNLSI(p',con',id',wedata,1); %インスタンスの作成
-wing = wing.setREFS(25.44,33.75,0.766); %基準値をセット
-wing = wing.setRotationCenter([0,0,0]); %回転中心（重心）をセット
+wing = wing.setREFS(25.44,33.75,0.766,[0,0,0]); %基準値をセット
 wing = wing.setUNLSISettings("propCalcFlag",1,"laminarRatio",0.4,"propWakeLength",1,"Vinf",Vinf); %設定を変更 アクチュエータディスク（プロペラ計算）の有効化、層流比を0.4に、プロペラwakeの長さをプロペラ直径の4倍に、飛行速度を設定
 wing = wing.setProp(1,4,1.6,1); %空力メッシュID4晩を
 wing = wing.setWakeShape([1,0,0]);
@@ -38,6 +37,14 @@ disp(wing.getAERODATA(alpha));
 %
 wing2 = wing; %空力弾性計算用に元のインスタンスを取っておく
 dt = 0.05; %時間区切り
+v = VideoWriter('hpaElasticAnalysis.mp4', 'MPEG-4');
+% 時間区切りからフレームレートの計算と適用
+framerate = 1/dt;
+v.FrameRate = framerate;
+% 保存する動画の画質。数字の大きいほうが高画質.[0~100]
+v.Quality = 95;
+% ビデオの書き込みを開始
+open(v);
 for i = 1:100
     disp(i);
     tic;
@@ -56,7 +63,9 @@ for i = 1:100
     disp(wing2.getAERODATA(alpha,0));
     wing2.plotGeometry(2,wing2.getCp(alpha,0,0.001,Re),[-3,1.5]);
     wing2.plotWakeShape(2);
-    M(i) = getframe; %動画用のフレームを取得
+    M(i) = getframe(gcf); %動画用のフレームを取得
+    writeVideo(v, M(i));
 end
+close(v);
 movie(M,1,1/dt);
 %}
