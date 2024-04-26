@@ -37,14 +37,6 @@ disp(wing.getAERODATA(alpha));
 %
 wing2 = wing; %空力弾性計算用に元のインスタンスを取っておく
 dt = 0.05; %時間区切り
-v = VideoWriter('hpaElasticAnalysis.mp4', 'MPEG-4');
-% 時間区切りからフレームレートの計算と適用
-framerate = 1/dt;
-v.FrameRate = framerate;
-% 保存する動画の画質。数字の大きいほうが高画質.[0~100]
-v.Quality = 95;
-% ビデオの書き込みを開始
-open(v);
 for i = 1:100
     disp(i);
     tic;
@@ -64,8 +56,7 @@ for i = 1:100
     wing2.plotGeometry(2,wing2.getCp(alpha,0,0.001,Re),[-3,1.5]);
     wing2.plotWakeShape(2);
     M(i) = getframe(gcf); %動画用のフレームを取得
-    writeVideo(v, M(i));
+    videoMaker(M,"hpaCalculating",1/dt)
 end
-close(v);
 movie(M,1,1/dt);
 %}

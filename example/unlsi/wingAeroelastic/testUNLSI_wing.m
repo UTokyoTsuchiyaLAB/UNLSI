@@ -29,15 +29,6 @@ wing = wing.makeFemEquation();
 
 %%%%%%%以下空力弾性計算
 dt = 0.05;
-% VideoWriter オブジェクトを作成
-v = VideoWriter('wingAeroElastic.mp4', 'MPEG-4');
-% 時間区切りからフレームレートの計算と適用
-framerate = 1/dt;
-v.FrameRate = framerate;
-% 保存する動画の画質。数字の大きいほうが高画質.[0~100]
-v.Quality = 95;
-% ビデオの書き込みを開始
-open(v);
 wing2 = wing;
 for i = 1:100
     disp(i)
@@ -57,7 +48,6 @@ for i = 1:100
     wing2.plotGeometry(2,wing2.getCp(alpha,0,0.001,Re),[-3,1.5]);
     wing2.plotWakeShape(2);
     M(i) = getframe(gcf);
-    writeVideo(v, M(i));
+    videoMaker(M,"wingCalculating",1/dt)
 end
-close(v);
 movie(M,1,1/dt);

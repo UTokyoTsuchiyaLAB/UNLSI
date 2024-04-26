@@ -26,26 +26,15 @@ beta = [0,0,0];
 rpm = 135;
 dt = 1/20;
 wing = wing.setWakeShape([0.1,0,0]);
-% VideoWriter オブジェクトを作成
-v = VideoWriter('hpaPropAnalysis.mp4', 'MPEG-4');
-% 時間区切りからフレームレートの計算と適用
-
-framerate = 1/dt;
-v.FrameRate = framerate;
-% 保存する動画の画質。数字の大きいほうが高画質.[0~100]
-v.Quality = 95;
-% ビデオの書き込みを開始
-open(v);
 for i = 1:100
     disp(i)
     [wing,CT,Cp,Cq,efficiency] = wing.solveUnsteadyProp(6:7,dt,rpm,[1,0,0],[0,0,0],0,0,0.001,300000,3,[-2,1]);
     disp([CT*(rpm/60)^2*wing.BREF^4*1.225,Cp*(rpm/60)^3*wing.BREF^5*1.225,Cq*(rpm/60)^2*wing.BREF^5*1.225,efficiency]);
     % フレームを作成
-    frame = getframe(gcf);
+    M(i) = getframe(gcf);
     % フレームをビデオに書き込み
-    writeVideo(v, frame);
+    videoMaker(M,"hpaCalculating",1/dt)
 end
-close(v);
 %}
 %{
 %%%定常プロペラ計算
