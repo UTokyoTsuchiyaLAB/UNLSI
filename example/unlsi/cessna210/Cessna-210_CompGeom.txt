@@ -1,0 +1,25 @@
+...Comp Geom...
+5 Num Comps
+7 Total Num Meshes
+10416 Total Num Tris
+
+Theo_Area   Wet_Area   Theo_Vol    Wet_Vol  Name
+  261.011    248.054    226.459    221.953  Fuselage       
+    3.163      3.163      0.431      0.431  Hub            
+   48.166     41.684      6.094      5.439  Vert           
+   90.455     86.810     12.378     12.251  Horz           
+  358.863    322.930     75.594     70.153  NormalWing     
+-------------------------------------------------
+  761.657    702.641    320.956    310.227  Totals         
+
+Tag_Theo_Area   Tag_Wet_Area    Tag_Name
+      261.011        248.054    Fuselage_S_Surf0
+        3.163          3.163    Hub_S_Surf0    
+       48.166         41.684    Vert_S_Surf0   
+       45.227         43.405    Horz_S_Surf0   
+       45.227         43.405    Horz_S_Surf1   
+      179.431        161.465    NormalWing_S_Surf0
+      179.431        161.465    NormalWing_S_Surf1
+WARNING: 2 open meshes merged
+     Merged: Horz
+     Merged: NormalWing

@@ -13,8 +13,7 @@ beta = 0; %横滑り角
 [con, p, uv1, uv2, uv3, wedata, id] = readvspgeom( "FWpeller2.vspgeom", 0); %空力メッシュの作成
 
 wing = UNLSI(p',con',id',wedata,1); %インスタンスの作成
-wing = wing.setREFS(25.44,33.75,0.766); %基準値をセット
-wing = wing.setRotationCenter([0,0,0]); %回転中心（重心）をセット
+wing = wing.setREFS(25.44,33.75,0.766,[0,0,0]); %基準値をセット
 wing = wing.setUNLSISettings("propCalcFlag",1,"laminarRatio",0.4,"propWakeLength",1,"Vinf",Vinf); %設定を変更 アクチュエータディスク（プロペラ計算）の有効化、層流比を0.4に、プロペラwakeの長さをプロペラ直径の4倍に、飛行速度を設定
 wing = wing.setProp(1,4,1.6,1); %空力メッシュID4晩を
 wing = wing.makeCluster();

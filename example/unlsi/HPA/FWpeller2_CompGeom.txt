@@ -1,0 +1,33 @@
+...Comp Geom...
+8 Num Comps
+11 Total Num Meshes
+5408 Total Num Tris
+
+Theo_Area   Wet_Area   Theo_Vol    Wet_Vol  Name
+   51.817     51.817      1.368      1.368  WingGeom       
+    4.572      4.572      0.100      0.100  WingGeom       
+    1.684      1.684      0.036      0.036  WingGeom       
+    0.406      0.406      0.002      0.002  PropGeom       
+    0.406      0.406      0.002      0.002  PropGeom       
+    4.766      4.759      0.666      0.666  StackGeom      
+    1.888      1.885      0.046      0.046  FuselageGeom   
+    0.248      0.135      0.003      0.002  StackGeom      
+    0.248      0.128      0.003      0.001  StackGeom      
+-------------------------------------------------
+   66.037     65.792      2.225      2.222  Totals         
+
+Tag_Theo_Area   Tag_Wet_Area    Tag_Name
+       25.909         25.909    WingGeom_S_Surf0
+       25.909         25.909    WingGeom_S_Surf1
+        2.286          2.286    WingGeom_S_Surf0
+        2.286          2.286    WingGeom_S_Surf1
+        1.684          1.684    WingGeom_S_Surf0
+        0.406          0.406    PropGeom_S_Surf0
+        0.406          0.406    PropGeom_S_Surf1
+        4.766          4.759    StackGeom_S_Surf0
+        1.888          1.885    FuselageGeom_S_Surf0
+        0.248          0.135    StackGeom_S_Surf0
+        0.248          0.128    StackGeom_S_Surf0
+WARNING: 2 open meshes merged
+     Merged: WingGeom
+     Merged: WingGeom

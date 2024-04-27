@@ -1,0 +1,9 @@
+# VSPGEOM Tag Key File
+C:\Users\Naoto\Dropbox\research\UNLSIworks\unlsi\prop\prop.vspgeom
+4
+
+# tag#,geom#,surf#,gname,gid,ssname1,ssname2,...,ssid1,ssid2,...
+1,0,0,PropGeom_S,XYMOBZRNEH
+2,0,1,PropGeom_S,XYMOBZRNEH
+3,1,0,WingGeom_S,PNBZISUERG
+4,1,1,WingGeom_S,PNBZISUERG

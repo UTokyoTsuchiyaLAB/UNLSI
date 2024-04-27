@@ -4,8 +4,7 @@
 clear;
 [con, p, uv1, uv2, uv3, wedata, id] = readvspgeom( "wing.vspgeom", 0); %形状の読み込み
 wing = UNLSI(p',con',id',wedata,1); %コンストラクタの実行
-wing = wing.setREFS(80,20,4); %基準面積 基準長の設定
-wing = wing.setRotationCenter([0,0,0]); %回転中心の設定
+wing = wing.setREFS(80,20,4,[0,0,0]); %基準面積 基準長の設定
 wing = wing.setUNLSISettings("nCalcDivide",2);%パネル法行列の作成における分割数を設定
 wing = wing.makeCluster(); %速度分布を求めるためのパネルクラスターを作成
 wing = wing.makeEquation(); %パネル法行列の作成

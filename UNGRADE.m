@@ -94,7 +94,7 @@
             obj.settingUNGRADE.updateMethod = "Levenberg–Marquardt";%解を更新する方法 Steepest-Descent,Levenberg–Marquardt,dogleg
             obj.settingUNGRADE.betaLM = 0.5; %レーベンバーグマッカートの重み係数
             obj.settingUNGRADE.alphaSD = 0.5; %最急降下法の重み 
-            obj.settingUNGRADE.TrustRegion = 0.1; %設計更新を行う際のスケーリングされた設計変数更新量の最大値
+            obj.settingUNGRADE.TrustRegion = 0.05; %設計更新を行う際のスケーリングされた設計変数更新量の最大値
             obj.settingUNGRADE.dynCoefFlag = 0;
             obj.settingUNGRADE.r0RBF = 1;
             %%%%%%%%%%%%%
@@ -102,8 +102,7 @@
             warning('off','MATLAB:triangulation:PtsNotInTriWarnId');
             [orgGeomVerts,orgGeomCon,optSREF,optBREF,optCREF,optXYZREF,obj.argin_x,desOrg] = obj.geomGenFun(desOrg);
             obj.orgMesh = triangulation(obj.tri.ConnectivityList,obj.tri.Points);
-            obj = obj.setREFS(optSREF,optBREF,optCREF);
-            obj = obj.setRotationCenter(optXYZREF);
+            obj = obj.setREFS(optSREF,optBREF,optCREF,optXYZREF);
             obj.unscaledVar = desOrg(:)';
             obj.scaledVar = (desOrg(:)'-obj.lb)./obj.designScale;
             obj.orgGeom =  triangulation(orgGeomCon,orgGeomVerts);
@@ -194,8 +193,7 @@
             end
             warning('off','MATLAB:triangulation:PtsNotInTriWarnId');
             obj.orgMesh = triangulation(obj.tri.ConnectivityList,obj.tri.Points);
-            obj = obj.setREFS(optSREF,optBREF,optCREF);
-            obj = obj.setRotationCenter(optXYZREF);
+            obj = obj.setREFS(optSREF,optBREF,optCREF,optXYZREF);
             obj.unscaledVar = unscaledVariables(:)';
             obj.scaledVar = (unscaledVariables(:)'-obj.lb)./obj.designScale;
             obj.orgGeom =  triangulation(orgGeomCon,orgGeomVerts);
@@ -488,13 +486,13 @@
             for i = 1:size(obj.flowNoList,1)
                 if i == 1
                     if obj.flowNoList(i,3) == 1
-                        dR_du = -obj.LHS; %亜音速
+                        dR_du = -(obj.LHS+obj.wakeLHS); %亜音速
                     else
                         dR_du = eye(nbPanel);
                     end
                 else
                     if obj.flowNoList(i,3) == 1
-                        dR_du = blkdiag(dR_du,-obj.LHS);
+                        dR_du = blkdiag(dR_du,-(obj.LHS+obj.wakeLHS));
                     else
                         dR_du = blkdiag(dR_du,eye(nbPanel));
                     end
@@ -535,8 +533,7 @@
                 CREF2 = obj.CREF+obj.gradCREF*(x(:)-obj.scaledVar(:));
                 XYZREF2 = obj.XYZREF+(obj.gradXYZREF*(x(:)-obj.scaledVar(:)))';
                 argin_x2 = obj.argin_x+obj.gradArginx*(x(:)-obj.scaledVar(:));
-                obj2 = obj2.setREFS(SREF2,BREF2,CREF2);
-                obj2 = obj2.setRotationCenter(XYZREF2);
+                obj2 = obj2.setREFS(SREF2,BREF2,CREF2,XYZREF2);
                 if strcmpi(obj.settingUNGRADE.gradientCalcMethod,'direct')
                     %変数が少ないときは直接作成
                     if any(obj.flowNoList(:,3) == 1)

@@ -7,18 +7,15 @@ winddata.CD = [0.03,0.02,0.03,0.04,0.05,0.07,0.09,0.11,0.13,0.15,0.19];%風洞�
 
 [con, p, uv1, uv2, uv3, wedata, id] = readvspgeom( "Cessna-210.vspgeom", 0);%形状の読み込み
 wing = UNLSI(p',con',id',wedata,1); %コンストラクタの実行
-wing = wing.setREFS(175,36.75,4.91); %基準面積 基準長の設定
-wing = wing.setRotationCenter([0,0,0]); %回転中心の設定
+wing = wing.setREFS(175,36.75,4.91,[0,0,0]); %基準面積 基準長の設定
+
 wing = wing.makeCluster(); %速度分布を求めるためのパネルクラスターを作成
 wing = wing.makeEquation(); %パネル法行列の作成
 %%%%%%%%ここまでは一度計算すればスキップできる
 %}
+
 ad = [];
 for i = 1:numel(winddata.alpha)
-    wakeDir = [5,100*[cosd(winddata.alpha(i)),0,sind(winddata.alpha(i))];
-        3,100*[cosd(winddata.alpha(i)),0,sind(winddata.alpha(i))];
-        4,100*[cosd(winddata.alpha(i)),0,sind(winddata.alpha(i))];];
-    wing = wing.makeWakeEquation(wakeDir); %パネル法行列の作成
     wing = wing.solveFlow(winddata.alpha(i),0,0.001,2.3*10^6); %パネル法を解く
     if winddata.alpha(i) == 0
         wing.plotGeometry(1,wing.getCp(0,0,0.001,2.3*10^6),[-2,1]); %圧力係数のプロット
