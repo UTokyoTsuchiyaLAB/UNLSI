@@ -1,16 +1,20 @@
 function [orgVal,modVal] = modifyDesFile(filename,outputname,modVal)
     fid = fopen(filename,"r");
     nrow = fscanf(fid,"%d",1);
-    if numel(modVal) ~= nrow
-        error("No.of variable not match");
-    end
+
     for i = 1:nrow
         dataName{i} = fscanf(fid,"%s:%s:%s:%s:",1);
         orgVal(i) = fscanf(fid,"%f",1);
     end
     fclose(fid);
-    if nargin == 2
+    if nargin == 1
+        modVal = [];
+        return;
+    elseif nargin == 2
         modVal = orgVal;
+    end
+    if numel(modVal) ~= nrow
+        error("No.of variable not match");
     end
     fid = fopen(outputname,"w");
     fprintf(fid,"%d\n",nrow);

@@ -1,0 +1,21 @@
+20
+KVKMHYFXHIA:StackGeom:XSec_1:XDelta: 0.45
+LQOOVSDAQQD:StackGeom:XSecCurve_2:RoundRectXSec_Radius: 0.005
+MAEVCKYBIUW:StackGeom:XSecCurve_2:RoundedRect_Height: 0.05
+JCBFWYICQFD:StackGeom:XSecCurve_1:RoundRectXSec_Radius: 0.005
+VAUIFNFFDLB:StackGeom:XSecCurve_1:RoundedRect_Height: 0.066
+UJNIQZOMKNW:WingGeom:LowerCoeff_2:Al_1: -0.2
+RTPXYIBWXTI:WingGeom:LowerCoeff_2:Al_2: -0.2
+RWZDLZYFMXG:WingGeom:UpperCoeff_2:Au_0: 0.2
+HNJHUSJDMSW:WingGeom:UpperCoeff_2:Au_1: 0.2
+HBRCOWQSRGO:WingGeom:UpperCoeff_2:Au_2: 0
+ADLQVLICRZC:WingGeom:XSec_2:Sweep: 20
+MWNXMRZGPCK:WingGeom:XSec_2:Tip_Chord: 0.162
+QTRIVRFKDCJ:WingGeom:XSec_2:Twist: -3.863
+AWYEQPEWIWH:WingGeom:XSec_3:Twist: -8
+AQTCTAWJUBL:WingGeom:LowerCoeff_0:Al_1: 0
+NHIXMOOUPZF:WingGeom:LowerCoeff_0:Al_2: -0
+DUPYUSBVNTK:WingGeom:UpperCoeff_0:Au_0: 0.17
+PTNCLCKMPXZ:WingGeom:UpperCoeff_0:Au_1: 0.2
+ASVYYSPDSFL:WingGeom:UpperCoeff_0:Au_2: 0.2
+CUJIDCGIMLY:WingGeom:XSec_1:Root_Chord: 0.4

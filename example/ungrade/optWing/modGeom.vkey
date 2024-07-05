@@ -1,12 +1,10 @@
 # VSPGEOM Tag Key File
 modGeom.vspgeom
-7
+5
 
 # tag#,geom#,surf#,gname,gid,ssname1,ssname2,...,ssid1,ssid2,...
-1,0,0,StackGeom_S,HKXIAPFJVO
-2,0,1,StackGeom_S,HKXIAPFJVO
-3,1,0,WingGeom_S,GHEHDIDSPO
-4,1,1,WingGeom_S,GHEHDIDSPO
-5,2,0,PropGeom_S,FQNFRGTDBL
-6,1,0,WingGeom_S,GHEHDIDSPO,SS_CONT_0,WCWJMPOHSX
-7,1,1,WingGeom_S,GHEHDIDSPO,SS_CONT_0,WCWJMPOHSX
+1,1,0,WingGeom_S,GHEHDIDSPO
+2,1,1,WingGeom_S,GHEHDIDSPO
+3,0,0,StackGeom_S,MVRHCFRHDZ
+4,1,0,WingGeom_S,GHEHDIDSPO,SS_CONT_0,WCWJMPOHSX
+5,1,1,WingGeom_S,GHEHDIDSPO,SS_CONT_0,WCWJMPOHSX

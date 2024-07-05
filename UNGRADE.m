@@ -33,7 +33,6 @@
         ub %設計変数の上限
         settingUNGRADE %最適化・解析の設定値
         geom2MeshMat %メッシュ変形行列
-        meshScaling%メッシュ行列のスケーリング変数
         phiRBF%メッシュ行列作成に使うRBF関数
         designScale %ub-lbのスケーリングパラメータ
         gradMesh %メッシュ節点の変化を設計変数で一次近似したもの
@@ -89,12 +88,14 @@
             obj.settingUNGRADE.nMemory = 20; %記憶制限準ニュートン法のさかのぼり回数（厳密な記憶制限法は実装していない）
             obj.settingUNGRADE.H0 = eye(numel(obj.lb)); %初期ヘッシアン
             obj.settingUNGRADE.meshGradientPerturbation = 0.001;%メッシュ勾配をとるときのスケールされてない設計変数の摂動量
-            obj.settingUNGRADE.gradientCalcMethod = "direct"; %設計変数偏微分の取得方法："direct", "chain", "nonlin"
+            obj.settingUNGRADE.gradientCalcMethod = "chain"; %設計変数偏微分の取得方法："direct", "chain", "nonlin"
+            obj.settingUNGRADE.approximateWakeGrad = 0;
             obj.settingUNGRADE.HessianUpdateMethod = "BFGS"; %ヘッシアン更新は "BFGS","DFP","Broyden","SR1"から選択
-            obj.settingUNGRADE.updateMethod = "Levenberg–Marquardt";%解を更新する方法 Steepest-Descent,Levenberg–Marquardt,dogleg
-            obj.settingUNGRADE.betaLM = 0.5; %レーベンバーグマッカートの重み係数
+            obj.settingUNGRADE.hessianAveraging = 0.2;
+            obj.settingUNGRADE.updateMethod = "Quasi-Newton";%解を更新する方法 Quasi-Newton, Steepest-Descent,Levenberg–Marquardt,dogleg
+            obj.settingUNGRADE.betaLM = 0.1; %レーベンバーグマッカートの重み係数
             obj.settingUNGRADE.alphaSD = 0.5; %最急降下法の重み 
-            obj.settingUNGRADE.TrustRegion = 0.05; %設計更新を行う際のスケーリングされた設計変数更新量の最大値
+            obj.settingUNGRADE.TrustRegion = 0.1; %設計更新を行う際のスケーリングされた設計変数更新量の最大値
             obj.settingUNGRADE.dynCoefFlag = 0;
             obj.settingUNGRADE.r0RBF = 1;
             %%%%%%%%%%%%%
@@ -103,6 +104,9 @@
             [orgGeomVerts,orgGeomCon,optSREF,optBREF,optCREF,optXYZREF,obj.argin_x,desOrg] = obj.geomGenFun(desOrg);
             obj.orgMesh = triangulation(obj.tri.ConnectivityList,obj.tri.Points);
             obj = obj.setREFS(optSREF,optBREF,optCREF,optXYZREF);
+            fprintf("Reference Value\nSREF : %f BREF : %f CREF : %f\nXREF : %f YREF : %f ZREF : %f\n",optSREF,optBREF,optCREF,optXYZREF(1),optXYZREF(2),optXYZREF(3));
+            disp("Argin Value");
+            disp(obj.argin_x);
             obj.unscaledVar = desOrg(:)';
             obj.scaledVar = (desOrg(:)'-obj.lb)./obj.designScale;
             obj.orgGeom =  triangulation(orgGeomCon,orgGeomVerts);
@@ -191,6 +195,9 @@
                 disp(unscaledVariables);
                 obj.history.setMeshbyDeform(obj.iteration) = 0;
             end
+            fprintf("Reference Value\nSREF : %f BREF : %f CREF : %f\nXREF : %f YREF : %f ZREF : %f\n",optSREF,optBREF,optCREF,optXYZREF(1),optXYZREF(2),optXYZREF(3));
+            disp("Argin Value");
+            disp(obj.argin_x);
             warning('off','MATLAB:triangulation:PtsNotInTriWarnId');
             obj.orgMesh = triangulation(obj.tri.ConnectivityList,obj.tri.Points);
             obj = obj.setREFS(optSREF,optBREF,optCREF,optXYZREF);
@@ -458,15 +465,17 @@
             %%%
             %明示・非明示随伴方程式法の実装
             %u微分の計算
-            pert = sqrt(eps);
+            pert = eps^(1/3);
             for i = 1:numel(u0)
-                u = u0;
-                u(i) = u(i)+pert;
+                uf = u0;
+                ur = u0;
+                uf(i) = uf(i)+pert;
+                ur(i) = ur(i)-pert;
                 for iter = 1:numel(obj.flow)
                     lktable = find(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                     usolve = zeros(nbPanel*numel(lktable),1);
                     for k = 1:numel(lktable)
-                        usolve(nbPanel*(k-1)+1:nbPanel*k,1) = u((lktable(k)-1)*nbPanel+1:lktable(k)*nbPanel,1);
+                        usolve(nbPanel*(k-1)+1:nbPanel*k,1) = uf((lktable(k)-1)*nbPanel+1:lktable(k)*nbPanel,1);
                     end
                     alphabuff = obj.settingUNGRADE.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
                     betabuff = obj.settingUNGRADE.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
@@ -477,22 +486,40 @@
                         DYNCOEF = [];
                     end
                 end
-                [I,con] = objandConsFun(desOrg,AERODATA,DYNCOEF,Cp,Cfe,obj.SREF,obj.BREF,obj.CREF,obj.XYZREF,obj.argin_x);
-                dI_du(i) = (I-I0)/pert;%評価関数のポテンシャルに関する偏微分
-                if not(isempty(con))
-                    dcon_du(:,i) = (con-con0)/pert;
+                [If,conf] = objandConsFun(desOrg,AERODATA,DYNCOEF,Cp,Cfe,obj.SREF,obj.BREF,obj.CREF,obj.XYZREF,obj.argin_x);
+
+                for iter = 1:numel(obj.flow)
+                    lktable = find(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
+                    usolve = zeros(nbPanel*numel(lktable),1);
+                    for k = 1:numel(lktable)
+                        usolve(nbPanel*(k-1)+1:nbPanel*k,1) = ur((lktable(k)-1)*nbPanel+1:lktable(k)*nbPanel,1);
+                    end
+                    alphabuff = obj.settingUNGRADE.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
+                    betabuff = obj.settingUNGRADE.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
+                    [AERODATA,Cp,Cfe,~,obj] = obj.solveFlowForAdjoint(usolve,iter,alphabuff,betabuff);
+                    if obj.settingUNGRADE.dynCoefFlag == 1
+                        DYNCOEF =  obj.calcDynCoefforAdjoint(usolve,udwf{iter},udwr{iter},iter,alphabuff,betabuff);
+                    else
+                        DYNCOEF = [];
+                    end
+                end
+                [Ir,conr] = objandConsFun(desOrg,AERODATA,DYNCOEF,Cp,Cfe,obj.SREF,obj.BREF,obj.CREF,obj.XYZREF,obj.argin_x);
+
+                dI_du(i) = (If-Ir)/pert/2;%評価関数のポテンシャルに関する偏微分
+                if not(isempty(con0))
+                    dcon_du(:,i) = (conf-conr)/pert/2;
                 end
             end
             for i = 1:size(obj.flowNoList,1)
                 if i == 1
                     if obj.flowNoList(i,3) == 1
-                        dR_du = -(obj.LHS+obj.wakeLHS); %亜音速
+                        dR_du = (obj.LHS+obj.wakeLHS); %亜音速
                     else
                         dR_du = eye(nbPanel);
                     end
                 else
                     if obj.flowNoList(i,3) == 1
-                        dR_du = blkdiag(dR_du,-(obj.LHS+obj.wakeLHS));
+                        dR_du = blkdiag(dR_du,(obj.LHS+obj.wakeLHS));
                     else
                         dR_du = blkdiag(dR_du,eye(nbPanel));
                     end
@@ -503,12 +530,15 @@
             obj = obj.makeMeshGradient(obj,obj.settingUNGRADE.meshGradientPerturbation./obj.designScale);
             if strcmpi(obj.settingUNGRADE.gradientCalcMethod,'chain')
                 if any(obj.flowNoList(:,3) == 1)
-                    obj = obj.calcApproximatedEquation(obj);
+                    tic;
+                    obj = obj.calcApproximatedEquation(obj.settingUNGRADE.approximateWakeGrad);
+                    toc;
                 end
             end
 
             pert = sqrt(eps);
             for i= 1:numel(obj.scaledVar)
+                tic;
                 x = obj.scaledVar;
                 x(i) = obj.scaledVar(i)+pert;
                 des = x.*obj.designScale+obj.lb;
@@ -521,7 +551,7 @@
                     if any(obj.flowNoList(:,3) == 1)
                         obj2 = obj.makeApproximatedInstance(modMesh);
                     else
-                        obj2 = obj.setVerts(modMesh);
+                        obj2 = obj.setVerts(modMesh);s
                     end
                 else
                     error("Supported method is 'direct' or 'chain'.");
@@ -567,8 +597,9 @@
                 if not(isempty(con))
                     dcon_dx(:,i) = (con-con0)/pert;
                 end
-                dR_dx(:,i) = -(R-R0)./pert;
+                dR_dx(:,i) = (R-R0)./pert;
                 clear obj2;
+                toc;
             end
             %全微分でdxからduを求める行列
             %invdR_du = pinv(dR_du);
@@ -588,9 +619,17 @@
             ubf = 1-obj.scaledVar;
             obj.LagrangianInfo.lactiveBound = obj.scaledVar'<=0;
             obj.LagrangianInfo.uactiveBound = obj.scaledVar'>=1;
+            lbflin = lbf;
+            lbflin(obj.LagrangianInfo.lactiveBound==0) = -Inf;
+            ubflin = ubf;
+            ubflin(obj.LagrangianInfo.uactiveBound==0) =  Inf;
             if not(isempty(con))
                 obj.LagrangianInfo.clactiveBound = con0 <= cmin;
                 obj.LagrangianInfo.cuactiveBound = con0 >= cmax;
+                bothInacitve = and(obj.LagrangianInfo.clactiveBound==0,obj.LagrangianInfo.cuactiveBound==0);
+                obj.LagrangianInfo.clactiveBound(bothInacitve) = 1;
+                obj.LagrangianInfo.cuactiveBound(bothInacitve) = 1;
+
             else
                 obj.LagrangianInfo.clactiveBound = [];
                 obj.LagrangianInfo.cuactiveBound = [];
@@ -598,27 +637,44 @@
             if not(isempty(con))
                 obj.LagrangianInfo.alin = [-conTotalGrad;conTotalGrad];
                 obj.LagrangianInfo.blin = [con0(:)-cmin(:);cmax(:)-con0(:)];
+                alinlin = obj.LagrangianInfo.alin;
+                blinlin = obj.LagrangianInfo.blin;
+                alinlin([obj.LagrangianInfo.clactiveBound;obj.LagrangianInfo.cuactiveBound]==0,:) = [];
+                blinlin([obj.LagrangianInfo.clactiveBound;obj.LagrangianInfo.cuactiveBound]==0,:) = [];
             else
                 obj.LagrangianInfo.alin = [];
                 obj.LagrangianInfo.blin = [];
             end
 
-            options = optimoptions(@linprog,'Algorithm','interior-point','Display','final','MaxIter',10000);
-            [~,~,exitFlag,~,obj.LagrangianInfo.lambda] = linprog(objTotalGrad,obj.LagrangianInfo.alin,obj.LagrangianInfo.blin,[],[],lbf,ubf,options);
+            %options = optimoptions(@linprog,'Algorithm','interior-point','Display','final','MaxIter',10000);
+            %[~,~,exitFlag,~,obj.LagrangianInfo.lambda] = linprog(objTotalGrad,alinlin,blinlin,[],[],[],[],options);
+            %options = optimoptions(@quadprog,'Algorithm','active-set','Display','final','MaxIter',10000);
+            %[~,~,exitFlag,~,obj.LagrangianInfo.lambda] = quadprog(obj.BBMatrix,objTotalGrad,alinlin,blinlin,[],[],lbflin,ubflin,zeros(numel(obj.scaledVar),1),options);
+            options = optimoptions(@fmincon,'Algorithm','sqp','Display','final-detailed','MaxFunctionEvaluations',10000);
+            [~,~,exitFlag,~,obj.LagrangianInfo.lambda] = fmincon(@(x)obj.fminconObj(x,eye(numel(obj.scaledVar)),objTotalGrad),zeros(numel(obj.scaledVar),1),alinlin,blinlin,[],[],lbflin,ubflin,[],options);
             if exitFlag<1
-                options = optimoptions(@fmincon,'Algorithm','interior-point','Display','final-detailed',"EnableFeasibilityMode",true,"SubproblemAlgorithm","cg",'MaxFunctionEvaluations',10000);
-                [~,~,~,~,obj.LagrangianInfo.lambda] = fmincon(@(x)obj.fminconObj(x,obj.Hessian,objTotalGrad),zeros(numel(obj.scaledVar),1),obj.LagrangianInfo.alin,obj.LagrangianInfo.blin,[],[],lbf,ubf,[],options);
+                %[~,~,exitFlag,~,obj.LagrangianInfo.lambda] = linprog(objTotalGrad,obj.LagrangianInfo.alin,obj.LagrangianInfo.blin,[],[],1000*lbf,1000*ubf,options);
+                %if exitFlag<1
+                    options = optimoptions(@fmincon,'Algorithm','sqp','Display','final-detailed','MaxFunctionEvaluations',10000);
+                    [~,~,~,~,obj.LagrangianInfo.lambda] = fmincon(@(x)obj.fminconObj(x,eye(numel(obj.scaledVar)),objTotalGrad),zeros(numel(obj.scaledVar),1),alinlin,blinlin,[],[],lbflin,ubflin,[],options);
+                %end
             end
-      
             if not(isempty(con))
-                lambdaR = -(dR_du')\(dI_du+(obj.LagrangianInfo.lambda.ineqlin'*diag([obj.LagrangianInfo.clactiveBound;obj.LagrangianInfo.cuactiveBound]))*[-dcon_du;dcon_du])';
-                obj.LagrangianInfo.Lorg = I0 + (obj.LagrangianInfo.lambda.ineqlin'*diag([obj.LagrangianInfo.clactiveBound;obj.LagrangianInfo.cuactiveBound]))*[cmin-con0;con0-cmax;]+((obj.LagrangianInfo.lambda.upper.*obj.LagrangianInfo.uactiveBound)'*(obj.scaledVar'-1))'+((obj.LagrangianInfo.lambda.lower.*obj.LagrangianInfo.lactiveBound)'*(-obj.scaledVar'))';
-                obj.LagrangianInfo.dL_dx = dI_dx+lambdaR'*dR_dx+(obj.LagrangianInfo.lambda.ineqlin'*diag([obj.LagrangianInfo.clactiveBound;obj.LagrangianInfo.cuactiveBound]))*[-dcon_dx;dcon_dx]+(obj.LagrangianInfo.lambda.upper.*obj.LagrangianInfo.uactiveBound)'-(obj.LagrangianInfo.lambda.lower.*obj.LagrangianInfo.lactiveBound)';
+                lambdaC = zeros(size(obj.LagrangianInfo.blin,1),1);
+                if not(isempty(obj.LagrangianInfo.lambda.ineqlin))
+                    lambdaC([obj.LagrangianInfo.clactiveBound;obj.LagrangianInfo.cuactiveBound]==1,1) = obj.LagrangianInfo.lambda.ineqlin;
+                end
+                lambdaR = -(dR_du')\(dI_du+(lambdaC'*diag([obj.LagrangianInfo.clactiveBound;obj.LagrangianInfo.cuactiveBound]))*[-dcon_du;dcon_du])';
+                obj.LagrangianInfo.Lorg = I0 + (lambdaC'*diag([obj.LagrangianInfo.clactiveBound;obj.LagrangianInfo.cuactiveBound]))*[cmin-con0;con0-cmax;]+((obj.LagrangianInfo.lambda.upper.*obj.LagrangianInfo.uactiveBound)'*(obj.scaledVar'-1))'+((obj.LagrangianInfo.lambda.lower.*obj.LagrangianInfo.lactiveBound)'*(-obj.scaledVar'))';
+                obj.LagrangianInfo.dL_dx = dI_dx+lambdaR'*dR_dx+(lambdaC'*diag([obj.LagrangianInfo.clactiveBound;obj.LagrangianInfo.cuactiveBound]))*[-dcon_dx;dcon_dx]+(obj.LagrangianInfo.lambda.upper.*obj.LagrangianInfo.uactiveBound)'-(obj.LagrangianInfo.lambda.lower.*obj.LagrangianInfo.lactiveBound)';
             else
                 lambdaR = -(dR_du')\dI_du';
                 obj.LagrangianInfo.Lorg = I0+((obj.LagrangianInfo.lambda.upper.*obj.LagrangianInfo.uactiveBound)'*(obj.scaledVar'-1))'+((obj.LagrangianInfo.lambda.lower.*obj.LagrangianInfo.lactiveBound)'*(-obj.scaledVar'))';
                 obj.LagrangianInfo.dL_dx = dI_dx+lambdaR'*dR_dx+(obj.LagrangianInfo.lambda.upper.*obj.LagrangianInfo.uactiveBound)'-(obj.LagrangianInfo.lambda.lower.*obj.LagrangianInfo.lactiveBound)';
             end
+            obj.LagrangianInfo.dLorg = obj.LagrangianInfo.Lorg;
+            obj.LagrangianInfo.dL_dx = obj.LagrangianInfo.dL_dx;
+
             obj.history.LagrangianVal(obj.iteration) = obj.LagrangianInfo.Lorg;
             obj.history.scaledVar(obj.iteration,:) = obj.scaledVar;
             obj.history.dL_dx(obj.iteration,:) = obj.LagrangianInfo.dL_dx;
@@ -637,7 +693,9 @@
             end
             fprintf("--updateMethod : %s\n",obj.settingUNGRADE.updateMethod)
 
-            if strcmpi(obj.settingUNGRADE.updateMethod,"Levenberg–Marquardt")
+            if strcmpi(obj.settingUNGRADE.updateMethod,"Quasi-Newton")
+                fprintf("--TrustRegion : %f\n",obj.settingUNGRADE.TrustRegion)
+            elseif strcmpi(obj.settingUNGRADE.updateMethod,"Levenberg–Marquardt")
                 fprintf("--TrustRegion : %f\n",obj.settingUNGRADE.TrustRegion)
                 fprintf("--Beta(Levenberg-Marquardt) : %f\n",obj.settingUNGRADE.betaLM)
             elseif strcmpi(obj.settingUNGRADE.updateMethod,"dogleg")
@@ -649,27 +707,24 @@
             desOrg = obj.scaledVar.*obj.designScale+obj.lb;
             lbf = -obj.scaledVar;
             ubf = 1-obj.scaledVar;
-            lbf(lbf<-obj.settingUNGRADE.TrustRegion) = -obj.settingUNGRADE.TrustRegion;
-            ubf(ubf>obj.settingUNGRADE.TrustRegion) = obj.settingUNGRADE.TrustRegion;
+            %lbf(lbf<-obj.settingUNGRADE.dxMax) = -obj.settingUNGRADE.dxMax;
+            %ubf(ubf>obj.settingUNGRADE.dxMax) = obj.settingUNGRADE.dxMax;
             ndim = numel(lbf);
             ncon = numel(obj.LagrangianInfo.blin);
-            if strcmpi(obj.settingUNGRADE.updateMethod,"Levenberg–Marquardt")
-                options = optimoptions(@fmincon,'Algorithm','interior-point','Display','final-detailed','EnableFeasibilityMode',true,"SubproblemAlgorithm","cg",'MaxFunctionEvaluations',10000);     
-                if any([obj.LagrangianInfo.cuactiveBound;obj.LagrangianInfo.clactiveBound]==1)
-                    H = blkdiag(obj.Hessian+obj.settingUNGRADE.betaLM*diag(diag(obj.Hessian)),eye(ncon).*10);
-                    dxscaled = fmincon(@(x)obj.fminconObj(x,H,[obj.LagrangianInfo.dL_dx,ones(1,ncon).*10]),zeros(numel(obj.scaledVar)+numel(obj.LagrangianInfo.blin),1),[obj.LagrangianInfo.alin,-eye(ncon)],obj.LagrangianInfo.blin,[],[],[lbf,ones(1,ncon).*0],[ubf,ones(1,ncon).*Inf],[],options);
-                else
-                    dxscaled = fmincon(@(x)obj.fminconObj(x,obj.Hessian+obj.settingUNGRADE.betaLM*diag(diag(obj.Hessian)),obj.LagrangianInfo.dL_dx),zeros(numel(obj.scaledVar),1),[],[],[],[],lbf,ubf,[],options);
-                end
+            if strcmpi(obj.settingUNGRADE.updateMethod,"Quasi-Newton")
+                options = optimoptions(@fmincon,'Algorithm','sqp','Display','final-detailed','EnableFeasibilityMode',true,"SubproblemAlgorithm","cg",'MaxFunctionEvaluations',10000);     
+                dxscaled = fmincon(@(x)obj.fminconObj(x,obj.Hessian,obj.LagrangianInfo.dL_dx),zeros(numel(obj.scaledVar),1),[],[],[],[],lbf,ubf,@(x)obj.fminconNlc(x,obj.settingUNGRADE.TrustRegion,ndim),options);
+                dxscaled = dxscaled(1:ndim,1);        
+            elseif strcmpi(obj.settingUNGRADE.updateMethod,"Levenberg–Marquardt")
+                options = optimoptions(@fmincon,'Algorithm','sqp','Display','final-detailed','EnableFeasibilityMode',true,"SubproblemAlgorithm","cg",'MaxFunctionEvaluations',10000);     
+                dxscaled = fmincon(@(x)obj.fminconObj(x,obj.Hessian+obj.settingUNGRADE.betaLM*diag(diag(obj.Hessian)),obj.LagrangianInfo.dL_dx),zeros(numel(obj.scaledVar),1),[],[],[],[],lbf,ubf,@(x)obj.fminconNlc(x,obj.settingUNGRADE.TrustRegion,ndim),options);
                 dxscaled = dxscaled(1:ndim,1);
             elseif strcmpi(obj.settingUNGRADE.updateMethod,"dogleg")
-
                 %%%%%%%%%%%%%%%%%%%%%%%%%%%dog-legとsteepest-descentはアルゴリズム対応が途中
-
                 %sd方向を求める行列
                 Aeq = [eye(ndim),obj.LagrangianInfo.dL_dx(:)];
                 beq = zeros(ndim,1);
-                options = optimoptions(@fmincon,'Algorithm','interior-point','Display','final-detailed','EnableFeasibilityMode',true,"SubproblemAlgorithm","cg",'MaxFunctionEvaluations',10000);
+                options = optimoptions(@fmincon,'Algorithm','sqp','Display','final-detailed','EnableFeasibilityMode',true,"SubproblemAlgorithm","cg",'MaxFunctionEvaluations',10000);
                 xsd_t = fmincon(@(x)obj.fminconObj(x,obj.Hessian,obj.LagrangianInfo.dL_dx),zeros(numel(obj.scaledVar)+1,1),[],[],Aeq,beq,[lbf,-100],[ubf,100],[],options);
                 xsd = xsd_t(1:ndim);
                 xqn = fmincon(@(x)obj.fminconObj(x,obj.Hessian,obj.LagrangianInfo.dL_dx),zeros(numel(obj.scaledVar),1),[],[],[],[],lbf,ubf,[],options);
@@ -682,11 +737,34 @@
                     dxscaled = xsd + sdl .* (xqn-xsd);
                 end
             elseif strcmpi(obj.settingUNGRADE.updateMethod,"Steepest-Descent")
-                options = optimoptions(@fmincon,'Algorithm','interior-point','Display','final-detailed','EnableFeasibilityMode',true,"SubproblemAlgorithm","cg",'MaxFunctionEvaluations',10000);
-                dxscaled = fmincon(@(x)obj.fminconObj(x,2.*eye(ndim),2.*obj.settingUNGRADE.alphaSD.*obj.LagrangianInfo.dL_dx),zeros(numel(obj.scaledVar),1),[],[],[],[],[],[],@(x)obj.fminconNlc(x,obj.settingUNGRADE.TrustRegion),options);
+                options = optimoptions(@fmincon,'Algorithm','sqp','Display','final-detailed','EnableFeasibilityMode',true,"SubproblemAlgorithm","cg",'MaxFunctionEvaluations',10000);
+                dxscaled = fmincon(@(x)obj.fminconObj(x,2.*eye(ndim),2.*obj.settingUNGRADE.alphaSD.*obj.LagrangianInfo.dL_dx),zeros(numel(obj.scaledVar),1),[],[],[],[],lbf,ubf,@(x)obj.fminconNlc(x,obj.settingUNGRADE.TrustRegion,ndim),options);
                 %dxscaled = -obj.settingUNGRADE.alphaSD.*obj.LagrangianInfo.dL_dx';
+            elseif strcmpi(obj.settingUNGRADE.updateMethod,"bb")
+                options = optimoptions(@fmincon,'Algorithm','sqp','Display','final-detailed','EnableFeasibilityMode',true,"SubproblemAlgorithm","cg",'MaxFunctionEvaluations',10000);
+                dxscaled = fmincon(@(x)obj.fminconObj(x,obj.BBMatrix,obj.LagrangianInfo.dL_dx),zeros(numel(obj.scaledVar),1),[],[],[],[],lbf,ubf,@(x)obj.fminconNlc(x,obj.settingUNGRADE.TrustRegion,ndim),options);
             end
+
+            %線形化した厳密な評価関数を用いて直線探索をする。
+%             rho = 1000;
+%             dx0ls = dxscaled;
+%             fvalOrg = rho*sum(max([-obj.LagrangianInfo.blin,zeros(size(obj.LagrangianInfo.blin))],[],2));
+%             for i = 1:300          
+%                 conPred = obj.LagrangianInfo.alin * dxscaled(:)-obj.LagrangianInfo.blin;
+%                 fvaldx = obj.LagrangianInfo.dL_dx*dxscaled(:) + rho*sum(max([conPred,zeros(size(obj.LagrangianInfo.blin))],[],2));
+%                 if fvaldx>fvalOrg
+%                     dxscaled = 0.99.*dxscaled;
+%                     if all(obj.settingUNGRADE.meshGradientPerturbation > abs(dxscaled(:)).*obj.designScale(:))  
+%                         dxscaled = dxscaled./0.99;
+%                         break;
+%                     end
+%                 else
+%                     break;
+%                 end
+%             end
+%             fprintf("\nSimplified Line Search : alpha %f \n",norm(dxscaled)/norm(dx0ls));
             dx = dxscaled(:)'.*obj.designScale;
+            fprintf("dx Norm : %f  unscaled : %f \n",norm(dxscaled),norm(dx));
             nextUnscaledVar = desOrg + dx(:)';
             scaleddxNorm = norm(dxscaled);
         end
@@ -694,7 +772,11 @@
         function [Lval,I,con,obj] = calcLagrangian(obj,objandConsFun,cmin,cmax)
             [I,con,obj] = evaluateObjFun(obj,objandConsFun);
             if not(isempty(con))
-                Lval = I + (obj.LagrangianInfo.lambda.ineqlin'*diag([obj.LagrangianInfo.clactiveBound;obj.LagrangianInfo.cuactiveBound]))*[cmin-con;con-cmax;]+((obj.LagrangianInfo.lambda.upper.*obj.LagrangianInfo.uactiveBound)'*(obj.scaledVar'-1))'+((obj.LagrangianInfo.lambda.lower.*obj.LagrangianInfo.lactiveBound)'*(-obj.scaledVar'))';
+                lambdaC = zeros(numel(con)*2,1);
+                if not(isempty(obj.LagrangianInfo.lambda.ineqlin))
+                    lambdaC([obj.LagrangianInfo.clactiveBound;obj.LagrangianInfo.cuactiveBound]==1,1) = obj.LagrangianInfo.lambda.ineqlin;
+                end
+                Lval = I + (lambdaC'*diag([obj.LagrangianInfo.clactiveBound;obj.LagrangianInfo.cuactiveBound]))*[cmin-con;con-cmax;]+((obj.LagrangianInfo.lambda.upper.*obj.LagrangianInfo.uactiveBound)'*(obj.scaledVar'-1))'+((obj.LagrangianInfo.lambda.lower.*obj.LagrangianInfo.lactiveBound)'*(-obj.scaledVar'))';
             else
                 Lval = I+((obj.LagrangianInfo.lambda.upper.*obj.LagrangianInfo.uactiveBound)'*(obj.scaledVar'-1))'+((obj.LagrangianInfo.lambda.lower.*obj.LagrangianInfo.lactiveBound)'*(-obj.scaledVar'))';
             end
@@ -720,21 +802,17 @@
             %Hessianの更新
             if size(obj.history.scaledVar,1) > 1
                 n_iter = size(obj.history.scaledVar,1)-1;
-                if n_iter > obj.settingUNGRADE.nMemory
-                    n_iter = obj.settingUNGRADE.nMemory;
-                end
-                obj.Hessian = obj.settingUNGRADE.H0;
-                for i = n_iter:-1:1
-                    s = obj.history.scaledVar(end-(i-1),:)-obj.history.scaledVar(end-i,:);
-                    y = obj.history.dL_dx(end-(i-1),:)-obj.history.dL_dx(end-i,:);
+%                 if n_iter > obj.settingUNGRADE.nMemory
+%                     n_iter = obj.settingUNGRADE.nMemory;
+%                 end
+                for i = 1:n_iter
+                    s = obj.history.scaledVar(end,:)-obj.history.scaledVar(end-i,:);
+                    y = obj.history.dL_dx(end,:)-obj.history.dL_dx(end-i,:);
                     if norm(s)>sqrt(eps) && norm(y)>sqrt(eps)
-                        obj.Hessian = updateFunction(s,y,obj.Hessian);
+                        break;
                     end
                 end
-            end
-            if size(obj.history.scaledVar,1) > 1
-                s = obj.history.scaledVar(end,:)-obj.history.scaledVar(end-1,:);
-                y = obj.history.dL_dx(end,:)-obj.history.dL_dx(end-1,:);
+                obj.Hessian = obj.settingUNGRADE.hessianAveraging*updateFunction(s,y,obj.Hessian) + (1-obj.settingUNGRADE.hessianAveraging)*obj.Hessian;
                 obj.BBMatrix = obj.Barzilai_Borwein(s,y);
             end
             if issymmetric(obj.Hessian)
@@ -766,7 +844,7 @@
                 nextUnscaledVar = obj.descentLagrangian();%次の設計変数を計算する
         end
 
-        function plotOptimizationState(obj,fig)
+        function plotOptimizationState(obj,fig,filename)
             %%%%%%%%%%%%最適化の履歴をプロットする%%%%%%%%
             %fig : 描画するFigure
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -785,10 +863,12 @@
 
             subplot(wNum,1,2);grid on;
             plot(plotiter,obj.history.dL_dx,"-o","LineWidth",1);
+            %plot(plotiter,obj.history.dL_dxLP,"--o","LineWidth",1);hold off;
             ylabel("dL/dx");
             set(gca,"FontSize",14,'xticklabel',[]);grid on;
             subplot(wNum,1,3);grid on;
             plot(plotiter,obj.history.LagrangianVal,"-o","LineWidth",1);
+            %plot(plotiter,obj.history.LagrangianValLP,"--o","LineWidth",1);hold off;
             ylabel("Lag val");
             set(gca,"FontSize",14,'xticklabel',[]);grid on;
             subplot(wNum,1,4);grid on;
@@ -810,8 +890,10 @@
             xlabel("Iteration")
             set(gca,"FontSize",14);
             
-
             drawnow();
+            if nargin > 2
+                print(filename,'-dpng');
+            end
         end
     end
 
@@ -929,17 +1011,11 @@
         function Bkp1 = Broyden(s,y,Bk)
             s = s(:);
             y=y(:);
-            if s'*y<=0
-                Bkp1 = Bk;
-            else
-                Bkp1 = Bk+((y-Bk*s)/(s'*s))*s';
-                coeB=(s'*y)/(s'*Bkp1*s);
-                if coeB>0 && coeB<1
-                    Bkp1=coeB.*Bkp1;
-                end
-            end
+            Bkp1 = Bk+((y-Bk*s)/(s'*s))*s';
+            %Bkp1 = (Bkp1+Bkp1')./2;
         end
 
+        
         function Bkp1 = SR1(s,y,Bk)
             s = s(:);
             y=y(:);
@@ -952,12 +1028,13 @@
         function Bkp1 = Barzilai_Borwein(s,y)
             s = s(:);
             y=y(:);
-            delta = 100.0;
-            alpha = (s'*y)/(s'*s);
-            if alpha <= 0
-                alpha = norm(s)/norm(y);
-            end
-            alphak = min(alpha, delta / norm(y));
+            %delta = 100.0;
+            alphak = (s'*y)/(s'*s);
+            %alpha = (s'*y)/(y'*y);
+            %if alpha <= 0
+            %    alpha = norm(s)/norm(y);
+            %end
+            %alphak = min(alpha, delta / norm(y));
             Bk = eye(numel(s));
             Bkp1 = alphak * Bk;
         end
