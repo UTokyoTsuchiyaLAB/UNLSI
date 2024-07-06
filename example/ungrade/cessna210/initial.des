@@ -1,0 +1,22 @@
+21
+RWANJXYULQL:NormalWing:XSec_1:Root_Chord: 5.51
+OVTXLPFIOFC:NormalWing:XSec_1:Sweep: 0
+DZRBAHKVPJA:NormalWing:XSec_1:Tip_Chord: 4
+JJROHVUPTGQ:NormalWing:XSec_1:Twist: 0
+XLFHCYWOWVL:NormalWing:LowerCoeff_1:Al_1: 0.00443244
+QNTSOKKOFQU:NormalWing:LowerCoeff_1:Al_2: -0.216795
+SRZJKLVYPPF:NormalWing:LowerCoeff_1:Al_3: 0.0222149
+ZPYPYMUHBVE:NormalWing:LowerCoeff_1:Al_4: -0.0290492
+BDFBIWJNISV:NormalWing:UpperCoeff_1:Au_1: 0.257539
+XKNNGIRSOVY:NormalWing:UpperCoeff_1:Au_2: 0.200822
+DRNFBAXSRLB:NormalWing:UpperCoeff_1:Au_3: 0.280764
+NRBEZKUWJQR:NormalWing:UpperCoeff_1:Au_4: 0.222264
+RMIRWFSRPWH:NormalWing:XSec_0:Twist: 2
+XQLAUHJSVWZ:NormalWing:LowerCoeff_0:Al_1: -0.103115
+TNXONFKMYJD:NormalWing:LowerCoeff_0:Al_2: -0.258686
+ICNSPMZJJPC:NormalWing:LowerCoeff_0:Al_3: -0.0838997
+QMFSSIGSUBY:NormalWing:LowerCoeff_0:Al_4: -0.105765
+TNCLXMNOUUQ:NormalWing:UpperCoeff_0:Au_1: 0.23822
+AJQXPYUUOFR:NormalWing:UpperCoeff_0:Au_2: 0.245348
+KNAJGUNLSOL:NormalWing:UpperCoeff_0:Au_3: 0.238157
+AQTRZFRAPGD:NormalWing:UpperCoeff_0:Au_4: 0.20319

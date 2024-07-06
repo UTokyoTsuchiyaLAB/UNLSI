@@ -1,10 +1,22 @@
-9
-MVXPFWMGVAD:NormalWing:XSecCurve_0:Camber: 0.036
-TNAEYOSWYZV:NormalWing:XSecCurve_0:ThickChord: 0.128
-SXWUNLRSKJG:NormalWing:XSec_0:Twist: 1.935
-JMOAIUXWQMD:NormalWing:XSecCurve_1:Camber: 0.021
-DIUGXSTTMNX:NormalWing:XSecCurve_1:ThickChord: 0.139
-YYZNXRESCJO:NormalWing:XSec_1:Root_Chord: 5.686
-VSSNSYUSBLL:NormalWing:XSec_1:Sweep: 4.692
-QLVLFGNCAEW:NormalWing:XSec_1:Tip_Chord: 2.836
-NORFJHWATJB:NormalWing:XSec_1:Twist: 5.721
+21
+RWANJXYULQL:NormalWing:XSec_1:Root_Chord: 6.032
+OVTXLPFIOFC:NormalWing:XSec_1:Sweep: 10.000
+DZRBAHKVPJA:NormalWing:XSec_1:Tip_Chord: 2.000
+JJROHVUPTGQ:NormalWing:XSec_1:Twist: 4.971
+XLFHCYWOWVL:NormalWing:LowerCoeff_1:Al_1: -0.001
+QNTSOKKOFQU:NormalWing:LowerCoeff_1:Al_2: -0.085
+SRZJKLVYPPF:NormalWing:LowerCoeff_1:Al_3: -0.000
+ZPYPYMUHBVE:NormalWing:LowerCoeff_1:Al_4: 0.000
+BDFBIWJNISV:NormalWing:UpperCoeff_1:Au_1: 0.249
+XKNNGIRSOVY:NormalWing:UpperCoeff_1:Au_2: 0.014
+DRNFBAXSRLB:NormalWing:UpperCoeff_1:Au_3: 0.112
+NRBEZKUWJQR:NormalWing:UpperCoeff_1:Au_4: 0.236
+RMIRWFSRPWH:NormalWing:XSec_0:Twist: 3.100
+XQLAUHJSVWZ:NormalWing:LowerCoeff_0:Al_1: -0.250
+TNXONFKMYJD:NormalWing:LowerCoeff_0:Al_2: -0.250
+ICNSPMZJJPC:NormalWing:LowerCoeff_0:Al_3: -0.250
+QMFSSIGSUBY:NormalWing:LowerCoeff_0:Al_4: -0.250
+TNCLXMNOUUQ:NormalWing:UpperCoeff_0:Au_1: 0.247
+AJQXPYUUOFR:NormalWing:UpperCoeff_0:Au_2: 0.250
+KNAJGUNLSOL:NormalWing:UpperCoeff_0:Au_3: 0.250
+AQTRZFRAPGD:NormalWing:UpperCoeff_0:Au_4: 0.250

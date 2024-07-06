@@ -1,0 +1,7 @@
+# VSPGEOM Tag Key File
+orgMesh.vspgeom
+2
+
+# tag#,geom#,surf#,gname,gid,ssname1,ssname2,...,ssid1,ssid2,...
+1,0,0,PropGeom_S,XYMOBZRNEH
+2,0,1,PropGeom_S,XYMOBZRNEH
