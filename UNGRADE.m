@@ -530,15 +530,12 @@
             obj = obj.makeMeshGradient(obj,obj.settingUNGRADE.meshGradientPerturbation./obj.designScale);
             if strcmpi(obj.settingUNGRADE.gradientCalcMethod,'chain')
                 if any(obj.flowNoList(:,3) == 1)
-                    tic;
                     obj = obj.calcApproximatedEquation(obj.settingUNGRADE.approximateWakeGrad);
-                    toc;
                 end
             end
 
             pert = sqrt(eps);
             for i= 1:numel(obj.scaledVar)
-                tic;
                 x = obj.scaledVar;
                 x(i) = obj.scaledVar(i)+pert;
                 des = x.*obj.designScale+obj.lb;
@@ -599,7 +596,6 @@
                 end
                 dR_dx(:,i) = (R-R0)./pert;
                 clear obj2;
-                toc;
             end
             %全微分でdxからduを求める行列
             %invdR_du = pinv(dR_du);
