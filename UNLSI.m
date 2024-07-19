@@ -9,7 +9,7 @@ classdef UNLSI
     %ここでいう保証とは、商品性、特定の目的への適合性、および権利非侵害についての保証も含みますが、それに限定されるものではありません。 
     %作者または著作権者は、契約行為、不法行為、またはそれ以外であろうと、ソフトウェアに起因または関連し、あるいはソフトウェアの使用またはその他の扱いによって生じる一切の請求、損害、その他の義務について何らの責任も負わないものとします。
     
-    %また、本ソフトウェアに付帯するソフトウェアとしてOpenVSPおよびdistanceVertex2Mesh.mを用いています。
+    %また、本ソフトウェアに付帯するソフトウェアとしてOpenVSPおよびdistanceVertex2Mesh.m, SurfaceIntersection.mを用いています。
     %上記ソフトウェアのライセンス表記を以下に示します。
     %openVSP
     %Copyright (c) 2012 United States Government as represented by the Administrator for The National Aeronautics and Space Administration. All Rights Reserved.
@@ -19,6 +19,10 @@ classdef UNLSI
     %Telecommunications Lab, Saarland University, Germany
     %email: haccius@nt.uni-saarland.de
     %March 2015; Last revision: 26-March-2015
+    %SurfaceIntersection
+    %Copyright (c) 2014, Jaroslaw Tuszynski
+    %All rights reserved.
+
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
     properties
@@ -32,6 +36,7 @@ classdef UNLSI
         CREF %縦方向基準長
         BREF %横方向基準長
         XYZREF %回転中心
+        rotCenter %各パネルのRotationの中心
         paneltype %各パネルのタイプ 1:body 2:base 3:structure
         cpcalctype %Cpを計算する方法の選択 %1:1-V^2 2: -2u 3: -2u-v^2-w^2
         IndexPanel2Solver %パネルのインデックス⇒ソルバー上でのインデックス
@@ -41,16 +46,19 @@ classdef UNLSI
         modNormal %舵角等によって変更した法線ベクトル
         center %各パネルの中心
         area %各パネルの面積
+        angularVelocity %各パネルの回転角速度
         flowNoTable %flowNoが整理されたMatrix
         flow %各flowconditionが格納されたセル配列
         prop %各プロペラ方程式情報が格納されたセル配列
         cluster %パネルクラスターの情報
         LHS %パネル法連立方程式の左辺行列
+        wakeLHS %パネル法のwake影響行列
         RHS %パネル法連立方程式の右辺行列
         mu2v %ポテンシャル⇒機体表面速度への変換行列
         verts2centerMat %節点での量⇛パネルセンターでの量への変換行列
         Cp %圧力係数
         Cfe %表面摩擦係数
+        CpLimit%圧力係数の最大最小値
         deflAngle %舵角
         deflGroup %舵面グループ
         AERODATA %空力解析結果の格納
@@ -77,20 +85,24 @@ classdef UNLSI
     end
 
     methods(Access = public)
-        function obj = UNLSI(verts,connectivity,surfID,wakelineID,halfmesh)
+        % UNLSIクラスのコンストラクタ
+        % verts: 頂点座標の行列
+        % connectivity: 頂点の接続情報の行列
+        % surfID: サーフェスIDのベクトル
+        % wakelineID: ウェイクラインIDのベクトル
+        % halfmesh: 半裁フラグ (0: 半裁でない, 1: 半裁)
+        % vertsMergeTol: 頂点のマージ許容誤差 (省略可)
+        function obj = UNLSI(verts,connectivity,surfID,wakelineID,halfmesh,vertsMergeTol)
             warning('off','MATLAB:triangulation:PtsNotInTriWarnId');
-            %%%%%%%%%%%Constructor%%%%%%%%%%%%%
-            %verts:頂点座標
-            %conectivity:各パネルの頂点ID
-            %surfID:パネルのID
-            %wakelineID:wakeをつけるエッジ上の頂点ID配列を要素にもつセル配列
-            %halfmesh:半裁メッシュの場合に1を指定 引数を省略すれば自動設定
-            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-            %データの格納、パネル法線、面積の計算
+            if ~exist('vertsMergeTol', 'var')
+                obj.settingUNLSI.vertsTol = 0.001;
+            else
+                obj.settingUNLSI.vertsTol = vertsMergeTol;
+            end
 
-            %halfmeshの判定
+            % halfmeshの判定
             if all(verts(:,2) >=0) ||  all(verts(:,2) <=0)
-                if nargin > 4 
+                if exist('halfmesh', 'var')
                     if halfmesh == 0
                         warning("Signatures of verts' y cordinates are all same, but the half mesh settingUNLSI is 0 (not halfmesh)");
                     end
@@ -98,7 +110,7 @@ classdef UNLSI
                     halfmesh = 1;
                 end
             else
-               if nargin > 4 
+               if exist('halfmesh', 'var')
                     if halfmesh == 1
                         warning("Signatures of verts' y cordinates are NOT all same, but the half mesh settingUNLSI is 1 (halfmesh)");
                     end
@@ -106,33 +118,38 @@ classdef UNLSI
                     halfmesh = 0;
                end
             end
-                     
+
             %%%%%%%%%%%settingUNLSIの初期設定%%%%%%%%%%%%%
-            obj.settingUNLSI.checkMeshMethod = "delete";
-            obj.settingUNLSI.checkMeshTol = sqrt(eps);
-            obj.settingUNLSI.vertsTol = 0.001;%空力計算,surrogatemodelが上手くいかない場合はここを0.01→0.001で細かくする．近い節点のマージの設定
-            obj.settingUNLSI.LLTnInterp = 10;
-            obj.settingUNLSI.nCluster = 50;%クラスターの目標数（達成できなければそこで打ち切り）
-            obj.settingUNLSI.edgeAngleThreshold = 50;%この角度以下であれば近隣パネルとして登録する（角度差が大きすぎるモノをはじくため）
-            obj.settingUNLSI.wingWakeLength = 2; %各wakeパネルの長さ(機体基準長基準）
-            obj.settingUNLSI.nCalcDivide = 5;%makeEquationは各パネル数×各パネル数サイズの行列を扱うため、莫大なメモリが必要となる。一度に計算する列をobj.settingUNLSI.nCalcDivide分割してメモリの消費量を抑えている。
-            obj.settingUNLSI.angularVelocity = [];
-            obj.settingUNLSI.propCalcFlag = 1;
-            obj.settingUNLSI.deflDerivFlag = 1;
-            obj.settingUNLSI.propWakeLength = 3;
-            obj.settingUNLSI.nPropWake = 101; %propWake円周上の点の数
-            obj.settingUNLSI.kCf = 1.015*(10^-5);
-            obj.settingUNLSI.laminarRatio = 0;
-            obj.settingUNLSI.coefCf = 1;
-            obj.settingUNLSI.newtoniantype = "OldTangentCone";
-            obj.settingUNLSI.resultSearchMethod = "and";
-            obj.settingUNLSI.Vinf = 15;
-            obj.settingUNLSI.rho = 1.225;
-            obj.settingUNLSI.kappa = 1.4;
-            obj.settingUNLSI.g0 = 9.8;
-            obj.settingUNLSI.nGriddedInterp = 90;
-            obj.settingUNLSI.ode23AbsTol = 1e-6;
-            obj.settingUNLSI.ode23RelTol = 1e-3;
+            obj.settingUNLSI.checkMeshTol = sqrt(eps); % メッシュの精度をチェックするための許容誤差
+            obj.settingUNLSI.LLTnInterp = 20; % LLT法の補間点の数
+            obj.settingUNLSI.nCluster = 50; % パネルクラスターの目標数
+            obj.settingUNLSI.edgeAngleThreshold = 50; % 近隣パネルとして登録するための角度の閾値
+            obj.settingUNLSI.nCalcDivide = 5; % makeEquationの計算を分割するための分割数
+            %obj.settingUNLSI.angularVelocity = []; % 正規化された主流の角速度
+            obj.settingUNLSI.propCalcFlag = 1; % プロペラの計算フラグ
+            obj.settingUNLSI.deflDerivFlag = 1; % 舵角の微分フラグ
+            obj.settingUNLSI.propWakeLength = 3; % プロペラwakeの長さ
+            obj.settingUNLSI.nPropWake = 101; % propWake円周上の点の数
+            obj.settingUNLSI.kCf = 1.015*(10^-5); % 摩擦係数に関するk
+            obj.settingUNLSI.laminarRatio = 0; % 層流の割合
+            obj.settingUNLSI.coefCf = 1; % Cfの係数(単純な倍数)
+            obj.settingUNLSI.newtoniantype = "OldTangentCone"; % 圧縮におけるニュートン流のタイプ
+            obj.settingUNLSI.resultSearchMethod = "and"; % 結果の検索方法
+            obj.settingUNLSI.Vinf = 15; % 流速
+            obj.settingUNLSI.rho = 1.225; % 空気密度
+            obj.settingUNLSI.kappa = 1.4; % 比熱比
+            obj.settingUNLSI.g0 = 9.8; % 重力加速度
+            obj.settingUNLSI.nGriddedInterp = 90; % griddedInterpの補間点の数
+            obj.settingUNLSI.ode23AbsTol = 1e-6; % ode23の絶対許容誤差
+            obj.settingUNLSI.ode23RelTol = 1e-3; % ode23の相対許容誤差
+            obj.settingUNLSI.lsqminnormTol = 1e-12;% 最小二乗法における正規方程式の解を求める際の許容誤差を設定します。
+            obj.settingUNLSI.xWakeAttach = 0.1;
+            obj.settingUNLSI.defaultWakeLength = 100; % デフォルトの各wakeパネルの長さ（機体基準長基準）
+            obj.settingUNLSI.nWakeMax = 20;%marchwakeにおけるwakeの最大個数
+            obj.settingUNLSI.deltaVortexCore = 0.1;
+            obj.settingUNLSI.pnThreshold = sqrt(eps);
+            obj.settingUNLSI.defaultCpLimit = [-1000,1000];
+            obj.settingUNLSI.CpSlope = 5;
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             obj.halfmesh = halfmesh;
             obj.flowNoTable = [];
@@ -143,15 +160,51 @@ classdef UNLSI
             obj.BREF = 1;
             obj.XYZREF = [0,0,0];
 
+
             obj = obj.setMesh(verts,connectivity,surfID,wakelineID);
         end
 
+
+  
         function obj = setUNLSISettings(obj,varargin)
-           %%%%%%%%%設定を変更する%%%%%%%%%%%%
-           %varargin : 変数名と値のペアで入力
-           %obj.settingの構造体の内部を変更する
-           %構造体の内部変数の名前と一致していないとエラーが出るようになっている
-           %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            % setUNLSISettings(obj,varargin)
+            %   設定を変更する関数です。
+            %
+            % 入力:
+            %   - obj: UNLSI オブジェクト
+            %   - varargin: 変数名と値のペアで入力
+            %
+            % 出力:
+            %   - obj: 更新された UNLSI オブジェクト
+            %
+            % 説明:
+            %   この関数は、UNLSI オブジェクトの設定を変更します。
+            %   varargin には、変数名と値のペアを指定します。
+            %   obj.settingUNLSI の構造体の内部を変更します。
+            %   構造体の内部変数の名前と一致していない場合はエラーが発生します。
+            %
+            % 例:
+            %   obj = setUNLSISettings(obj, 'kCf', 0.5, 'laminarRatio', 0.2);
+            %   上記の例では、obj の kCf と laminarRatio の値が変更されます。
+            %   変更後の obj が返されます。
+            %
+            % 注意:
+            %   'kCf'、'laminarRatio'、'coefCf'、'newtoniantype'、'kappa' のいずれかの変数が変更された場合、
+            %   obj の flowNoTable の各行に対して flowCondition を呼び出します。
+            %
+            %   例:
+            %   obj = setUNLSISettings(obj, 'kCf', 0.5);
+            %   上記の例では、obj の kCf の値が変更されます。
+            %   obj の flowNoTable の各行に対して flowCondition を呼び出します。
+            %
+            %   もし、変数名が一致しない場合はエラーが発生します。
+            %
+            %   例:
+            %   obj = setUNLSISettings(obj, 'invalidField', 0.5);
+            %   上記の例では、変数名が一致しないためエラーが発生します。
+            %
+            %   注意事項を守り、正しい変数名と値のペアを指定してください。
+            %
             if mod(numel(varargin),1) == 1
                 error("input style not match");
             end
@@ -169,26 +222,107 @@ classdef UNLSI
             end
         end
 
-        function obj = setREFS(obj,SREF,BREF,CREF)
-            %%%%%%%%%%%Referentials settingUNLSI%%%%%%%%%%%%%
-            %SREF:基準面積
-            %BREF:横方向基準長(eg.翼幅)
-            %CREF:縦方向基準長(eg.MAC,機体全長
-            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        function obj = setREFS(obj,SREF,BREF,CREF,XYZREF)
+            % setREFS - 参照面積と基準長を設定する関数
+            %
+            %   obj = setREFS(obj,SREF,BREF,CREF) は、参照面積(SREF)、横方向基準長(BREF)、
+            %   縦方向基準長(CREF)を設定するメソッドです。
+            %
+            %   入力:
+            %   obj - UNLSIオブジェクト
+            %   SREF - 基準面積
+            %   BREF - 横方向基準長(例: 翼幅)
+            %   CREF - 縦方向基準長(例: MAC, 機体全長)
+            %
+            %   出力:
+            %   obj - 更新されたUNLSIオブジェクト
+            %
+            %   例:
+            %   obj = setREFS(obj, 10, 5, 20)
+            %
+            %   参考文献:
+            %   [1] UNLSI Documentation, 2021
+            %
+            %   この関数は、UNLSIクラスのプロパティであるSREF、BREF、CREFを設定します。
+            %   これらの値は、後続の計算や解析に使用されます。
+            %
+            %   この関数は、UNLSIオブジェクトを返します。更新されたオブジェクトは、
+            %   後続の操作で使用することができます。
+            %
+            %   この関数は、UNLSIクラスのメソッドです。UNLSIクラスのインスタンスを作成し、
+            %   そのインスタンスに対してこのメソッドを呼び出すことができます。
+            %
+            %   この関数は、UNLSIパッケージの一部です。
+
+
             obj.SREF = SREF;
             obj.CREF = CREF;
             obj.BREF = BREF;
-        end
-
-        function obj = setRotationCenter(obj,XYZREF)
-            %%%%%%%%%%%Rotation Center settingUNLSI%%%%%%%%%%%%%
-            %回転中心を設定する。
-            %回転中心：モーメント計算の基準位置,主流角速度の回転中心
-            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             obj.XYZREF = XYZREF(:)';
         end
 
+        function obj = setCpLimit(obj,limitVal,ID)
+            if nargin == 2
+                obj.CpLimit = repmat(limitVal,[size(obj.paneltype,1),1]);
+            else
+                if size(limitVal,1)==numel(ID)
+                    for i = 1:numel(ID)
+                        obj.CpLimit(obj.surfID == ID(i),:) = repmat(limitVal,[sum(obj.surfID == ID(i)),1]);
+                    end
+                elseif size(limitVal,1) == 1
+                    obj.CpLimit(any(obj.surfID == ID,2),:) = repmat(limitVal,[sum(any(obj.surfID == ID,2)),1]);
+                else
+                    error("Invalid Input");
+                end
+            end
+        end
+
+
+        function obj = setRotation(obj,ID,rotCenter,angularVel)
+            %%%%%%%%%%%Rotation Center settingUNLSI%%%%%%%%%%%%%
+            %各パネルの回転を設定する
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            if numel(ID) == size(rotCenter,1) && numel(ID) == size(angularVel,1)
+                for iter = 1:numel(ID)
+                    obj.rotCenter(obj.surfID == ID(iter),1:3) = rotCenter(iter,1:3);
+                    obj.angularVelocity(obj.surfID == ID(iter),1:3) = angularVel(iter,1:3);
+                end
+            elseif numel(ID) == size(rotCenter,1) 
+                for iter = 1:numel(ID)
+                    obj.rotCenter(obj.surfID == ID(iter),1:3) = rotCenter(iter,1:3);
+                    obj.angularVelocity(obj.surfID == ID(iter),1:3) = repmat(angularVel(:)',[sum(obj.surfID == ID(iter)),1]);
+                end
+            else
+                for iter = 1:numel(ID)
+                    obj.rotCenter(obj.surfID == ID(iter),1:3) = repmat(rotCenter(:)',[sum(obj.surfID == ID(iter)),1]);
+                    obj.angularVelocity(obj.surfID == ID(iter),1:3) = repmat(angularVel(:)',[sum(obj.surfID == ID(iter)),1]);
+                end
+            end
+        end
+
         function obj = setDeflGroup(obj,groupNo,groupName,groupID,deflGain)
+            % setDeflGroup - デフレクトグループの設定を行う関数
+            %   obj = setDeflGroup(obj, groupNo, groupName, groupID, deflGain)は、指定されたデフレクトグループの設定を行います。
+            %   obj: UNLSIオブジェクト
+            %   groupNo: デフレクトグループの番号
+            %   groupName: デフレクトグループの名前
+            %   groupID: デフレクトグループのID
+            %   deflGain: デフレクトゲイン
+            %   返り値:
+            %   obj: 更新されたUNLSIオブジェクト
+            %
+            %   例:
+            %   obj = setDeflGroup(obj, 1, 'Group1', 123, 0.5)
+            %
+            %   注意:
+            %   - groupNoは1から始まる番号である必要があります。
+            %   - groupNameはデフレクトグループの名前です。
+            %   - groupIDはデフレクトグループのIDです。
+            %   - deflGainはデフレクトゲインです。
+            %   - obj.deflGroup{groupNo}にデフレクトグループの情報が格納されます。
+            %   - obj.deflGroup{groupNo}.nameにデフレクトグループの名前が格納されます。
+            %   - obj.deflGroup{groupNo}.IDにデフレクトグループのIDが格納されます。
+            %   - obj.deflGroup{groupNo}.gainにデフレクトゲインが格納されます。
             obj.deflGroup{groupNo}.name = groupName;
             obj.deflGroup{groupNo}.ID = groupID;
             obj.deflGroup{groupNo}.gain = deflGain;
@@ -208,18 +342,39 @@ classdef UNLSI
                 dcm = obj.rod2dcm(rotAxis(iter,:),angle(iter));
                 obj.deflAngle(i,2:end) = [rotAxis(iter,:),angle(iter),dcm(:)'];
             end
-            for i = 1:numel(obj.paneltype)
-                %[obj.area(i,1),~ , obj.orgNormal(i,:)] = obj.vertex(obj.tri.Points(obj.tri.ConnectivityList(i,1),:),obj.tri.Points(obj.tri.ConnectivityList(i,2),:),obj.tri.Points(obj.tri.ConnectivityList(i,3),:));
-                %obj.center(i,:) = [mean(obj.tri.Points(obj.tri.ConnectivityList(i,:),1)),mean(obj.tri.Points(obj.tri.ConnectivityList(i,:),2)),mean(obj.tri.Points(obj.tri.ConnectivityList(i,:),3))];
-                obj.modNormal(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])*obj.orgNormal(i,:)')';
-            end
+            indices = arrayfun(@(x) find(obj.deflAngle(:, 1) == x), obj.surfID(:, 1), 'UniformOutput', false);      
+            deflMatrices = cell2mat(cellfun(@(idx) reshape(obj.deflAngle(idx, 6:14), [3, 3]), indices, 'UniformOutput', false));
+            obj.modNormal = cell2mat(arrayfun(@(i) (deflMatrices((i-1)*3+1:i*3, :) * obj.orgNormal(i, :)')', 1:numel(obj.paneltype), 'UniformOutput', false));
         end
 
-        function plotGeometry(obj,figureNo,triColor,colorlim,method,extrapmethod)
-            %%%%%%%%%%%plotting%%%%%%%%%%%%%
-            %機体メッシュもしくは状態量をプロットする。
-            %カラー値は各パネルごとの値（例えばCp）を入れると、sccatteredInterpを用いて接点の値に補間しプロットする
-            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+        function plotGeometry(obj,figureNo,triColor,colorlim,method,xyz,euler)
+            % plotGeometry(obj,figureNo,triColor,colorlim,method,extrapmethod)
+            %   機体メッシュもしくは状態量をプロットする。
+            %   カラー値は各パネルごとの値（例えばCp）を入れると、接点の値に補間しプロットする
+            %
+            % Inputs:
+            %   - obj: オブジェクト自体
+            %   - figureNo: プロットするフィギュアの番号
+            %   - triColor: 各パネルのカラー値（例えばCp）
+            %   - colorlim: カラーマップの範囲
+            %   - method: カラーマップ補間の方法（"exact"または"linear"）
+            %   - extrapmethod: カラーマップ補間の外挿方法（"exact"または"linear"）
+            %
+            % Usage:
+            %   obj.plotGeometry(figureNo,triColor,colorlim,method,extrapmethod)
+            %
+            % Description:
+            %   この関数は、機体メッシュもしくは状態量をプロットするために使用されます。
+            %   カラー値は各パネルごとの値（例えばCp）を入れると、接点の値に補間しプロットします。
+            %   プロットするフィギュアの番号、カラーマップの範囲、カラーマップ補間の方法、カラーマップ補間の外挿方法を指定することができます。
+            %   カラーマップ補間の方法は、"exact"または"linear"を選択できます。
+            %   カラーマップ補間の外挿方法は、"exact"または"linear"を選択できます。
+            %
+            % Example:
+            %   obj.plotGeometry(1, Cp, [-1, 1], "exact", "linear")
+            %
+            % See also: trisurf, colormap
             figure(figureNo);clf;
             if nargin<3
                 trisurf(obj.tri,"FaceAlpha",0);
@@ -231,21 +386,35 @@ classdef UNLSI
             else
                 if nargin == 4
                     method = "linear";
-                    extrapmethod = "linear";
+                    xyz = [0,0,0];
+                    euler = [0,0,0];
+                elseif nargin == 5
+                    xyz = [0,0,0];
+                    euler = [0,0,0];
                 end
+                
+                roll = euler(1);
+                pitch = euler(2);
+                yaw = euler(3);
+                R = [cosd(yaw)*cosd(pitch), cosd(yaw)*sind(pitch)*sind(roll) - sind(yaw)*cosd(roll), cosd(yaw)*sind(pitch)*cosd(roll) + sind(yaw)*sind(roll);
+                    sind(yaw)*cosd(pitch), sind(yaw)*sind(pitch)*sind(roll) + cosd(yaw)*cosd(roll), sind(yaw)*sind(pitch)*cosd(roll) - cosd(yaw)*sind(roll);
+                    -sind(pitch), cosd(pitch)*sind(roll), cosd(pitch)*cosd(roll)];
+                    
+                affineverts = obj.tri.Points*R'+repmat(xyz,size(obj.tri.Points,1),1);
+
                 if strcmpi(method,"exact")
                     %指定がexactの場合はパネル一枚一枚描画する
                     hold on;
                     for i = 1:numel(obj.surfID)
                         if obj.paneltype(i) == 1
-                            trisurf([1,2,3],obj.tri.Points(obj.tri(i,:),1),obj.tri.Points(obj.tri(i,:),2),obj.tri.Points(obj.tri(i,:),3),triColor(i),'EdgeAlpha',0.15);
+                            trisurf([1,2,3],affineverts(obj.tri(i,:),1),affineverts(obj.tri(i,:),2),affineverts(obj.tri(i,:),3),triColor(i),'EdgeAlpha',0.15);
                             if obj.halfmesh == 1
-                                trisurf([1,2,3],obj.tri.Points(obj.tri(i,:),1),-obj.tri.Points(obj.tri(i,:),2),obj.tri.Points(obj.tri(i,:),3),triColor(i),'EdgeAlpha',0.15);
+                                trisurf([1,2,3],affineverts(obj.tri(i,:),1),-affineverts(obj.tri(i,:),2),affineverts(obj.tri(i,:),3),triColor(i),'EdgeAlpha',0.15);
                             end
                         else
-                            trisurf([1,2,3],obj.tri.Points(obj.tri(i,:),1),obj.tri.Points(obj.tri(i,:),2),obj.tri.Points(obj.tri(i,:),3),0,'EdgeAlpha',0.15);
+                            trisurf([1,2,3],affineverts(obj.tri(i,:),1),affineverts(obj.tri(i,:),2),affineverts(obj.tri(i,:),3),0,'EdgeAlpha',0.15);
                             if obj.halfmesh == 1
-                                trisurf([1,2,3],obj.tri.Points(obj.tri(i,:),1),-obj.tri.Points(obj.tri(i,:),2),obj.tri.Points(obj.tri(i,:),3),0,'EdgeAlpha',0.15);
+                                trisurf([1,2,3],affineverts(obj.tri(i,:),1),-affineverts(obj.tri(i,:),2),affineverts(obj.tri(i,:),3),0,'EdgeAlpha',0.15);
                             end
                         end
                     end
@@ -254,11 +423,11 @@ classdef UNLSI
                     caxis(colorlim);
                 else
                     c = obj.verts2centerMat'*triColor;
-                    trisurf(obj.tri,c,'FaceColor','interp','EdgeAlpha',0.15);
+                    trisurf(obj.tri.ConnectivityList,affineverts(:,1),affineverts(:,2),affineverts(:,3),c,'FaceColor','interp','EdgeAlpha',0.15);
                     colormap jet;
                     if obj.halfmesh == 1
                         hold on;
-                        trisurf(obj.tri.ConnectivityList,obj.tri.Points(:,1),-obj.tri.Points(:,2),obj.tri.Points(:,3),c,'FaceColor','interp','EdgeAlpha',0.15);
+                        trisurf(obj.tri.ConnectivityList,affineverts(:,1),-affineverts(:,2),affineverts(:,3),c,'FaceColor','interp','EdgeAlpha',0.15);
                         colormap jet;
                         hold off
                     end
@@ -267,77 +436,112 @@ classdef UNLSI
             end
             axis equal;xlabel("x");ylabel("y");zlabel("z");
             drawnow();pause(0.1);
-
         end
 
-        function obj = setMesh(obj,verts,connectivity,surfID,wakelineID)
-            warning('off','MATLAB:triangulation:PtsNotInTriWarnId');
-            %vertsのチェック
-            [verts,connectivity,wakelineID] = obj.mergeVerts(obj.settingUNLSI.vertsTol,verts,connectivity,wakelineID);
-            obj.tri = triangulation(connectivity,verts);
+        function obj = setMesh(obj, verts, connectivity, surfID, wakelineID)
+            % setMesh - メッシュを設定する関数
+            %   obj = setMesh(obj, verts, connectivity, surfID, wakelineID) は、UNLSIオブジェクトのメッシュを設定するための関数です。
+            %   vertsは頂点座標の行列、connectivityは頂点の接続情報の行列、surfIDはパネルの表面IDのベクトル、wakelineIDはwakeのエッジIDのセル配列です。
+            %   関数は、メッシュの各パネルに関連する情報を設定し、必要に応じてメッシュの修正を行います。
+            %   返り値は、メッシュが設定されたUNLSIオブジェクトです。
+            % ワーニングメッセージをオフにする
+            warning('off', 'MATLAB:triangulation:PtsNotInTriWarnId');
+            % vertsのチェックとマージ
+            [verts, connectivity, wakelineID] = obj.mergeVerts(obj.settingUNLSI.vertsTol, verts, connectivity, wakelineID);
+            
+            % 三角形分割オブジェクトを作成
+            obj.tri = triangulation(connectivity, verts);
+            
+            % surfIDとwakelineIDを設定
             obj.surfID = surfID;
+            obj.CpLimit = repmat(obj.settingUNLSI.defaultCpLimit,[numel(obj.surfID),1]);
             obj.wakelineID = wakelineID;
+            
+            % wakelineを初期化
             obj.wakeline = [];
+            
+            % wakelineのエッジ情報を設定
             for i = 1:numel(wakelineID)
                 obj.wakeline{i}.edge = wakelineID{i};
             end
+            
+            % deflAngleが空の場合、初期化
             if isempty(obj.deflAngle)
                 eyebuff = eye(3);
-                obj.deflAngle = [unique(obj.surfID),zeros(numel(unique(obj.surfID)),4),repmat(eyebuff(:)',[numel(unique(obj.surfID)),1])];
+                obj.deflAngle = [unique(obj.surfID), zeros(numel(unique(obj.surfID)), 4), repmat(eyebuff(:)', [numel(unique(obj.surfID)), 1])];
             end
-            obj.paneltype = ones(size(connectivity,1),1);
-            obj.cpcalctype = ones(size(connectivity,1),1);
+            
+            % paneltypeとcpcalctypeを初期化
+            obj.paneltype = ones(size(connectivity, 1), 1);
+            obj.cpcalctype = ones(size(connectivity, 1), 1);
+            
+            % IndexPanel2Solverを初期化
             obj.IndexPanel2Solver = 1:numel(obj.paneltype);
-            obj.cluster = cell([1,numel(obj.paneltype)]);
-            obj.area = zeros(numel(obj.paneltype),1);
-            obj.orgNormal = zeros(numel(obj.paneltype),3);
-            obj.modNormal = zeros(numel(obj.paneltype),3);
-            obj.center = zeros(numel(obj.paneltype),3);
+            
+            % clusterを初期化
+            obj.cluster = cell([1, numel(obj.paneltype)]);
+            
+            % area, orgNormal, modNormal, centerを初期化
+            obj.area = zeros(numel(obj.paneltype), 1);
+            obj.orgNormal = zeros(numel(obj.paneltype), 3);
+            obj.modNormal = zeros(numel(obj.paneltype), 3);
+            obj.center = zeros(numel(obj.paneltype), 3);
+            obj.rotCenter = zeros(numel(obj.paneltype), 3);
+            obj.angularVelocity = zeros(numel(obj.paneltype), 3);
+            
+            % Cp, Cfe, LHS, RHSを初期化
             obj.Cp = {};
             obj.Cfe = {};
             obj.LHS = [];
             obj.RHS = [];
+            
+            % LLTとLLTnInterpを初期化
             lltninterp = obj.settingUNLSI.LLTnInterp;
             obj.LLT = [];
             obj.settingUNLSI.LLTnInterp = lltninterp;
+            obj.modNormal = zeros(numel(obj.paneltype),3);
+            obj.center = (verts(obj.tri.ConnectivityList(:,1),:)+verts(obj.tri.ConnectivityList(:,2),:)+verts(obj.tri.ConnectivityList(:,3),:))./3;
+            obj.area = 0.5 * sqrt(sum(cross(obj.tri.Points(obj.tri.ConnectivityList(:, 2), :) - obj.tri.Points(obj.tri.ConnectivityList(:, 1), :), obj.tri.Points(obj.tri.ConnectivityList(:, 3), :) - obj.tri.Points(obj.tri.ConnectivityList(:, 1), :), 2).^2, 2));
+            obj.orgNormal = faceNormal(obj.tri);
             for i = 1:numel(obj.paneltype)
-                [obj.area(i,1),~ , obj.orgNormal(i,:)] = obj.vertex(verts(connectivity(i,1),:),verts(connectivity(i,2),:),verts(connectivity(i,3),:));
-                obj.center(i,:) = [mean(verts(obj.tri.ConnectivityList(i,:),1)),mean(verts(obj.tri.ConnectivityList(i,:),2)),mean(verts(obj.tri.ConnectivityList(i,:),3))];
                 obj.modNormal(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])*obj.orgNormal(i,:)')';
             end
-
+%             indices = arrayfun(@(x) find(obj.deflAngle(:, 1) == x), obj.surfID(:, 1), 'UniformOutput', false);      
+%             deflMatrices = cell2mat(cellfun(@(idx) reshape(obj.deflAngle(idx, 6:14), [3, 3]), indices, 'UniformOutput', false));
+%             obj.modNormal = cell2mat(arrayfun(@(i) (deflMatrices((i-1)*3+1:i*3, :) * obj.orgNormal(i, :)')', 1:numel(obj.paneltype), 'UniformOutput', false));
             
-            %半裁メッシュの境界表面上のwakeを削除
+            % 半裁メッシュの境界表面上のwakeを削除
             deleteiter = [];
             for iter = 1:numel(obj.wakeline)
                 deletelist = [];
-                for j = 1:numel(obj.wakeline{iter}.edge)-1
-                    attachpanel = obj.tri.edgeAttachments(obj.wakeline{iter}.edge(j),obj.wakeline{iter}.edge(j+1));
+                for j = 1:numel(obj.wakeline{iter}.edge) - 1
+                    attachpanel = obj.tri.edgeAttachments(obj.wakeline{iter}.edge(j), obj.wakeline{iter}.edge(j + 1));
                     if numel(attachpanel{1}) < 2
-                        deletelist = [deletelist,j];
+                        deletelist = [deletelist, j];
                     end
                 end
                 obj.wakeline{iter}.edge(deletelist) = [];
                 if numel(obj.wakeline{iter}.edge) < 3
-                    deleteiter = [deleteiter,iter];
+                    deleteiter = [deleteiter, iter];
                 end
             end
             obj.wakeline(deleteiter) = [];
-            %wakeのつくパネルIDを特定
+            
+            % wakeのつくパネルIDを特定
             wakesurfID = [];
             for wakeNo = 1:numel(obj.wakeline)
                 panelNo = 1;
-                obj.wakeline{wakeNo}.valid = zeros(1,numel(obj.wakeline{wakeNo}.edge)-1);
-                for edgeNo = 1:numel(obj.wakeline{wakeNo}.edge)-1
-                    attachpanel = obj.tri.edgeAttachments(obj.wakeline{wakeNo}.edge(edgeNo),obj.wakeline{wakeNo}.edge(edgeNo+1));
-                    wakesurfID = [wakesurfID,setdiff(obj.surfID(attachpanel{1}),wakesurfID)];
-                    if numel(attachpanel{1})==2
-                        obj.wakeline{wakeNo}.validedge(1,panelNo) = obj.wakeline{wakeNo}.edge(edgeNo);
-                        obj.wakeline{wakeNo}.validedge(2,panelNo) = obj.wakeline{wakeNo}.edge(edgeNo+1);
+                obj.wakeline{wakeNo}.valid = zeros(1, numel(obj.wakeline{wakeNo}.edge) - 1);
+                for edgeNo = 1:numel(obj.wakeline{wakeNo}.edge) - 1
+                    attachpanel = obj.tri.edgeAttachments(obj.wakeline{wakeNo}.edge(edgeNo), obj.wakeline{wakeNo}.edge(edgeNo + 1));
+                    wakesurfID = [wakesurfID, setdiff(obj.surfID(attachpanel{1}), wakesurfID)];
+                    if numel(attachpanel{1}) == 2
+                        obj.wakeline{wakeNo}.validedge(1, panelNo) = obj.wakeline{wakeNo}.edge(edgeNo);
+                        obj.wakeline{wakeNo}.validedge(2, panelNo) = obj.wakeline{wakeNo}.edge(edgeNo + 1);
                         obj.wakeline{wakeNo}.valid(edgeNo) = 1;
-                        phivert = obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo+1),2:3)-obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo),2:3);
-                        phiwake = atan2d(phivert(2),phivert(1));
-                        if abs(phiwake)<90
+                        phivert = obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo + 1), 2:3) - obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo), 2:3);
+                        phiwake = atan2d(phivert(2), phivert(1));
+                        if abs(phiwake) < 90
                             obj.wakeline{wakeNo}.upperID(panelNo) = attachpanel{1}(1);
                             obj.wakeline{wakeNo}.lowerID(panelNo) = attachpanel{1}(2);
                         else
@@ -350,25 +554,42 @@ classdef UNLSI
                     end
                 end
             end
-            if numel(obj.prop)>0
+            
+            %デフォルトのwake形状を定義する
+            for wakeNo = 1:numel(obj.wakeline)
+                for edgeNo = 1:size(obj.wakeline{wakeNo}.validedge,2)
+                    xwakeshape = linspace(0,obj.settingUNLSI.defaultWakeLength*obj.CREF,6);
+                    obj.wakeline{wakeNo}.wakeShape{edgeNo} =  [xwakeshape(2:end)',zeros(5,2)];
+                end
+                obj.wakeline{wakeNo}.wakeOrg = obj.getWakePosition(wakeNo);
+            end
+ 
+
+            % propが存在する場合、設定を反映
+            if numel(obj.prop) > 0
                 for propNo = 1:numel(obj.prop)
-                    propstate = [obj.prop{propNo}.CT,obj.prop{propNo}.CP,obj.prop{propNo}.rpm];
-                    obj = obj.setProp(propNo,obj.prop{propNo}.ID,obj.prop{propNo}.diameter,obj.prop{propNo}.XZsliced);
-                    obj = obj.setPropState(propNo,propstate(1),propstate(2),propstate(3));
+                    propstate = [obj.prop{propNo}.CT, obj.prop{propNo}.CP, obj.prop{propNo}.rpm];
+                    obj = obj.setProp(propNo, obj.prop{propNo}.ID, obj.prop{propNo}.diameter, obj.prop{propNo}.XZsliced);
+                    obj = obj.setPropState(propNo, propstate(1), propstate(2), propstate(3));
                 end
             end
-            %wakeSurfIDにあるもの以外はcpcalctypeをlinearに
-            for i = setdiff(unique(obj.surfID)',wakesurfID)
-                obj = obj.setCpCalcType(i,"linear");
+            
+            % wakeSurfIDにないパネルのcpcalctypeをlinearに設定
+            for i = setdiff(unique(obj.surfID)', wakesurfID)
+                obj = obj.setCpCalcType(i, "linear");
             end
-            obj = obj.checkMesh(obj.settingUNLSI.checkMeshTol,obj.settingUNLSI.checkMeshMethod);
-            warning('on','MATLAB:triangulation:PtsNotInTriWarnId');
-
-            %空力のパネル中心座標からメッシュノードへ投影する変換行列の作成
-            phi = @(r)obj.phi3(r,1);
-            Avv = phi(obj.calcRMat(obj.tri.Points,obj.tri.Points));
-            Acv = phi(obj.calcRMat(obj.center,obj.tri.Points));
-            obj.verts2centerMat = Acv*pinv(Avv);
+            
+            % メッシュのチェックと修正
+            obj = obj.checkMesh(obj.settingUNLSI.checkMeshTol, "delete");
+            obj = obj.checkWakeIntersect();
+            % ワーニングメッセージをオンにする
+            warning('on', 'MATLAB:triangulation:PtsNotInTriWarnId');
+            
+            % 空力のパネル中心座標からメッシュノードへの投影変換行列を作成
+            phi = @(r) obj.phi3(r, 1);
+            Avv = phi(obj.calcRMat(obj.tri.Points, obj.tri.Points));
+            Acv = phi(obj.calcRMat(obj.center, obj.tri.Points));
+            obj.verts2centerMat = Acv * pinv(Avv);
         end
 
         function obj = setVerts(obj,verts)
@@ -380,18 +601,58 @@ classdef UNLSI
             %triangulationはreadonlyなので、新しく作り直す
             warning('off','MATLAB:triangulation:PtsNotInTriWarnId');
             con = obj.tri.ConnectivityList;
+            modVerts = any((verts-obj.tri.Points)~=0,2);
+            modTri = vertexAttachments(obj.tri,find(modVerts));
             obj.tri = triangulation(con,verts);
-            obj.area = zeros(numel(obj.paneltype),1);
-            obj.orgNormal = zeros(numel(obj.paneltype),3);
-            obj.modNormal = zeros(numel(obj.paneltype),3);
-            obj.center = zeros(numel(obj.paneltype),3);
-            for i = 1:numel(obj.paneltype)
-                [obj.area(i,1),~ , obj.orgNormal(i,:)] = obj.vertex(verts(obj.tri(i,1),:),verts(obj.tri(i,2),:),verts(obj.tri(i,3),:));
-                obj.center(i,:) = [mean(verts(obj.tri.ConnectivityList(i,:),1)),mean(verts(obj.tri.ConnectivityList(i,:),2)),mean(verts(obj.tri.ConnectivityList(i,:),3))];
-                obj.modNormal(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])*obj.orgNormal(i,:)')';
+            index = unique(horzcat(modTri{:}));
+            obj.center(index,:) = (verts(obj.tri.ConnectivityList(index,1),:)+verts(obj.tri.ConnectivityList(index,2),:)+verts(obj.tri.ConnectivityList(index,3),:))./3;
+            obj.area(index,1) = 0.5 * sqrt(sum(cross(obj.tri.Points(obj.tri.ConnectivityList(index, 2), :) - obj.tri.Points(obj.tri.ConnectivityList(index, 1), :), obj.tri.Points(obj.tri.ConnectivityList(index, 3), :) - obj.tri.Points(obj.tri.ConnectivityList(index, 1), :), 2).^2, 2));
+            obj.orgNormal(index,:) = faceNormal(obj.tri,index(:));
+            for i = 1:numel(index)
+                obj.modNormal(index(i),:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(index(i),1)),6:14),[3,3])*obj.orgNormal(index(i),:)')';
             end
-            obj.checkMesh(obj.settingUNLSI.checkMeshTol,obj.settingUNLSI.checkMeshMethod);
-            warning('on','MATLAB:triangulation:PtsNotInTriWarnId');
+            %indices = arrayfun(@(x) find(obj.deflAngle(:, 1) == x), obj.surfID(:, 1), 'UniformOutput', false);      
+            %deflMatrices = cell2mat(cellfun(@(idx) reshape(obj.deflAngle(idx, 6:14), [3, 3]), indices, 'UniformOutput', false));
+            %obj.modNormal = cell2mat(arrayfun(@(i) (deflMatrices((i-1)*3+1:i*3, :) * obj.orgNormal(i, :)')', 1:numel(obj.paneltype), 'UniformOutput', false));
+        end
+        
+        function obj = checkWakeIntersect(obj)
+            for wakeNo = 1:numel(obj.wakeline)
+                for edgeNo = 1:size(obj.wakeline{wakeNo}.validedge,2)
+                    for i = 1:size(obj.wakeline{wakeNo}.wakeShape{edgeNo},1)
+                        if i == 1
+                            surface1.vertices(1,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:);
+                            surface1.vertices(2,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:);
+                            surface1.vertices(3,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+obj.wakeline{wakeNo}.wakeShape{edgeNo}(i,:);
+                            surface1.vertices(4,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+obj.wakeline{wakeNo}.wakeShape{edgeNo}(i,:);
+                        else
+                            surface1.vertices(1,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+obj.wakeline{wakeNo}.wakeShape{edgeNo}(i-1,:);
+                            surface1.vertices(2,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+obj.wakeline{wakeNo}.wakeShape{edgeNo}(i-1,:);
+                            surface1.vertices(3,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+obj.wakeline{wakeNo}.wakeShape{edgeNo}(i,:);
+                            surface1.vertices(4,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+obj.wakeline{wakeNo}.wakeShape{edgeNo}(i,:);
+                        end
+                        surface1.faces = [1,2,3;3,4,1];
+                        surface2.vertices = obj.tri.Points;
+                        surface2.faces = obj.tri.ConnectivityList(obj.paneltype == 1,:);
+                        [~, Surf12] = obj.SurfaceIntersection(obj,surface1, surface2);
+                        if i == 1
+                            if size(Surf12.vertices,1) <= 2
+                                obj.wakeline{wakeNo}.validPanel{edgeNo}(i,1) = 1;
+                            else
+                                obj.wakeline{wakeNo}.validPanel{edgeNo}(i,1) = 0;
+                            end
+                        else
+                            if size(Surf12.vertices,1) < 2 
+                                obj.wakeline{wakeNo}.validPanel{edgeNo}(i,1) = 1;
+                            else
+                                obj.wakeline{wakeNo}.validPanel{edgeNo}(i,1) = 0;
+                            end
+                        end
+                    end
+                    
+                end
+                
+            end
         end
 
         function obj = checkMesh(obj,tol,outType)
@@ -421,42 +682,100 @@ classdef UNLSI
             end
         end
   
-        function [verts,cons,wedata] = mergeVerts(obj,tol,verts,cons,wedata)
+
+        function [verts, cons, wedata] = mergeVerts(obj, tol, verts, cons, wedata)
+    
+         % 
+            % mergeVerts関数は、指定された許容誤差(tol)を使用して、頂点(verts)と接続(cons)をマージします。
+            % マージされた結果の頂点と接続は、vertsとconsの出力引数として返されます。
+            % 
+            % 入力:
+            %   - tol: マージするための許容誤差
+            %   - verts: 頂点の座標行列
+            %   - cons: 頂点の接続行列
+            %   - wedata (オプション): 頂点の追加データ行列
+            %
+            % 出力:
+            %   - verts: マージ後の頂点の座標行列
+            %   - cons: マージ後の頂点の接続行列
+            %   - wedata: マージ後の頂点の追加データ行列 (オプション)
+            %
+            % 例:
+            %   tol = 0.1;
+            %   verts = [0 0; 1 1; 2 2; 3 3];
+            %   cons = [1 2; 2 3; 3 4; 4 1];
+            %   [mergedVerts, mergedCons] = mergeVerts(tol, verts, cons);
+            %
+            %   出力:
+            %   mergedVerts =
+            %       0 0
+            %       1 1
+            %       3 3
+            %   
+            %   mergedCons =
+            %       1 2
+            %       2 3
+            %       3 1
+            %
+            % この関数は、指定された許容誤差内で頂点をマージし、重複する頂点を削除します。
+            % マージされた頂点に対応する接続も更新されます。
+            % オプションのwedata引数が指定された場合、マージされた頂点に対応する追加データも更新されます。
+            % マージが行われた場合、警告メッセージが表示されます。
+            % マージが行われなかった場合、ループを終了します。
+            % オプションのwedata引数が指定されていない場合、wedataは空の行列として返されます。
+            % 頂点と接続から三角形を作成
+            mergetri = triangulation(cons, verts);
             
-            mergetri = triangulation(cons,verts);
-            for iter = 1:size(verts,1)
+            % 頂点のマージを繰り返す
+            for iter = 1:size(verts, 1)
                 modflag = 0;
-                for i = 1:size(verts,1)
-                    index = find(vecnorm(verts(i,:)-verts(i+1:end,:),2,2)<tol);
-                    if not(isempty(index))
-                        j = index(1)+ i;
-                        Vbuff = vertexAttachments(mergetri,j);
+                for i = 1:size(verts, 1)
+                    % 許容誤差内で重複する頂点を検索
+                    index = find(vecnorm(verts(i, :) - verts(i+1:end, :), 2, 2) < tol);
+                    if ~isempty(index)
+                        j = index(1) + i;
+                        Vbuff = vertexAttachments(mergetri, j);
                         V = Vbuff{1};
+                        
+                        % 接続を更新
                         for k = 1:numel(V)
-                            cons(V(k),cons(V(k),:) == j) = i;
+                            cons(V(k), cons(V(k), :) == j) = i;
                         end
-                        verts(j,:) = [];
-                        cons(cons(:)>j) = cons(cons(:)>j) -1;
+                        
+                        % 頂点を削除
+                        verts(j, :) = [];
+                        
+                        % 頂点のインデックスを更新
+                        cons(cons(:) > j) = cons(cons(:) > j) - 1;
+                        
+                        % オプションのwedata引数が指定された場合、追加データを更新
                         if nargin > 4
                             for k = 1:numel(wedata)
                                 wedata{k}(wedata{k} == j) = i;
-                                wedata{k}(wedata{k} > j) =  wedata{k}(wedata{k} > j) - 1;
-                                wedata{k} = unique(wedata{k},'stable');
+                                wedata{k}(wedata{k} > j) = wedata{k}(wedata{k} > j) - 1;
+                                wedata{k} = unique(wedata{k}, 'stable');
                             end
                         end
+                        
                         modflag = 1;
-                        warning("points(%d and %d) are merged",i,j);
+                        warning("points(%d and %d) are merged", i, j);
                         break;
                     else
                         modflag = 0;
                     end
                 end
-                mergetri = triangulation(cons,verts);
+                
+                % 三角形を更新
+                mergetri = triangulation(cons, verts);
+                
+                % マージが行われなかった場合、ループを終了
                 if modflag == 0
                     break;
                 end
             end
-            if nargin < 5
+            
+            % オプションのwedata引数が指定されていない場合、wedataは空の行列とする
+            if nargin < 4
                 wedata = [];
             end
         end
@@ -600,21 +919,35 @@ classdef UNLSI
            end
         end
 
+        
         function obj = makeEquation(obj)
-            %%%%%%%%%%%%%パネル法連立方程式行列の作成%%%%%%%%%%%%
-            %パネル法の根幹
-            %表面微分行列も併せて作成している
-            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            % makeEquation関数はパネル法連立方程式行列を作成する関数です。
+            % パネル法の根幹であり、表面微分行列も併せて作成します。
+            % 
+            % 入力:
+            %   - obj: UNLSIオブジェクト
+            %
+            % 出力:
+            %   - obj: パネル法連立方程式行列が作成されたUNLSIオブジェクト
+            %
+            % 使用例:
+            %   obj = UNLSI();
+            %   obj = obj.makeEquation();
+            %
+            
+            % パネル数とバウンダリーパネル数を取得
             nPanel = numel(obj.paneltype);
             nbPanel = sum(obj.paneltype == 1);
-            %パネル微分行列の作成
+            
+            % パネル微分行列の初期化
             obj.mu2v{1} = sparse(nPanel,nbPanel);
             obj.mu2v{2} = sparse(nPanel,nbPanel);
             obj.mu2v{3} = sparse(nPanel,nbPanel);
             
+            % パネル法連立方程式行列の作成
             for i = 1:nPanel
                 if obj.paneltype(i) == 1
-                    CPmat =obj.center(obj.cluster{i},1:3);
+                    CPmat = obj.center(obj.cluster{i},1:3);
                     pnt = obj.center(i,:);
                     m = obj.tri.Points(obj.tri.ConnectivityList(i,1),:)'-pnt(:);
                     m = m./norm(m);
@@ -623,7 +956,6 @@ classdef UNLSI
                     lmnMat = (Minv\(CPmat-repmat(pnt,[size(CPmat,1),1]))')';
                     bb = [lmnMat(1:end,1),lmnMat(1:end,2),lmnMat(1:end,3),ones(size(lmnMat,1),1)];
                     Bmat=pinv(bb,sqrt(eps));
-                    %Vnmat = Minv(:,[1,2])*[1,0,0,0;0,1,0,0]*Bmat;
                     Vnmat = Minv*[1,0,0,0;0,1,0,0;0,0,1,0;]*Bmat;
                     for iter = 1:3
                         obj.mu2v{iter}(i,obj.IndexPanel2Solver(obj.cluster{i})) = Vnmat(iter,:);
@@ -631,14 +963,14 @@ classdef UNLSI
                 end
             end
 
-            %誘導抗力計算用の行列の作成
+            % 誘導抗力計算用の行列の作成
             
-            %パネル方連立方程式行列の作成
-            %機体パネル⇒機体パネルへの影響
-            
+            % パネル方連立方程式行列の作成
+            % 機体パネル⇒機体パネルへの影響
             si = floor(nbPanel/obj.settingUNLSI.nCalcDivide).*(0:obj.settingUNLSI.nCalcDivide-1)+1;
             ei = [floor(nbPanel/obj.settingUNLSI.nCalcDivide).*(1:obj.settingUNLSI.nCalcDivide-1),nbPanel];
             obj.LHS = zeros(nbPanel);
+            obj.wakeLHS = zeros(nbPanel);
             obj.RHS = zeros(nbPanel);
 
             for i= 1:obj.settingUNLSI.nCalcDivide
@@ -650,7 +982,16 @@ classdef UNLSI
 
             %wakeパネル⇒機体パネルへの影響
             %
-            
+            for wakeNo = 1:numel(obj.wakeline)
+                for edgeNo = 1:size(obj.wakeline{wakeNo}.validedge,2)
+                    interpID(1) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.upperID(edgeNo));
+                    interpID(2) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.lowerID(edgeNo));
+                    [influence] = obj.wakeInfluenceMatrix(obj,wakeNo,edgeNo,1:nbPanel,obj.wakeline{wakeNo}.wakeShape{edgeNo});
+                    obj.wakeLHS(:,interpID(1)) = obj.wakeLHS(:,interpID(1)) - influence;
+                    obj.wakeLHS(:,interpID(2)) = obj.wakeLHS(:,interpID(2)) + influence;
+                end
+            end
+
             for wakeNo = 1:numel(obj.wakeline)
                 theta = linspace(pi,0,size(obj.wakeline{wakeNo}.validedge,2)*obj.settingUNLSI.LLTnInterp+1);
                 iter = 1;
@@ -668,9 +1009,6 @@ classdef UNLSI
                 for edgeNo = 1:size(obj.wakeline{wakeNo}.validedge,2)
                     interpID(1) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.upperID(edgeNo));
                     interpID(2) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.lowerID(edgeNo));
-                    [influence] = obj.wakeInfluenceMatrix(obj,wakeNo,edgeNo,1:nbPanel);
-                    obj.LHS(:,interpID(1)) = obj.LHS(:,interpID(1)) - influence;
-                    obj.LHS(:,interpID(2)) = obj.LHS(:,interpID(2)) + influence;
                     obj.LLT.calcMu{wakeNo}(iter,interpID(1)) = -1;
                     obj.LLT.calcMu{wakeNo}(iter,interpID(2)) = 1;
                     iter = iter+1;
@@ -683,64 +1021,536 @@ classdef UNLSI
                 zd = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),3),sd,'linear','extrap');
                 obj.LLT.phiinterp{wakeNo} = atan((zd(2:end)-zd(1:end-1))./(yd(2:end)-yd(1:end-1)));
                 obj.LLT.spanel{wakeNo} = (sd(2:end)-sd(1:end-1))./2;
-                
+
             end
             if numel(obj.wakeline)>0
                 obj.LLT.Qij = obj.Calc_Q(horzcat(obj.LLT.yinterp{:}),horzcat(obj.LLT.zinterp{:}),horzcat(obj.LLT.phiinterp{:}),horzcat(obj.LLT.spanel{:}),obj.halfmesh);
             end
         end
 
+        function obj = setWakeShape(obj,wakeShape,ID)
+            %%%%%%%%%%%%%%%%wake形状の指定関数%%%%%%%%%%%%%%%%
+            %wakeNo : wake番号
+            %edgeNo : edge番号
+            %wakeShape : [x,y,z]の形状
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            if nargin == 2
+                for wakeNo = 1:numel(obj.wakeline)
+                    for edgeNo = 1:size(obj.wakeline{wakeNo}.validedge,2)
+                        obj.wakeline{wakeNo}.wakeShape{edgeNo} = wakeShape;
+                    end
+                end
+            else
+                for wakeNo = 1:numel(obj.wakeline)
+                    for edgeNo = 1:size(obj.wakeline{wakeNo}.validedge,2)
+                        if any(obj.surfID(obj.wakeline{wakeNo}.upperID(edgeNo))==ID) && any(obj.surfID(obj.wakeline{wakeNo}.lowerID(edgeNo))==ID) 
+                            obj.wakeline{wakeNo}.wakeShape{edgeNo} = wakeShape;
+                        end
+                    end
+                end
+            end
+            obj = obj.checkWakeIntersect();
+        end
 
-        function obj = calcApproximatedEquation(obj)
+
+        function obj = setHelixWake(obj,ID,dt,rpm,rotAxis,rotOrigin)
+            %%%%%%%%%%%%%%%%wake形状の指定関数%%%%%%%%%%%%%%%%
+            %wakeShape : [x,y,z]の形状
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            K = [0, -rotAxis(3), rotAxis(2);
+                 rotAxis(3), 0, -rotAxis(1);
+                -rotAxis(2), rotAxis(1), 0];
+            rotAngle = -rpm*pi/30 * dt;
+            dcm = eye(3) + sin(rotAngle) * K + (1 - cos(rotAngle)) * K^2;
+            for wakeIter = 1:numel(obj.wakeline)
+                wakeOrg = obj.getWakePosition(wakeIter);
+                for edgeNo = 1:size(obj.wakeline{wakeIter}.validedge,2)
+                    if any(obj.surfID(obj.wakeline{wakeIter}.upperID(edgeNo))==ID) && any(obj.surfID(obj.wakeline{wakeIter}.lowerID(edgeNo))==ID) 
+                        for i = 1:obj.settingUNLSI.nWakeMax
+                            if i == 1
+                                nextR = (wakeOrg(edgeNo,:)-rotOrigin)*dcm-(wakeOrg(edgeNo,:)-rotOrigin);
+                                obj.wakeline{wakeIter}.wakeShape{edgeNo}(i,1:3) = nextR + dt * obj.settingUNLSI.Vinf.*rotAxis(:)';
+                            else
+                                nextR = (obj.wakeline{wakeIter}.wakeShape{edgeNo}(i-1,1:3)+wakeOrg(edgeNo,:)-rotOrigin)*dcm-wakeOrg(edgeNo,:)+rotOrigin;
+                                obj.wakeline{wakeIter}.wakeShape{edgeNo}(i,1:3) = nextR + dt * obj.settingUNLSI.Vinf.*rotAxis(:)';
+                            end
+                        end
+                    end
+                end
+            end
+            obj = obj.checkWakeIntersect();
+            obj = obj.makeWakeEquation();
+        end
+
+        function obj = marchWake(obj,dt,alpha,beta,Mach,Re)
+            %%%%%%%%%%%%%%%%wake形状の更新関数%%%%%%%%%%%%%%%%
+            %flowVec : 流速ベクトル
+            %dt : 時間ステップ
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            if isempty(obj.flowNoTable)
+                if nargin == 6
+                    obj = obj.flowCondition(1,Mach,Re);
+                else
+                    obj = obj.flowCondition(1,Mach);
+                end
+                flowNo = 1;
+            else
+                flowNo = 0;
+                for i = 1:size(obj.flowNoTable,1)
+                    if obj.flowNoTable(i,1) == Mach && obj.flowNoTable(i,2) == Re
+                        flowNo = i;
+                    end
+                end
+                if flowNo == 0
+                    if nargin == 6
+                        obj = obj.flowCondition(size(obj.flowNoTable,1)+1,Mach,Re);
+                    else
+                        obj = obj.flowCondition(size(obj.flowNoTable,1)+1,Mach);
+                    end
+                    flowNo = size(obj.flowNoTable,1);
+                end
+            end
+            if any(size(alpha) ~= size(beta))
+                error("analysis points are not match");
+            end
+            
+            wakePos = {};
+            wakeOrgBuff = {};
+            snorm = [];
+            wakeNormal = [];
+            for wakeNo = 1:numel(obj.wakeline)
+                wakeOrg{wakeNo} = obj.getWakePosition(wakeNo);
+                for i = 1:size(wakeOrg{wakeNo},1)
+                    wakePos = [wakePos,obj.wakeline{wakeNo}.wakeOrg(i,:)+obj.wakeline{wakeNo}.wakeShape{i}];
+                    wakeOrgBuff = [wakeOrgBuff,wakeOrg{wakeNo}(i,:)];
+                    snorm = [snorm;norm(obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,i),:)-obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,i),:))];
+                    normBuff = (obj.modNormal(obj.wakeline{wakeNo}.upperID(i),:)+obj.modNormal(obj.wakeline{wakeNo}.lowerID(i),:))./2;
+                    wakeNormal = [wakeNormal;normBuff/norm(normBuff)];
+                end
+            end
+            u0 = obj.solvePertPotential(flowNo,alpha,beta);
+            initPos = [];
+            for iter = 1:numel(wakePos)
+                if size(wakePos{1},1) == obj.settingUNLSI.nWakeMax
+                    nWake(iter) = size(wakePos{iter},1)-1;
+                else
+                    nWake(iter) = size(wakePos{iter},1);
+                end
+                for k = nWake(iter):-1:1
+                    initPos= [initPos;wakePos{iter}(k,:)];
+                end
+            end
+            flowVec = zeros(size(initPos,1),3);
+            for i = 1:size(initPos,1)
+               %rvec = obj.center(i,:)'-obj.rotCenter(i,:)';
+               flowVec(i,:) = obj.settingUNLSI.Vinf.*[cosd(alpha)*cosd(beta),-sind(beta),sind(alpha)*cosd(beta)];%-(cross(obj.angularVelocity(i,:)./180.*pi,rvec(:)')')';
+            end
+           [VmuWake,VmuBody]  = obj.makeVelocityInfluence(initPos);
+            vel = obj.calcVelocity(u0,VmuWake,VmuBody);
+            vel = obj.settingUNLSI.Vinf.*vel+flowVec;
+            k1 = dt .* vel(:);
+            [VmuWake,VmuBody] = obj.makeVelocityInfluence(reshape(initPos(:)+0.5.*k1,[],3));
+            vel = obj.calcVelocity(u0,VmuWake,VmuBody);
+            vel = obj.settingUNLSI.Vinf.*vel+flowVec;
+            k2 = dt .* vel(:);
+            [VmuWake,VmuBody] = obj.makeVelocityInfluence(reshape(initPos(:)+0.5.*k2,[],3));
+            vel = obj.calcVelocity(u0,VmuWake,VmuBody);
+            vel = obj.settingUNLSI.Vinf.*vel+flowVec;
+            k3 = dt .* vel(:);
+            [VmuWake,VmuBody] = obj.makeVelocityInfluence(reshape(initPos(:)+k3,[],3));
+            vel = obj.calcVelocity(u0,VmuWake,VmuBody);
+            vel = obj.settingUNLSI.Vinf.*vel+flowVec;
+            k4 = dt .* vel(:);
+            newPos = reshape(initPos(:)+(k1+2.*k2+2.*k3+k4)./6,[],3);
+%                 options = odeset("RelTol",1e-2,"AbsTol",1e-2);
+%                 [~,yspan] = ode113(@(t,y)obj.marchWakeShapeODE(t,y,u0,flowVec,obj.settingUNLSI.Vinf),[0,dt],initPos(:),options);
+%                 newPos = reshape(yspan(end,:)',[],3);
+            
+            for iter = 1:numel(wakePos)
+                for k = nWake(iter):-1:1
+                    wakePos{iter}(k+1,:) = newPos(1,:);
+                    newPos(1,:) = [];
+                end
+            end
+            for i = 1:numel(wakePos)
+                wakePos{i}(1,:) = wakeOrgBuff{i}(1,:) + snorm(i,1)*obj.settingUNLSI.xWakeAttach.*wakeNormal(i,:);
+            end
+
+            id = 1;
+            for wakeNo = 1:numel(obj.wakeline)
+                for iter = 1:size(wakeOrg{wakeNo},1)
+                    obj.wakeline{wakeNo}.wakeShape{iter}=wakePos{id}-wakeOrgBuff{id}(1,:);
+                    id = id+1;
+                end
+                obj.wakeline{wakeNo}.wakeOrg = wakeOrg{wakeNo};
+            end
+            obj = obj.checkWakeIntersect();       
+            obj = obj.makeWakeEquation();
+        end
+
+        function dy = marchWakeShapeODE(obj,t,y,u0,flowVec,Vnorm)
+            %%%%%%%%%%%%%%%%wake形状の更新関数%%%%%%%%%%%%%%%%
+            %flowVec : 流速ベクトル
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            [VmuWake,VmuBody] = obj.makeVelocityInfluence(reshape(y,[],3));
+            vel = obj.calcVelocity(u0,VmuWake,VmuBody);
+            vel = Vnorm.*vel+flowVec;
+            dy = vel(:);
+        end
+
+        function controlPoint = getWakePosition(obj,wakeNo)
+            %%%%%%%%%%%%%%%%wake位置の取得関数%%%%%%%%%%%%%%%%
+            %wakeNo : wake番号
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            controlPoint = zeros(size(obj.wakeline{wakeNo}.validedge,2),3);
+            for edgeNo = 1:size(obj.wakeline{wakeNo}.validedge,2)
+                controlPoint(edgeNo,:) = (obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:))./2;
+            end
+        end
+
+        function plotWakeShape(obj,figNo,xyz,euler)
+            %%%%%%%%%%%%%%%%wake形状のプロット関数%%%%%%%%%%%%%%%%
+            %figNo : figure番号
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            if nargin == 2
+                xyz = [0,0,0];
+                euler = [0,0,0];
+            elseif nargin == 3
+                euler = [0,0,0];
+            end
+            
+            roll = euler(1);
+            pitch = euler(2);
+            yaw = euler(3);
+            R = [cosd(yaw)*cosd(pitch), cosd(yaw)*sind(pitch)*sind(roll) - sind(yaw)*cosd(roll), cosd(yaw)*sind(pitch)*cosd(roll) + sind(yaw)*sind(roll);
+                sind(yaw)*cosd(pitch), sind(yaw)*sind(pitch)*sind(roll) + cosd(yaw)*cosd(roll), sind(yaw)*sind(pitch)*cosd(roll) - cosd(yaw)*sind(roll);
+                -sind(pitch), cosd(pitch)*sind(roll), cosd(pitch)*cosd(roll)];
+                
+                
+            figure(figNo);
+            hold on;
+            for wakeNo = 1:numel(obj.wakeline)
+                for edgeNo = 1:size(obj.wakeline{wakeNo}.validedge,2)
+                    wakeLine1 = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+[0,0,0;obj.wakeline{wakeNo}.wakeShape{edgeNo}];
+                    wakeLine1 = wakeLine1 * R' + xyz(:)';
+                    wakeLine2 = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+[0,0,0;obj.wakeline{wakeNo}.wakeShape{edgeNo}];
+                    wakeLine2 = wakeLine2 * R' + xyz(:)';
+                    plot3(wakeLine1(:,1),wakeLine1(:,2),wakeLine1(:,3),'r');
+                    plot3(wakeLine2(:,1),wakeLine2(:,2),wakeLine2(:,3),'r');
+                    for i = 1:size(wakeLine1,1)
+                        plot3([wakeLine1(i,1);wakeLine2(i,1)],[wakeLine1(i,2);wakeLine2(i,2)],[wakeLine1(i,3);wakeLine2(i,3)],'r');
+                    end
+                    if obj.halfmesh == 1
+                        plot3(wakeLine1(:,1),-wakeLine1(:,2),wakeLine1(:,3),'r');
+                        plot3(wakeLine2(:,1),-wakeLine2(:,2),wakeLine2(:,3),'r');
+                        for i = 1:size(wakeLine1,1)
+                            plot3([wakeLine1(i,1);wakeLine2(i,1)],-[wakeLine1(i,2);wakeLine2(i,2)],[wakeLine1(i,3);wakeLine2(i,3)],'r');
+                        end
+                    end
+                end
+            end
+            hold off;drawnow();
+        end
+
+
+        function obj = makeWakeEquation(obj)
+            nbPanel = sum(obj.paneltype == 1);
+            obj.wakeLHS = zeros(nbPanel);
+            for wakeNo = 1:numel(obj.wakeline)
+                for edgeNo = 1:size(obj.wakeline{wakeNo}.validedge,2)
+                    interpID(1) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.upperID(edgeNo));
+                    interpID(2) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.lowerID(edgeNo));
+                    [influence] = obj.wakeInfluenceMatrix(obj,wakeNo,edgeNo,1:nbPanel,obj.wakeline{wakeNo}.wakeShape{edgeNo});
+                    obj.wakeLHS(:,interpID(1)) = obj.wakeLHS(:,interpID(1)) - influence;
+                    obj.wakeLHS(:,interpID(2)) = obj.wakeLHS(:,interpID(2)) + influence;
+                end
+            end
+        end
+
+        function [VmuWake,VmuBody] = makeVelocityInfluence(obj,controlPoint)
+        
+            bPanel = sum(obj.paneltype == 1);
+            VmuWake.X = zeros(size(controlPoint,1),bPanel);
+            VmuWake.Y = zeros(size(controlPoint,1),bPanel);
+            VmuWake.Z = zeros(size(controlPoint,1),bPanel);
+
+            %wakeパネル⇒機体パネルへの影響
+            for wakeNo = 1:numel(obj.wakeline)
+                for edgeNo = 1:size(obj.wakeline{wakeNo}.validedge,2)
+                    interpID(1) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.upperID(edgeNo));
+                    interpID(2) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.lowerID(edgeNo));
+                    [influence] = obj.wakeVelocityInfluence(obj,wakeNo,edgeNo,controlPoint,obj.wakeline{wakeNo}.wakeShape{edgeNo});
+                    
+                    VmuWake.X(:,interpID(1)) = VmuWake.X(:,interpID(1)) - influence.X;
+                    VmuWake.X(:,interpID(2)) = VmuWake.X(:,interpID(2)) + influence.X;
+                    VmuWake.Y(:,interpID(1)) = VmuWake.Y(:,interpID(1)) - influence.Y;
+                    VmuWake.Y(:,interpID(2)) = VmuWake.Y(:,interpID(2)) + influence.Y;
+                    VmuWake.Z(:,interpID(1)) = VmuWake.Z(:,interpID(1)) - influence.Z;
+                    VmuWake.Z(:,interpID(2)) = VmuWake.Z(:,interpID(2)) + influence.Z;
+                end
+            end
+
+            if nargout > 1
+                VmuBody = obj.velocityInfluence(obj,controlPoint);
+            end
+        end
+
+
+
+        function obj = calcApproximatedEquation(obj,wakeGradFlag)
+            % calcApproximatedEquationメソッドは、近似方程式を計算するための関数です。
+            % 近似フラグが立っている場合は、エラーが発生します。
+            % nbPanelは、paneltypeが1であるパネルの数を表します。
+            % 接点に繋がるIDを決定し、近似行列の計算インデックスを設定します。
+            % また、各頂点がwakeに含まれているかどうかを判定し、影響行列を計算します。
+            % 最後に、微小変位に対する微分係数を計算します。
+            if nargin == 1
+                wakeGradFlag = 0;
+            end
+            obj.approxMat.wakeGradFlag = wakeGradFlag;    
+
             if obj.approximated == 1
                 error("This instance is approximated. Please execute obj.makeEquation()");
             end
             nbPanel = sum(obj.paneltype == 1);
-            %接点に繋がるIDを決定
+            % 接点に繋がるIDを決定
             vertAttach = obj.tri.vertexAttachments();
-            pert = sqrt(eps);
+            pert = eps^(1/3);
             for i = 1:numel(vertAttach)
-                if mod(i,floor(numel(vertAttach)/100))==0 || i == 1
-                    fprintf("%d/%d ",i,numel(vertAttach));
+                if mod(i,floor(numel(vertAttach)/10))==0 || i == 1
+                    fprintf("%d/%d \n",i,numel(vertAttach));
                 end
-                %paneltype == 1以外を削除する
+                % paneltype == 1以外を削除する
                 vertAttach{i}(obj.paneltype(vertAttach{i}) ~=1) = [];
                 obj.approxMat.calcIndex{i} = sort(obj.IndexPanel2Solver(vertAttach{i}));
-                %このvertsがwakeに含まれているか
-                for j = 1:3
-                    newVerts = obj.tri.Points;
-                    newVerts(i,j) = obj.tri.Points(i,j)+pert;
-                    obj2 = obj.setVerts(newVerts);
-                    [VortexAr,VortexBr,VortexAc,VortexBc] = obj2.influenceMatrix(obj2,obj.approxMat.calcIndex{i},obj.approxMat.calcIndex{i});
-                    %
+                j=1;%X
+                newVerts = obj.tri.Points;
+                newVerts(i,j) = obj.tri.Points(i,j)+pert;
+                obj2 = obj.setVerts(newVerts);
+                [VortexArf,VortexBrf,VortexAcf,VortexBcf] = obj2.influenceMatrix(obj2,obj.approxMat.calcIndex{i},obj.approxMat.calcIndex{i});
+                
+                if obj.approxMat.wakeGradFlag == 1
+                    VortexArwf = zeros(numel(obj.approxMat.calcIndex{i}),nbPanel);
+                    VortexAcwf = zeros(nbPanel,numel(obj.approxMat.calcIndex{i}));
                     for wakeNo = 1:numel(obj.wakeline)
                         for edgeNo = 1:size(obj.wakeline{wakeNo}.validedge,2)
                             interpID(1) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.upperID(edgeNo));
                             interpID(2) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.lowerID(edgeNo));
                             if isempty(intersect(interpID,obj.approxMat.calcIndex{i}))
-                                influence = obj2.wakeInfluenceMatrix(obj2,wakeNo,edgeNo,obj.approxMat.calcIndex{i});
-                                VortexAr(:,interpID(1)) = VortexAr(:,interpID(1)) - influence;
-                                VortexAr(:,interpID(2)) = VortexAr(:,interpID(2)) + influence;
+                                influence = obj2.wakeInfluenceMatrix(obj2,wakeNo,edgeNo,obj.approxMat.calcIndex{i},obj.wakeline{wakeNo}.wakeShape{edgeNo});
+                                VortexArwf(:,interpID(1)) = VortexArwf(:,interpID(1)) - influence;
+                                VortexArwf(:,interpID(2)) = VortexArwf(:,interpID(2)) + influence;
                             else
-                                influence = obj2.wakeInfluenceMatrix(obj2,wakeNo,edgeNo,1:nbPanel);
-                                VortexAr(:,interpID(1)) = VortexAr(:,interpID(1)) - influence(obj.approxMat.calcIndex{i},:);
-                                VortexAr(:,interpID(2)) = VortexAr(:,interpID(2)) + influence(obj.approxMat.calcIndex{i},:);
+                                influence = obj2.wakeInfluenceMatrix(obj2,wakeNo,edgeNo,1:nbPanel,obj.wakeline{wakeNo}.wakeShape{edgeNo});
+                                VortexArwf(:,interpID(1)) = VortexArwf(:,interpID(1)) - influence(obj.approxMat.calcIndex{i},:);
+                                VortexArwf(:,interpID(2)) = VortexArwf(:,interpID(2)) + influence(obj.approxMat.calcIndex{i},:);
                                 if not(isempty(intersect(interpID(1),obj.approxMat.calcIndex{i})))
                                     [~,b] = find(obj.approxMat.calcIndex{i}==interpID(1));
-                                    VortexAc(:,b) = VortexAc(:,b) - influence;
+                                    VortexAcwf(:,b) = VortexAcwf(:,b) - influence;
                                 end
                                 if not(isempty(intersect(interpID(2),obj.approxMat.calcIndex{i})))
                                     [~,b] = find(obj.approxMat.calcIndex{i}==interpID(2));
-                                    VortexAc(:,b) = VortexAc(:,b) + influence;
+                                    VortexAcwf(:,b) = VortexAcwf(:,b) + influence;
                                 end
                             end
                         end
                     end
-                    obj.approxMat.dVAr{i,j} = (VortexAr-obj.LHS(obj.approxMat.calcIndex{i},:))./pert;
-                    obj.approxMat.dVBr{i,j} = (VortexBr-obj.RHS(obj.approxMat.calcIndex{i},:))./pert;
-                    obj.approxMat.dVAc{i,j} = (VortexAc-obj.LHS(:,obj.approxMat.calcIndex{i}))./pert;
-                    obj.approxMat.dVBc{i,j} = (VortexBc-obj.RHS(:,obj.approxMat.calcIndex{i}))./pert;
                 end
+
+                newVerts = obj.tri.Points;
+                newVerts(i,j) = obj.tri.Points(i,j)-pert;
+                obj2 = obj.setVerts(newVerts);
+                [VortexArr,VortexBrr,VortexAcr,VortexBcr] = obj2.influenceMatrix(obj2,obj.approxMat.calcIndex{i},obj.approxMat.calcIndex{i});
+
+                if obj.approxMat.wakeGradFlag == 1
+                    VortexArwr = zeros(numel(obj.approxMat.calcIndex{i}),nbPanel);
+                    VortexAcwr = zeros(nbPanel,numel(obj.approxMat.calcIndex{i}));
+                    for wakeNo = 1:numel(obj.wakeline)
+                        for edgeNo = 1:size(obj.wakeline{wakeNo}.validedge,2)
+                            interpID(1) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.upperID(edgeNo));
+                            interpID(2) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.lowerID(edgeNo));
+                            if isempty(intersect(interpID,obj.approxMat.calcIndex{i}))
+                                influence = obj2.wakeInfluenceMatrix(obj2,wakeNo,edgeNo,obj.approxMat.calcIndex{i},obj.wakeline{wakeNo}.wakeShape{edgeNo});
+                                VortexArwr(:,interpID(1)) = VortexArwr(:,interpID(1)) - influence;
+                                VortexArwr(:,interpID(2)) = VortexArwr(:,interpID(2)) + influence;
+                            else
+                                influence = obj2.wakeInfluenceMatrix(obj2,wakeNo,edgeNo,1:nbPanel,obj.wakeline{wakeNo}.wakeShape{edgeNo});
+                                VortexArwr(:,interpID(1)) = VortexArwr(:,interpID(1)) - influence(obj.approxMat.calcIndex{i},:);
+                                VortexArwr(:,interpID(2)) = VortexArwr(:,interpID(2)) + influence(obj.approxMat.calcIndex{i},:);
+                                if not(isempty(intersect(interpID(1),obj.approxMat.calcIndex{i})))
+                                    [~,b] = find(obj.approxMat.calcIndex{i}==interpID(1));
+                                    VortexAcwr(:,b) = VortexAcwr(:,b) - influence;
+                                end
+                                if not(isempty(intersect(interpID(2),obj.approxMat.calcIndex{i})))
+                                    [~,b] = find(obj.approxMat.calcIndex{i}==interpID(2));
+                                    VortexAcwr(:,b) = VortexAcwr(:,b) + influence;
+                                end
+                            end
+                        end
+                    end
+                end
+
+                obj.approxMat.dVArX{i} = (VortexArf-VortexArr)./pert/2;
+                obj.approxMat.dVBrX{i} = (VortexBrf-VortexBrr)./pert/2;
+                obj.approxMat.dVAcX{i} = (VortexAcf-VortexAcr)./pert/2;
+                obj.approxMat.dVBcX{i} = (VortexBcf-VortexBcr)./pert/2;
+                if obj.approxMat.wakeGradFlag == 1
+                    obj.approxMat.dVArwX{i} = (VortexArwf-VortexArwr)./pert/2;
+                    obj.approxMat.dVAcwX{i} = (VortexAcwf-VortexAcwr)./pert/2;
+                end
+                
+                j=2;%Y
+                newVerts = obj.tri.Points;
+                newVerts(i,j) = obj.tri.Points(i,j)+pert;
+                obj2 = obj.setVerts(newVerts);
+                [VortexArf,VortexBrf,VortexAcf,VortexBcf] = obj2.influenceMatrix(obj2,obj.approxMat.calcIndex{i},obj.approxMat.calcIndex{i});
+                
+                if obj.approxMat.wakeGradFlag == 1
+                    VortexArwf = zeros(numel(obj.approxMat.calcIndex{i}),nbPanel);
+                    VortexAcwf = zeros(nbPanel,numel(obj.approxMat.calcIndex{i}));
+                    for wakeNo = 1:numel(obj.wakeline)
+                        for edgeNo = 1:size(obj.wakeline{wakeNo}.validedge,2)
+                            interpID(1) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.upperID(edgeNo));
+                            interpID(2) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.lowerID(edgeNo));
+                            if isempty(intersect(interpID,obj.approxMat.calcIndex{i}))
+                                influence = obj2.wakeInfluenceMatrix(obj2,wakeNo,edgeNo,obj.approxMat.calcIndex{i},obj.wakeline{wakeNo}.wakeShape{edgeNo});
+                                VortexArwf(:,interpID(1)) = VortexArwf(:,interpID(1)) - influence;
+                                VortexArwf(:,interpID(2)) = VortexArwf(:,interpID(2)) + influence;
+                            else
+                                influence = obj2.wakeInfluenceMatrix(obj2,wakeNo,edgeNo,1:nbPanel,obj.wakeline{wakeNo}.wakeShape{edgeNo});
+                                VortexArwf(:,interpID(1)) = VortexArwf(:,interpID(1)) - influence(obj.approxMat.calcIndex{i},:);
+                                VortexArwf(:,interpID(2)) = VortexArwf(:,interpID(2)) + influence(obj.approxMat.calcIndex{i},:);
+                                if not(isempty(intersect(interpID(1),obj.approxMat.calcIndex{i})))
+                                    [~,b] = find(obj.approxMat.calcIndex{i}==interpID(1));
+                                    VortexAcwf(:,b) = VortexAcwf(:,b) - influence;
+                                end
+                                if not(isempty(intersect(interpID(2),obj.approxMat.calcIndex{i})))
+                                    [~,b] = find(obj.approxMat.calcIndex{i}==interpID(2));
+                                    VortexAcwf(:,b) = VortexAcwf(:,b) + influence;
+                                end
+                            end
+                        end
+                    end
+                end
+
+                newVerts = obj.tri.Points;
+                newVerts(i,j) = obj.tri.Points(i,j)-pert;
+                obj2 = obj.setVerts(newVerts);
+                [VortexArr,VortexBrr,VortexAcr,VortexBcr] = obj2.influenceMatrix(obj2,obj.approxMat.calcIndex{i},obj.approxMat.calcIndex{i});
+                
+                if obj.approxMat.wakeGradFlag == 1
+                    VortexArwr = zeros(numel(obj.approxMat.calcIndex{i}),nbPanel);
+                    VortexAcwr = zeros(nbPanel,numel(obj.approxMat.calcIndex{i}));
+                    for wakeNo = 1:numel(obj.wakeline)
+                        for edgeNo = 1:size(obj.wakeline{wakeNo}.validedge,2)
+                            interpID(1) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.upperID(edgeNo));
+                            interpID(2) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.lowerID(edgeNo));
+                            if isempty(intersect(interpID,obj.approxMat.calcIndex{i}))
+                                influence = obj2.wakeInfluenceMatrix(obj2,wakeNo,edgeNo,obj.approxMat.calcIndex{i},obj.wakeline{wakeNo}.wakeShape{edgeNo});
+                                VortexArwr(:,interpID(1)) = VortexArwr(:,interpID(1)) - influence;
+                                VortexArwr(:,interpID(2)) = VortexArwr(:,interpID(2)) + influence;
+                            else
+                                influence = obj2.wakeInfluenceMatrix(obj2,wakeNo,edgeNo,1:nbPanel,obj.wakeline{wakeNo}.wakeShape{edgeNo});
+                                VortexArwr(:,interpID(1)) = VortexArwr(:,interpID(1)) - influence(obj.approxMat.calcIndex{i},:);
+                                VortexArwr(:,interpID(2)) = VortexArwr(:,interpID(2)) + influence(obj.approxMat.calcIndex{i},:);
+                                if not(isempty(intersect(interpID(1),obj.approxMat.calcIndex{i})))
+                                    [~,b] = find(obj.approxMat.calcIndex{i}==interpID(1));
+                                    VortexAcwr(:,b) = VortexAcwr(:,b) - influence;
+                                end
+                                if not(isempty(intersect(interpID(2),obj.approxMat.calcIndex{i})))
+                                    [~,b] = find(obj.approxMat.calcIndex{i}==interpID(2));
+                                    VortexAcwr(:,b) = VortexAcwr(:,b) + influence;
+                                end
+                            end
+                        end
+                    end
+                end
+
+                obj.approxMat.dVArY{i} = (VortexArf-VortexArr)./pert/2;
+                obj.approxMat.dVBrY{i} = (VortexBrf-VortexBrr)./pert/2;
+                obj.approxMat.dVAcY{i} = (VortexAcf-VortexAcr)./pert/2;
+                obj.approxMat.dVBcY{i} = (VortexBcf-VortexBcr)./pert/2;
+                if obj.approxMat.wakeGradFlag == 1
+                    obj.approxMat.dVArwY{i} = (VortexArwf-VortexArwr)./pert/2;
+                    obj.approxMat.dVAcwY{i} = (VortexAcwf-VortexAcwr)./pert/2;
+                end
+
+                j=3;%Z
+                newVerts = obj.tri.Points;
+                newVerts(i,j) = obj.tri.Points(i,j)+pert;
+                obj2 = obj.setVerts(newVerts);
+                [VortexArf,VortexBrf,VortexAcf,VortexBcf] = obj2.influenceMatrix(obj2,obj.approxMat.calcIndex{i},obj.approxMat.calcIndex{i});
+                
+                if obj.approxMat.wakeGradFlag == 1
+                    VortexArwf = zeros(numel(obj.approxMat.calcIndex{i}),nbPanel);
+                    VortexAcwf = zeros(nbPanel,numel(obj.approxMat.calcIndex{i}));
+                    for wakeNo = 1:numel(obj.wakeline)
+                        for edgeNo = 1:size(obj.wakeline{wakeNo}.validedge,2)
+                            interpID(1) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.upperID(edgeNo));
+                            interpID(2) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.lowerID(edgeNo));
+                            if isempty(intersect(interpID,obj.approxMat.calcIndex{i}))
+                                influence = obj2.wakeInfluenceMatrix(obj2,wakeNo,edgeNo,obj.approxMat.calcIndex{i},obj.wakeline{wakeNo}.wakeShape{edgeNo});
+                                VortexArwf(:,interpID(1)) = VortexArwf(:,interpID(1)) - influence;
+                                VortexArwf(:,interpID(2)) = VortexArwf(:,interpID(2)) + influence;
+                            else
+                                influence = obj2.wakeInfluenceMatrix(obj2,wakeNo,edgeNo,1:nbPanel,obj.wakeline{wakeNo}.wakeShape{edgeNo});
+                                VortexArwf(:,interpID(1)) = VortexArwf(:,interpID(1)) - influence(obj.approxMat.calcIndex{i},:);
+                                VortexArwf(:,interpID(2)) = VortexArwf(:,interpID(2)) + influence(obj.approxMat.calcIndex{i},:);
+                                if not(isempty(intersect(interpID(1),obj.approxMat.calcIndex{i})))
+                                    [~,b] = find(obj.approxMat.calcIndex{i}==interpID(1));
+                                    VortexAcwf(:,b) = VortexAcwf(:,b) - influence;
+                                end
+                                if not(isempty(intersect(interpID(2),obj.approxMat.calcIndex{i})))
+                                    [~,b] = find(obj.approxMat.calcIndex{i}==interpID(2));
+                                    VortexAcwf(:,b) = VortexAcwf(:,b) + influence;
+                                end
+                            end
+                        end
+                    end
+                end
+                
+                newVerts = obj.tri.Points;
+                newVerts(i,j) = obj.tri.Points(i,j)-pert;
+                obj2 = obj.setVerts(newVerts);
+                [VortexArr,VortexBrr,VortexAcr,VortexBcr] = obj2.influenceMatrix(obj2,obj.approxMat.calcIndex{i},obj.approxMat.calcIndex{i});
+
+                if obj.approxMat.wakeGradFlag == 1
+                    VortexArwr = zeros(numel(obj.approxMat.calcIndex{i}),nbPanel);
+                    VortexAcwr = zeros(nbPanel,numel(obj.approxMat.calcIndex{i}));
+                    for wakeNo = 1:numel(obj.wakeline)
+                        for edgeNo = 1:size(obj.wakeline{wakeNo}.validedge,2)
+                            interpID(1) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.upperID(edgeNo));
+                            interpID(2) = obj.IndexPanel2Solver(obj.wakeline{wakeNo}.lowerID(edgeNo));
+                            if isempty(intersect(interpID,obj.approxMat.calcIndex{i}))
+                                influence = obj2.wakeInfluenceMatrix(obj2,wakeNo,edgeNo,obj.approxMat.calcIndex{i},obj.wakeline{wakeNo}.wakeShape{edgeNo});
+                                VortexArwr(:,interpID(1)) = VortexArwr(:,interpID(1)) - influence;
+                                VortexArwr(:,interpID(2)) = VortexArwr(:,interpID(2)) + influence;
+                            else
+                                influence = obj2.wakeInfluenceMatrix(obj2,wakeNo,edgeNo,1:nbPanel,obj.wakeline{wakeNo}.wakeShape{edgeNo});
+                                VortexArwr(:,interpID(1)) = VortexArwr(:,interpID(1)) - influence(obj.approxMat.calcIndex{i},:);
+                                VortexArwr(:,interpID(2)) = VortexArwr(:,interpID(2)) + influence(obj.approxMat.calcIndex{i},:);
+                                if not(isempty(intersect(interpID(1),obj.approxMat.calcIndex{i})))
+                                    [~,b] = find(obj.approxMat.calcIndex{i}==interpID(1));
+                                    VortexAcwr(:,b) = VortexAcwr(:,b) - influence;
+                                end
+                                if not(isempty(intersect(interpID(2),obj.approxMat.calcIndex{i})))
+                                    [~,b] = find(obj.approxMat.calcIndex{i}==interpID(2));
+                                    VortexAcwr(:,b) = VortexAcwr(:,b) + influence;
+                                end
+                            end
+                        end
+                    end
+                end
+
+                obj.approxMat.dVArZ{i} = (VortexArf-VortexArr)./pert/2;
+                obj.approxMat.dVBrZ{i} = (VortexBrf-VortexBrr)./pert/2;
+                obj.approxMat.dVAcZ{i} = (VortexAcf-VortexAcr)./pert/2;
+                obj.approxMat.dVBcZ{i} = (VortexBcf-VortexBcr)./pert/2;
+                if obj.approxMat.wakeGradFlag == 1
+                    obj.approxMat.dVArwZ{i} = (VortexArwf-VortexArwr)./pert/2;
+                    obj.approxMat.dVAcwZ{i} = (VortexAcwf-VortexAcwr)./pert/2;
+                end
+
             end
             fprintf("\n");
         end
@@ -753,104 +1563,108 @@ classdef UNLSI
                 approxmatedObj.mu2v{2} = sparse(nPanel,nbPanel);
                 approxmatedObj.mu2v{3} = sparse(nPanel,nbPanel);
             
+            % パネル法連立方程式行列の作成
             for i = 1:nPanel
                 if obj.paneltype(i) == 1
-                    CPmat =obj.center(obj.cluster{i},1:3);
+                    CPmat = obj.center(obj.cluster{i},1:3);
                     pnt = obj.center(i,:);
                     m = obj.tri.Points(obj.tri.ConnectivityList(i,1),:)'-pnt(:);
                     m = m./norm(m);
                     l = cross(m,obj.orgNormal(i,:)');
-                    Minv = [l,m,obj.ormal(i,:)'];
+                    Minv = [l,m,obj.orgNormal(i,:)'];
                     lmnMat = (Minv\(CPmat-repmat(pnt,[size(CPmat,1),1]))')';
                     bb = [lmnMat(1:end,1),lmnMat(1:end,2),lmnMat(1:end,3),ones(size(lmnMat,1),1)];
                     Bmat=pinv(bb,sqrt(eps));
-                    %Vnmat = Minv(:,[1,2])*[1,0,0,0;0,1,0,0]*Bmat;
                     Vnmat = Minv*[1,0,0,0;0,1,0,0;0,0,1,0;]*Bmat;
                     for iter = 1:3
                         approxmatedObj.mu2v{iter}(i,obj.IndexPanel2Solver(obj.cluster{i})) = Vnmat(iter,:);
                     end
                 end
             end
-            
-                
-            for wakeNo = 1:numel(obj.wakeline)
-                theta = linspace(pi,0,size(obj.wakeline{wakeNo}.validedge,2)*obj.LLT.n_interp+1);
-                obj.LLT.sp{wakeNo} = [];
-                obj.LLT.calcMu{wakeNo} = zeros(1,nbPanel);
-                s = zeros(1,numel(obj.wakeline{wakeNo}.edge));
-                jter = 1;
-                for edgeNo = 1:numel(obj.wakeline{wakeNo}.edge)-1
-                    s(edgeNo+1) = s(edgeNo) + norm(obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo),2:3)-obj.tri.Points(obj.wakeline{wakeNo}.edge(edgeNo+1),2:3));
-                    if obj.wakeline{wakeNo}.valid(edgeNo) == 1
-                        obj.LLT.sp{wakeNo} =  [obj.LLT.sp{wakeNo},(s(edgeNo)+s(edgeNo+1))./2];
-                        jter = jter+1;
-                    end
+
+       
+
+            approxmatedObj.approxMat = [];
+            approxmatedObj.approximated = 1;
+            dv = approxmatedObj.tri.Points-obj.tri.Points;
+            for i = 1:size(modifiedVerts,1)
+                if ~isempty(obj.approxMat.calcIndex{i})
+                    obj.approxMat.dVAcX{i}(obj.approxMat.calcIndex{i},:) = 0; 
+                    obj.approxMat.dVBcX{i}(obj.approxMat.calcIndex{i},:) = 0; 
+                    obj.approxMat.dVAcY{i}(obj.approxMat.calcIndex{i},:) = 0; 
+                    obj.approxMat.dVBcY{i}(obj.approxMat.calcIndex{i},:) = 0;
+                    obj.approxMat.dVAcZ{i}(obj.approxMat.calcIndex{i},:) = 0; 
+                    obj.approxMat.dVBcZ{i}(obj.approxMat.calcIndex{i},:) = 0;
+                    approxmatedObj.LHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.LHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVArX{i}.*dv(i,1)+obj.approxMat.dVArY{i}.*dv(i,2)+obj.approxMat.dVArZ{i}.*dv(i,3);
+                    approxmatedObj.RHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.RHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVBrX{i}.*dv(i,1)+obj.approxMat.dVBrY{i}.*dv(i,2)+obj.approxMat.dVBrZ{i}.*dv(i,3);
+                    approxmatedObj.LHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.LHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVAcX{i}.*dv(i,1)+obj.approxMat.dVAcY{i}.*dv(i,2)+obj.approxMat.dVAcZ{i}.*dv(i,3);
+                    approxmatedObj.RHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.RHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVBcX{i}.*dv(i,1)+obj.approxMat.dVBcY{i}.*dv(i,2)+obj.approxMat.dVBcZ{i}.*dv(i,3);
                 end
-                sd = (s(end)-s(1))*(cos(theta)./2+0.5)+s(1);
-                obj.LLT.sinterp{wakeNo} = (sd(2:end)+sd(1:end-1))./2;
-                obj.LLT.yinterp{wakeNo} = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),2),obj.LLT.sinterp{wakeNo},'linear','extrap');
-                obj.LLT.zinterp{wakeNo} = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),3),obj.LLT.sinterp{wakeNo},'linear','extrap');
-                yd = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),2),sd,'linear','extrap');
-                zd = interp1(s,obj.tri.Points(obj.wakeline{wakeNo}.edge(:),3),sd,'linear','extrap');
-                obj.LLT.phiinterp{wakeNo} = atan((zd(2:end)-zd(1:end-1))./(yd(2:end)-yd(1:end-1)));
-                obj.LLT.spanel{wakeNo} = (sd(2:end)-sd(1:end-1))./2;
             end
-
-
-                approxmatedObj.approxMat = [];
-                approxmatedObj.approximated = 1;
+            if obj.approxMat.wakeGradFlag == 1
                 for i = 1:size(modifiedVerts,1)
-                    for j = 1:3
-                        dv = (approxmatedObj.tri.Points(i,j)-obj.tri.Points(i,j));
-                        obj.approxMat.dVAc{i,j}(obj.approxMat.calcIndex{i},:) = 0; 
-                        obj.approxMat.dVBc{i,j}(obj.approxMat.calcIndex{i},:) = 0; 
-                        approxmatedObj.LHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.LHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVAr{i,j}.*dv;
-                        approxmatedObj.RHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.RHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVBr{i,j}.*dv;
-                        approxmatedObj.LHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.LHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVAc{i,j}.*dv;
-                        approxmatedObj.RHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.RHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVBc{i,j}.*dv;
-                    end
+                    obj.approxMat.dVAcwX{i}(obj.approxMat.calcIndex{i},:) = 0;  
+                    obj.approxMat.dVAcwY{i}(obj.approxMat.calcIndex{i},:) = 0; 
+                    obj.approxMat.dVAcwZ{i}(obj.approxMat.calcIndex{i},:) = 0;
+                    approxmatedObj.wakeLHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.wakeLHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVArwX{i}.*dv(i,1)+obj.approxMat.dVArwY{i}.*dv(i,2)+obj.approxMat.dVArwZ{i}.*dv(i,3);
+                    approxmatedObj.wakeLHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.wakeLHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVAcwX{i}.*dv(i,1)+obj.approxMat.dVAcwY{i}.*dv(i,2)+obj.approxMat.dVAcwZ{i}.*dv(i,3);
                 end
+            else
+                approxmatedObj = approxmatedObj.makeWakeEquation();
+            end
         end
 
         function obj = setProp(obj,propNo,ID,diameter,XZsliced)
             %IDのパネルタイプをプロペラ==4に変更
-            obj = obj.setPanelType(ID,'prop');
-            obj.prop{propNo}.ID = ID;
-            nPanel = numel(obj.paneltype);
-            %プロペラディスク⇒bodyパネルへの影響係数
-            obj.prop{propNo}.diameter = diameter;
-            obj.prop{propNo}.area = pi*(obj.prop{propNo}.diameter/2)^2;
-            obj.prop{propNo}.XZsliced  = XZsliced;
-            %ペラパネルの重心位置を計算
-            mom = [0,0,0];
-            propArea = 0;
-            for i = 1:nPanel
-                if obj.surfID(i) == ID
-                    darea = obj.vertex(obj.tri.Points(obj.tri(i,1),:),obj.tri.Points(obj.tri(i,2),:),obj.tri.Points(obj.tri(i,3),:));
-                    propArea = propArea + darea;
-                    mom = mom + darea.*obj.center(i,:);
-                    if XZsliced == 1
-                        mom = mom + darea.*[obj.center(i,1),-obj.center(i,2),obj.center(i,3)];
+            for iter = 1:numel(propNo)
+                obj = obj.setPanelType(ID(iter),'prop');
+                obj.prop{propNo(iter)}.ID = ID(iter);
+                nPanel = numel(obj.paneltype);
+                %プロペラディスク⇒bodyパネルへの影響係数
+                obj.prop{propNo(iter)}.diameter = diameter(iter);
+                obj.prop{propNo(iter)}.area = pi*(obj.prop{propNo(iter)}.diameter/2)^2;
+                obj.prop{propNo(iter)}.XZsliced  = XZsliced(iter);
+                %ペラパネルの重心位置を計算
+                mom = [0,0,0];
+                propArea = 0;
+                for i = 1:nPanel
+                    if obj.surfID(i) == ID(iter)
+                        darea = obj.vertex(obj.tri.Points(obj.tri(i,1),:),obj.tri.Points(obj.tri(i,2),:),obj.tri.Points(obj.tri(i,3),:));
+                        propArea = propArea + darea;
+                        mom = mom + darea.*obj.center(i,:);
+                        if XZsliced(iter) == 1
+                            mom = mom + darea.*[obj.center(i,1),-obj.center(i,2),obj.center(i,3)];
+                        end
                     end
                 end
+                if XZsliced(iter) == 1
+                    propArea = 2*propArea;
+                end
+                obj.prop{propNo(iter)}.normal = mean(obj.orgNormal(obj.surfID == ID(iter),:),1);
+                obj.prop{propNo(iter)}.center = mom./propArea;
+                obj = obj.setPropState(propNo(iter),sqrt(eps),sqrt(eps),sqrt(eps));
             end
-            if XZsliced == 1
-                propArea = 2*propArea;
+            
+            for iter = 1:numel(obj.prop)
+                obj = makePropEquation(obj,iter);
             end
-            obj.prop{propNo}.normal = mean(obj.orgNormal(obj.surfID == ID,:),1);
-            obj.prop{propNo}.center = mom./propArea;
-
-            obj = obj.setPropState(propNo,sqrt(eps),sqrt(eps),sqrt(eps));
-
-            obj = makePropEquation(obj,propNo);
-
-
         end
 
-        function obj = makePropEquation(obj,propNo)
-            %とりあえずpaneltypeで計算しているが、IDで管理したい
-            %muとsigma両方
-            [VortexAi,VortexBi,VortexAo,VortexBo,propWakeA] = obj.propellerInfluenceMatrix(obj,propNo,obj.settingUNLSI.propWakeLength);
+
+        function obj = makePropEquation(obj, propNo)
+            % makePropEquationメソッドは、指定されたプロペラ番号に対してプロペラの影響行列を計算し、オブジェクトのプロパティに格納します。
+            % 
+            % 入力:
+            %   - obj: UNLSIオブジェクト
+            %   - propNo: プロペラ番号
+            %
+            % 出力:
+            %   - obj: 更新されたUNLSIオブジェクト
+            %
+            % 例:
+            %   obj = makePropEquation(obj, 1);
+            %
+            [VortexAi, VortexBi, VortexAo, VortexBo, propWakeA] = obj.propellerInfluenceMatrix(obj, propNo, obj.settingUNLSI.propWakeLength);
             obj.prop{propNo}.LHSi = VortexAi;
             obj.prop{propNo}.RHSi = VortexBi;
             obj.prop{propNo}.LHSo = VortexAo;
@@ -995,7 +1809,7 @@ classdef UNLSI
             end
         end
 
-        function obj = solveFlow(obj,alpha,beta,Mach,Re)
+        function obj = solveFlow(obj,alpha,beta,Mach,Re,ID)
             %%%%%%%%%%%%%LSIの求解%%%%%%%%%%%%%%%%%%%%%
             %結果はobj.AERODATAに格納される。
             % 1:Beta 2:Mach 3:AoA 4:Re/1e6 5:CL 6:CLt 7:CDo 8:CDi 9:CDtot 10:CDt 11:CDtot_t 12:CS 13:L/D 14:E(翼効率) 15:CFx 16:CFy 17:CFz 18:CMx 19:CMy 20:CMz 21:CMl 22:CMm 23:CMn 24:FOpt 
@@ -1007,7 +1821,7 @@ classdef UNLSI
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             
             if isempty(obj.flowNoTable)
-                if nargin == 5
+                if nargin > 4
                     obj = obj.flowCondition(1,Mach,Re);
                 else
                     obj = obj.flowCondition(1,Mach);
@@ -1021,7 +1835,7 @@ classdef UNLSI
                     end
                 end
                 if flowNo == 0
-                    if nargin == 5
+                    if nargin > 4
                         obj = obj.flowCondition(size(obj.flowNoTable,1)+1,Mach,Re);
                     else
                         obj = obj.flowCondition(size(obj.flowNoTable,1)+1,Mach);
@@ -1047,18 +1861,12 @@ classdef UNLSI
                 T(3,2) = sind(alpha(iterflow))*sind(beta(iterflow));
                 T(3,3) = cosd(alpha(iterflow));
 
-                if isempty(obj.settingUNLSI.angularVelocity)
-                    Vinf = zeros(nPanel,3);
-                    for i = 1:nPanel
-                       Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0]))';
-                    end
-                else
-                    Vinf = zeros(nPanel,3);
-                    for i = 1:nPanel
-                       rvec = obj.center(i,:)'-obj.XYZREF(:);
-                       Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0])-(cross(obj.settingUNLSI.angularVelocity(iterflow,:)./180.*pi,rvec(:)')'))';
-                    end
+                Vinf = zeros(nPanel,3);
+                for i = 1:nPanel
+                   rvec = obj.center(i,:)'-obj.rotCenter(i,:)';
+                   Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0])-(cross(obj.angularVelocity(i,:)./180.*pi,rvec(:)')'))';
                 end
+                
                 
                 Tvec(:,1) = obj.modNormal(:,2).* Vinf(:,3)-obj.modNormal(:,3).* Vinf(:,2);
                 Tvec(:,2) = obj.modNormal(:,3).* Vinf(:,1)-obj.modNormal(:,1).* Vinf(:,3);
@@ -1085,7 +1893,8 @@ classdef UNLSI
                     else
                         RHV = obj.RHS*sigmas;
                     end
-                    u =  -obj.LHS\RHV;
+                    u =  -(obj.LHS+obj.wakeLHS)\RHV;
+                    %u = -lsqminnorm((obj.LHS+obj.wakeLHS),RHV,obj.settingUNLSI.lsqminnormTol);
                     %figure(2);clf;
                     %plot(u);
                     dv = zeros(nPanel,3);
@@ -1098,6 +1907,7 @@ classdef UNLSI
                     obj.Cp{flowNo}(obj.paneltype==1 & obj.cpcalctype == 3,iterflow) = (-2*(dv(obj.paneltype==1 & obj.cpcalctype == 3,1))-dv(obj.paneltype==1 & obj.cpcalctype == 3,2).^2-dv(obj.paneltype==1 & obj.cpcalctype == 3,3).^2)./(1-obj.flow{flowNo}.Mach^2);
                     obj.Cp{flowNo}(obj.paneltype==1 & obj.cpcalctype == 2,iterflow) = (-2*(dv(obj.paneltype==1 & obj.cpcalctype == 2,1)-Vinf(obj.paneltype==1 & obj.cpcalctype == 2,1)))./(1-obj.flow{flowNo}.Mach^2);
                     obj.Cp{flowNo}(obj.paneltype==2,iterflow) = (-0.139-0.419.*(obj.flow{flowNo}.Mach-0.161).^2);
+                    obj.Cp{flowNo} = obj.valLimiter(obj.Cp{flowNo},obj.CpLimit(:,1),obj.CpLimit(:,2),obj.settingUNLSI.CpSlope);
                     uinterp = [];
                     for i = 1:numel(obj.wakeline)
                         uinterp = [uinterp,interp1(obj.LLT.sp{i},obj.LLT.calcMu{i}*u,obj.LLT.sinterp{i},'linear','extrap')];
@@ -1125,13 +1935,19 @@ classdef UNLSI
                     obj.Cp{flowNo}(obj.paneltype==1,iterflow) = obj.flow{flowNo}.pp(delta);%Cp
                     obj.Cp{flowNo}(obj.paneltype==2,iterflow) = (-obj.flow{flowNo}.Mach.^(-2)+0.57.*obj.flow{flowNo}.Mach.^(-4));
                 end
+                Cpc =  obj.Cp{flowNo}(:,iterflow);
+                Cfec = obj.Cfe{flowNo};
+                if nargin > 5
+                    Cpc(not(any(obj.surfID == ID,2)),:) = 0;
+                    Cfec(not(any(obj.surfID == ID,2)),:) = 0;
+                end
                 %Cp⇒力への変換
-                dCA_p = (-obj.Cp{flowNo}(:,iterflow).*obj.modNormal(:,1)).*obj.area./obj.SREF;
-                dCY_p = (-obj.Cp{flowNo}(:,iterflow).*obj.modNormal(:,2)).*obj.area./obj.SREF;
-                dCN_p = (-obj.Cp{flowNo}(:,iterflow).*obj.modNormal(:,3)).*obj.area./obj.SREF;
-                dCA_f = (+obj.Cfe{flowNo}.*s(:,1)).*obj.area./obj.SREF;
-                dCY_f = (+obj.Cfe{flowNo}.*s(:,2)).*obj.area./obj.SREF;
-                dCN_f = (+obj.Cfe{flowNo}.*s(:,3)).*obj.area./obj.SREF;
+                dCA_p = (-Cpc.*obj.modNormal(:,1)).*obj.area./obj.SREF;
+                dCY_p = (-Cpc.*obj.modNormal(:,2)).*obj.area./obj.SREF;
+                dCN_p = (-Cpc.*obj.modNormal(:,3)).*obj.area./obj.SREF;
+                dCA_f = (+Cfec.*s(:,1)).*obj.area./obj.SREF;
+                dCY_f = (+Cfec.*s(:,2)).*obj.area./obj.SREF;
+                dCN_f = (+Cfec.*s(:,3)).*obj.area./obj.SREF;
                 dCM = cross(obj.center-repmat(obj.XYZREF,[size(obj.center,1),1]),[dCA_p+dCA_f,dCY_p+dCY_f,dCN_p+dCN_f]);
                 dCMX = dCM(:,1)./obj.BREF;
                 dCMY = dCM(:,2)./obj.CREF;
@@ -1191,7 +2007,7 @@ classdef UNLSI
                 
             end
         end
-
+        
         function [u,R] = solvePertPotential(obj,flowNo,alpha,beta)
             %%%%%%%%%%%%%LSIの求解%%%%%%%%%%%%%%%%%%%%%
             %Adjoint法実装のためポテンシャルの変動値のみ求める。
@@ -1214,17 +2030,10 @@ classdef UNLSI
                 T(3,1) = sind(alpha(iterflow))*cosd(beta(iterflow));
                 T(3,2) = sind(alpha(iterflow))*sind(beta(iterflow));
                 T(3,3) = cosd(alpha(iterflow));
-                if isempty(obj.settingUNLSI.angularVelocity)
-                    Vinf = zeros(nPanel,3);
-                    for i = 1:nPanel
-                       Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0]))';
-                    end
-                else
-                    Vinf = zeros(nPanel,3);
-                    for i = 1:nPanel
-                       rvec = obj.center(i,:)'-obj.XYZREF(:);
-                       Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0])-(cross(obj.settingUNLSI.angularVelocity(iterflow,:)./180.*pi,rvec(:)')'))';
-                    end
+                Vinf = zeros(nPanel,3);
+                for i = 1:nPanel
+                   rvec = obj.center(i,:)'-obj.rotCenter(i,:)';
+                   Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0])-(cross(obj.angularVelocity(i,:)./180.*pi,rvec(:)')'))';
                 end
                 if obj.flow{flowNo}.Mach < 1
                     %亜音速
@@ -1243,8 +2052,9 @@ classdef UNLSI
                     else
                        RHV = obj.RHS*sigmas;
                     end
-                    usolve =  -obj.LHS\RHV;
-                    Rsolve = obj.LHS*usolve+RHV;
+                    usolve =  -(obj.LHS+obj.wakeLHS)\RHV;
+                    %usolve = -lsqminnorm((obj.LHS+obj.wakeLHS),RHV,obj.settingUNLSI.lsqminnormTol);
+                    Rsolve = (obj.LHS+obj.wakeLHS)*usolve+RHV;
                     u = [u;usolve];
                     R = [R;Rsolve];
                 else
@@ -1266,8 +2076,85 @@ classdef UNLSI
                 end
             end
         end
+
+        function [obj,CT,Cp,Cq,efficiency] = solveSteadyProp(obj,propID,rpm,rotAxis,rotOrigin,alpha,beta,Mach,Re,fig,caxis)
+            %%%%%%%%%%%%%LSIの求解%%%%%%%%%%%%%%%%%%%%%
+            %プロペラ計算を行う
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            for i = 1:size(propID,1)
+                obj = obj.setRotation(propID(i,:),rotOrigin(i,:),[-rpm(i,:)*pi/30*180/pi,0,0]/obj.settingUNLSI.Vinf);
+                obj = obj.setHelixWake(propID(i,:),0.02,rpm(i,:),rotAxis(i,:),rotOrigin(i,:));
+            end
+            obj = obj.solveFlow(alpha,beta,Mach,Re,propID(:)');%パネル法を解く
+            data = obj.getAERODATA(alpha,beta,Mach,Re);
+            if nargin > 9
+                if nargin == 10
+                    caxis = [-20,1];
+                end
+                obj.plotGeometry(fig,obj.getCp(alpha,beta,Mach,Re),caxis);%圧力係数のプロット
+                obj.plotWakeShape(fig);
+            end
+            %TODO それぞれのペラについて求める
+            CT = -data(15) * 0.5 * (obj.settingUNLSI.Vinf*cosd(alpha)*cosd(beta)) ^2 * obj.SREF / ((rpm(1)/60)^2*obj.BREF^4);
+            Cq = data(18) * 0.5 * (obj.settingUNLSI.Vinf*cosd(alpha)*cosd(beta)) ^2 * obj.SREF * obj.BREF / ((rpm(1)/60)^2*obj.BREF^5);
+            Cp = Cq * 2 * pi;
+            J = obj.settingUNLSI.Vinf*cosd(alpha)*cosd(beta)/(rpm/60)/obj.BREF;
+            efficiency = CT*J/Cp;
+        end
         
-        function [AERODATA,Cp,Cfe,R,obj] = solveFlowForAdjoint(obj,u,flowNo,alpha,beta)
+        function [obj,CT,Cp,Cq,efficiency] = solveUnsteadyProp(obj,propID,dt,rpm,rotAxis,rotOrigin,alpha,beta,Mach,Re,fig,caxis)
+            %%%%%%%%%%%%%LSIの求解%%%%%%%%%%%%%%%%%%%%%
+            %プロペラ計算を行う
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            obj = obj.setRotation(propID,rotOrigin,[-rpm*pi/30*180/pi,0,0]/obj.settingUNLSI.Vinf);
+            obj = obj.solveFlow(alpha,beta,Mach,Re,propID);%パネル法を解く
+            data = obj.getAERODATA(alpha,beta,Mach,Re);
+            obj = obj.marchWake(dt,alpha,beta,Mach,Re);
+            if nargin > 10
+                obj.plotGeometry(fig,obj.getCp(alpha,beta,Mach,Re),caxis);%圧力係数のプロット
+                obj.plotWakeShape(fig);
+            end
+            
+            rotAngle = -rpm*pi/30 * dt * 180 /pi;
+            obj = obj.rotateVerts(propID,rotAngle,rotAxis,rotOrigin);
+
+            CT = -data(15) * 0.5 * (obj.settingUNLSI.Vinf*cosd(alpha)*cosd(beta)) ^2 * obj.SREF / ((rpm/60)^2*obj.BREF^4);
+            Cq = data(18) * 0.5 * (obj.settingUNLSI.Vinf*cosd(alpha)*cosd(beta)) ^2 * obj.SREF * obj.BREF / ((rpm/60)^2*obj.BREF^5);
+            Cp = Cq * 2 * pi;
+            J = obj.settingUNLSI.Vinf*cosd(alpha)*cosd(beta)/(rpm/60)/obj.BREF;
+            efficiency = CT*J/Cp;
+        end
+        
+        function obj = rotateVerts(obj,ID,rotAngle,rotAxis,rotOrigin)
+            rotAxis = rotAxis ./ norm(rotAxis);
+            K = [0, -rotAxis(3), rotAxis(2);
+                 rotAxis(3), 0, -rotAxis(1);
+                -rotAxis(2), rotAxis(1), 0];
+            dcm = eye(3) + sind(rotAngle) * K + (1 - cosd(rotAngle)) * K^2;
+            usedVerts = unique(obj.tri.ConnectivityList(any(obj.surfID == ID,2),:));
+            p = obj.tri.Points';
+            p(:,usedVerts) = dcm * (obj.tri.Points(usedVerts,:)'-rotOrigin(:))+rotOrigin(:);
+            obj = obj.setVerts(p');
+        end
+
+        function [vel] = calcVelocity(obj,u,VmuWake,VmuBody)
+            %%%%%%%%%%%%%LSIの求解%%%%%%%%%%%%%%%%%%%%%
+            %ポテンシャルから力を求める
+            %結果は配列に出力される
+            % 1:Beta 2:Mach 3:AoA 4:Re/1e6 5:CL 6:CLt 7:CDo 8:CDi 9:CDtot 10:CDt 11:CDtot_t 12:CS 13:L/D 14:E(翼効率) 15:CFx 16:CFy 17:CFz 18:CMx 19:CMy 20:CMz 21:CMl 22:CMm 23:CMn 24:FOpt 
+            %上記で求めていないものは0が代入される
+            %u: doubletの強さ
+            %flowNo:解きたい流れのID
+            %alpha:迎角[deg]
+            %beta:横滑り角[deg]
+            %omega:主流の回転角速度(deg/s)
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            vel(:,1) = -((VmuBody.X+VmuWake.X)*u)./4./pi;
+            vel(:,2) = -((VmuBody.Y+VmuWake.Y)*u)./4./pi;
+            vel(:,3) = -((VmuBody.Z+VmuWake.Z)*u)./4./pi;
+        end
+        
+        function [AERODATA,Cp,Cfe,R,obj] = solveFlowForAdjoint(obj,u,flowNo,alpha,beta,ID)
             %%%%%%%%%%%%%LSIの求解%%%%%%%%%%%%%%%%%%%%%
             %ポテンシャルから力を求める
             %結果は配列に出力される
@@ -1296,17 +2183,10 @@ classdef UNLSI
                 T(3,1) = sind(alpha(iterflow))*cosd(beta(iterflow));
                 T(3,2) = sind(alpha(iterflow))*sind(beta(iterflow));
                 T(3,3) = cosd(alpha(iterflow));
-                if isempty(obj.settingUNLSI.angularVelocity)
-                    Vinf = zeros(nPanel,3);
-                    for i = 1:nPanel
-                       Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0]))';
-                    end
-                else
-                    Vinf = zeros(nPanel,3);
-                    for i = 1:nPanel
-                       rvec = obj.center(i,:)'-obj.XYZREF(:);
-                       Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0])-(cross(obj.settingUNLSI.angularVelocity(iterflow,:)./180.*pi,rvec(:)')'))';
-                    end
+                Vinf = zeros(nPanel,3);
+                for i = 1:nPanel
+                   rvec = obj.center(i,:)'-obj.rotCenter(i,:)';
+                   Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0])-(cross(obj.angularVelocity(i,:)./180.*pi,rvec(:)')'))';
                 end
                 Tvec(:,1) = obj.modNormal(:,2).* Vinf(:,3)-obj.modNormal(:,3).* Vinf(:,2);
                 Tvec(:,2) = obj.modNormal(:,3).* Vinf(:,1)-obj.modNormal(:,1).* Vinf(:,3);
@@ -1338,6 +2218,7 @@ classdef UNLSI
                     obj.Cp{flowNo}(obj.paneltype==1 & obj.cpcalctype == 3,iterflow) = (-2*(dv(obj.paneltype==1 & obj.cpcalctype == 3,1)+-1)-dv(obj.paneltype==1 & obj.cpcalctype == 3,3).^2)./(1-obj.flow{flowNo}.Mach^2);
                     obj.Cp{flowNo}(obj.paneltype==1 & obj.cpcalctype == 2,iterflow) = (-2*(dv(obj.paneltype==1 & obj.cpcalctype == 2,1)-Vinf(obj.paneltype==1 & obj.cpcalctype == 2,1)))./(1-obj.flow{flowNo}.Mach^2);
                     obj.Cp{flowNo}(obj.paneltype==2,iterflow) = (-0.139-0.419.*(obj.flow{flowNo}.Mach-0.161).^2);
+                    obj.Cp{flowNo} = obj.valLimiter(obj.Cp{flowNo},obj.CpLimit(:,1),obj.CpLimit(:,2),obj.settingUNLSI.CpSlope);
                     uinterp = [];
                     for i = 1:numel(obj.wakeline)
                         uinterp = [uinterp,interp1(obj.LLT.sp{i},obj.LLT.calcMu{i}*(usolve),obj.LLT.sinterp{i},'linear','extrap')];
@@ -1362,12 +2243,19 @@ classdef UNLSI
                     obj.Cp{flowNo}(obj.paneltype==2,iterflow) = (-obj.flow{flowNo}.Mach.^(-2)+0.57.*obj.flow{flowNo}.Mach.^(-4));
                 end
                 %Cp⇒力への変換
-                dCA_p = (-obj.Cp{flowNo}(:,iterflow).*obj.modNormal(:,1)).*obj.area./obj.SREF;
-                dCY_p = (-obj.Cp{flowNo}(:,iterflow).*obj.modNormal(:,2)).*obj.area./obj.SREF;
-                dCN_p = (-obj.Cp{flowNo}(:,iterflow).*obj.modNormal(:,3)).*obj.area./obj.SREF;
-                dCA_f = (+obj.Cfe{flowNo}.*s(:,1)).*obj.area./obj.SREF;
-                dCY_f = (+obj.Cfe{flowNo}.*s(:,2)).*obj.area./obj.SREF;
-                dCN_f = (+obj.Cfe{flowNo}.*s(:,3)).*obj.area./obj.SREF;
+                Cpc =  obj.Cp{flowNo}(:,iterflow);
+                Cfec = obj.Cfe{flowNo};
+                if nargin > 6
+                    Cpc(not(any(obj.surfID == ID,2)),:) = 0;
+                    Cfec(not(any(obj.surfID == ID,2)),:) = 0;
+                end
+                %Cp⇒力への変換
+                dCA_p = (-Cpc.*obj.modNormal(:,1)).*obj.area./obj.SREF;
+                dCY_p = (-Cpc.*obj.modNormal(:,2)).*obj.area./obj.SREF;
+                dCN_p = (-Cpc.*obj.modNormal(:,3)).*obj.area./obj.SREF;
+                dCA_f = (+Cfec.*s(:,1)).*obj.area./obj.SREF;
+                dCY_f = (+Cfec.*s(:,2)).*obj.area./obj.SREF;
+                dCN_f = (+Cfec.*s(:,3)).*obj.area./obj.SREF;
                 dCM = cross(obj.center-repmat(obj.XYZREF,[size(obj.center,1),1]),[dCA_p+dCA_f,dCY_p+dCY_f,dCN_p+dCN_f]);
                 dCMX = dCM(:,1)./obj.BREF;
                 dCMY = dCM(:,2)./obj.CREF;
@@ -1432,7 +2320,7 @@ classdef UNLSI
                     if obj.settingUNLSI.propCalcFlag == 1
                         RHV = RHV+RHVprop;
                     end
-                    R(nbPanel*(iterflow-1)+1:nbPanel*iterflow,1) = obj.LHS*usolve+RHV;
+                    R(nbPanel*(iterflow-1)+1:nbPanel*iterflow,1) = (obj.LHS+obj.wakeLHS)*usolve+RHV;
                 else
                     R(nbPanel*(iterflow-1)+1:nbPanel*iterflow,1) = usolve-obj.flow{flowNo}.pp(delta);
                 end
@@ -1660,7 +2548,7 @@ classdef UNLSI
                         end
                     end
                     rhsdw = obj.RHS*vdw;
-                    udw(1+nbPanel*(iterflow-1):nbPanel*iterflow,1) = -obj.LHS\rhsdw;
+                    udw(1+nbPanel*(iterflow-1):nbPanel*iterflow,1) = -(obj.LHS+obj.wakeLHS)\rhsdw;
         
                     %alphaについて
                     Vinfdw = repmat([-sind(alpha(iterflow))*cosd(beta(iterflow))*dw,0,cosd(alpha(iterflow))*cosd(beta(iterflow))*dw],[nPanel,1]);
@@ -1673,15 +2561,16 @@ classdef UNLSI
                         end
                     end
                     rhsdw = obj.RHS*vdw;
-                    udw(1+nbPanel*(iterflow-1):nbPanel*iterflow,2) = -obj.LHS\rhsdw;
+                    udw(1+nbPanel*(iterflow-1):nbPanel*iterflow,2) = -(obj.LHS+obj.wakeLHS)\rhsdw;
                 end
 
                 for jter = 1:3%p,q,rについて差分をとる
-                    if isempty(obj.settingUNLSI.angularVelocity)
+                    %if isempty(obj.settingUNLSI.angularVelocity)
                         omegadw = zeros(1,3);
-                    else
-                        omegadw = obj.settingUNLSI.angularVelocity(iterflow,:);
-                    end
+                    %end
+                    %else
+                        %omegadw = obj.settingUNLSI.angularVelocity(iterflow,:);
+                    %end
                     omegadw(jter) = omegadw(jter)+dw;
                     Vinfdw = zeros(nPanel,3);
                     for i = 1:nPanel
@@ -1697,7 +2586,7 @@ classdef UNLSI
                         end
                     end
                     rhsdw = obj.RHS*vdw;
-                    buff = -obj.LHS\rhsdw;
+                    buff = -(obj.LHS+obj.wakeLHS)\rhsdw;
                     for iterflow = 1:numel(alpha)
                         udw(1+nbPanel*(iterflow-1):nbPanel*iterflow,2+jter) = buff;
                     end
@@ -1739,20 +2628,15 @@ classdef UNLSI
                     ur = obj.solvePertPotential(flowNo,alpha(iterflow)-dw/pi*180,beta(iterflow));
                     udwf(1+nbPanel*(iterflow-1):nbPanel*iterflow,2) = uf-u0;
                     udwr(1+nbPanel*(iterflow-1):nbPanel*iterflow,2) = u0-ur;
-                    avorg = obj.settingUNLSI.angularVelocity;
+                    avorg = obj.angularVelocity;
                     for jter = 1:3%p,q,rについて差分をとる
-                        if isempty(obj.settingUNLSI.angularVelocity)
-                            omegadwf = zeros(1,3);
-                            omegadwr = zeros(1,3);
-                        else
-                            omegadwf = obj.settingUNLSI.angularVelocity(iterflow,:);
-                            omegadwr = obj.settingUNLSI.angularVelocity(iterflow,:);
-                        end
+                        omegadwf = zeros(1,3);
+                        omegadwr = zeros(1,3);
                         omegadwf(jter) = omegadwf(jter)+dw/pi*180;
                         omegadwr(jter) = omegadwr(jter)-dw/pi*180;
-                        obj.settingUNLSI.angularVelocity = omegadwf;
+                        obj.angularVelocity = avorg + repmat(omegadwf,[size(avorg,1),1]);
                         uf = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow));
-                        obj.settingUNLSI.angularVelocity = omegadwr;
+                        obj.angularVelocity = avorg + repmat(omegadwr,[size(avorg,1),1]);
                         ur = obj.solvePertPotential(flowNo,alpha(iterflow),beta(iterflow));
                         obj.settingUNLSI.angularVelocity = avorg;
                         udwf(1+nbPanel*(iterflow-1):nbPanel*iterflow,2+jter) = uf-u0;
@@ -1824,22 +2708,17 @@ classdef UNLSI
                 for i = 1:size(AERODATAf{flowNo},1)
                     obj.DYNCOEF{flowNo,i}(:,3) = tmp(i,ind)'; % alpha
                 end
-                avorg = obj.settingUNLSI.angularVelocity;
+                avorg = obj.angularVelocity;
                 for jter = 1:3%p,q,rについて差分をとる
-                    if isempty(obj.settingUNLSI.angularVelocity)
-                        omegadwf = zeros(1,3);
-                        omegadwr = zeros(1,3);
-                    else
-                        omegadwf = obj.settingUNLSI.angularVelocity;
-                        omegadwr = obj.settingUNLSI.angularVelocity;
-                    end
+                    omegadwf = zeros(1,3);
+                    omegadwr = zeros(1,3);
                     omegadwf(jter) = omegadwf(jter)+dw.*180./pi;
                     omegadwr(jter) = omegadwr(jter)-dw.*180./pi;
-                    obj.settingUNLSI.angularVelocity = repmat(omegadwf,[numel(alpha),1]);
+                    obj.angularVelocity = avorg + repmat(omegadwf,[size(avorg,1),1]);
                     AERODATAf = obj.solveFlowForAdjoint(u0+udwf(:,2+jter),flowNo,alpha,beta);
-                    obj.settingUNLSI.angularVelocity = repmat(omegadwr,[numel(alpha),1]);
+                    obj.angularVelocity = avorg + repmat(omegadwr,[size(avorg,1),1]);
                     AERODATAr = obj.solveFlowForAdjoint(u0-udwr(:,2+jter),flowNo,alpha,beta);
-                    obj.settingUNLSI.angularVelocity = avorg;
+                    obj.angularVelocity = avorg;
                     tmp = (AERODATAf{flowNo} - AERODATAr{flowNo})./(2*dw*nondim(jter));
                     for i = 1:size(AERODATAf{flowNo},1)
                         obj.DYNCOEF{flowNo,i}(:,3+jter) = tmp(i,ind)'; % pqr
@@ -2171,15 +3050,13 @@ classdef UNLSI
             [verts,connectivity] = obj.mergeVerts(obj.settingUNLSI.vertsTol,verts,connectivity);
             obj.femtri = triangulation(connectivity,verts);
             obj.femID = femID;
-            obj.femarea = zeros(numel(obj.femID),1);
-            obj.femNormal = zeros(numel(obj.femID),3);
-            obj.femcenter = zeros(numel(obj.femID),3);
-            for i = 1:numel(obj.femID)
-                [obj.femarea(i,1),~ , obj.femNormal(i,:)] = obj.vertex(obj.femtri.Points(obj.femtri.ConnectivityList(i,1),:),obj.femtri.Points(obj.femtri.ConnectivityList(i,2),:),obj.femtri.Points(obj.femtri.ConnectivityList(i,3),:));
-                obj.femcenter(i,:) = [mean(obj.femtri.Points(obj.femtri.ConnectivityList(i,:),1)),mean(obj.femtri.Points(obj.femtri.ConnectivityList(i,:),2)),mean(obj.femtri.Points(obj.femtri.ConnectivityList(i,:),3))];
-            end
+
+            obj.femcenter = (verts(obj.femtri.ConnectivityList(:,1),:)+verts(obj.femtri.ConnectivityList(:,2),:)+verts(obj.femtri.ConnectivityList(:,3),:))./3;
+            obj.femarea = 0.5 * sqrt(sum(cross(obj.femtri.Points(obj.femtri.ConnectivityList(:, 2), :) - obj.femtri.Points(obj.femtri.ConnectivityList(:, 1), :), obj.femtri.Points(obj.femtri.ConnectivityList(:, 3), :) - obj.femtri.Points(obj.femtri.ConnectivityList(:, 1), :), 2).^2, 2));
+            obj.femNormal = faceNormal(obj.femtri);
+
             obj.femutils = [];
-            obj = obj.checkFemMesh(obj.settingUNLSI.checkMeshTol,obj.settingUNLSI.checkMeshMethod);
+            obj = obj.checkFemMesh(obj.settingUNLSI.checkMeshTol,"delete");
                 
             %取り急ぎ、解析用のメッシュと空力メッシュは同一。後でFEAメッシュ等からメッシュを入れられるようにする。
             usedVertsbuff = unique(obj.femtri.ConnectivityList);
@@ -2282,6 +3159,8 @@ classdef UNLSI
                 end
             end
         end
+
+        
 
         function obj = makeFemEquation(obj)
             nu = 0.34;
@@ -2506,6 +3385,182 @@ classdef UNLSI
 
         end
 
+        function obj = modifyMassDampingMatrix(obj)
+            nu = 0.34;
+            qps = [1/6,1/6;2/3,1/6;1/6,2/3];
+            obj.femMass = sparse(6*numel(obj.femutils.usedVerts),6*numel(obj.femutils.usedVerts));
+            obj.femDamp = sparse(6*numel(obj.femutils.usedVerts),6*numel(obj.femutils.usedVerts));
+            for iter = 1:size(obj.femtri.ConnectivityList,1)
+                Dp(1,1) = 1.0; Dp(1,2) = nu;
+                Dp(2,1) = nu;  Dp(2,2) = 1.0;
+                Dp(3,3) = (1.0-nu)/2.0;
+                Dp = Dp.*(obj.femE(iter,1)*obj.femThn(iter,1)^3/(12.0*(1.0-nu*nu)));
+                U = obj.femtri.Points(obj.femtri.ConnectivityList(iter,2),:)-obj.femtri.Points(obj.femtri.ConnectivityList(iter,1),:);
+                V = obj.femtri.Points(obj.femtri.ConnectivityList(iter,3),:)-obj.femtri.Points(obj.femtri.ConnectivityList(iter,1),:);
+                transUV(:,1) = U;
+                transUV(:,2) = V;
+                W = cross(U,V);
+                trafo(1,:) = U./norm(U);
+                trafo(3,:) = W./norm(W);
+                trafo(2,:) = cross(trafo(3,:),trafo(1,:));
+                transUV = trafo*transUV;
+                dphi(1,1) = -transUV(1,1); % x12 = x1-x2 = 0-x2 = -x2
+                dphi(2,1) =  transUV(1,2); % x31 = x3-x1 = x3-0 = x3
+                dphi(3,1) =  transUV(1,1)-transUV(1,2); % x23 = x2-x3
+                dphi(1,2) = -transUV(2,1); % y12 = y1-y2 = -y2 = 0 (stays zero, as node B and A lie on local x-axis and therefore)
+                dphi(2,2) =  transUV(2,2); % y31 = y3-y1 = y3-0 = y3
+                dphi(3,2) =  transUV(2,1)-transUV(2,2); % y23 = y2-y3 = 0-y3 = -y3
+
+                M_m= diag(ones(1,6).*0.5);
+                M_m(1,3) = 0.25;
+                M_m(1,5) = 0.25;
+                M_m(2,4) = 0.25;
+                M_m(2,6) = 0.25;
+                M_m(3,1) = 0.25;
+                M_m(3,5) = 0.25;
+                M_m(4,2) = 0.25;
+                M_m(4,6) = 0.25;
+                M_m(5,1) = 0.25;
+                M_m(5,3) = 0.25;
+                M_m(6,2) = 0.25;
+                M_m(6,4) = 0.25;
+                M_m = M_m .* obj.femarea(iter,1).*obj.femRho(iter,1).*obj.femThn(iter,1)./3;
+
+                
+                sidelen(1) = dphi(1,1)^2+dphi(1,2)^2;
+                sidelen(2) = dphi(2,1)^2+dphi(2,2)^2;
+                sidelen(3) = dphi(3,1)^2+dphi(3,2)^2;
+                Y(1,1) = dphi(3,2)^2.0;
+                Y(1,2) = dphi(2,2)^2.0;
+                Y(1,3) = dphi(3,2)*dphi(2,2);
+                Y(2,1) = dphi(3,1)^2.0;
+                Y(2,2) = dphi(2,1)^2.0;
+                Y(2,3) = dphi(2,1)*dphi(3,1);
+                Y(3,1) = -2.0*dphi(3,1)*dphi(3,2);
+                Y(3,2) = -2.0*dphi(2,1)*dphi(2,1);
+                Y(3,3) = -dphi(3,1)*dphi(2,2)-dphi(2,1)*dphi(3,2);
+                Y = Y.* 1.0/(4.0*obj.femarea(iter,1)^2.0);
+                Ainv = zeros(9,9);
+                x12 = -transUV(1,1);
+                y12 = -transUV(2,1);
+                x31 = transUV(1,2);
+                y31 = transUV(2,2);
+                x23 = transUV(1,1)-transUV(1,2); 
+                y23 =  transUV(2,1)-transUV(2,2);
+                Ainv(1,1) = 1;
+                Ainv(2,4) = 1;
+                Ainv(3,7) = 1;
+                Ainv(4,1) = -1;
+                Ainv(4,4) = 1;
+                Ainv(4,5) = y12;
+                Ainv(4,6) = -x12;
+                Ainv(5,4) = -1;
+                Ainv(5,7) = 1;
+                Ainv(5,8) = y23;
+                Ainv(5,9) = -x23;
+                Ainv(6,1) = 1;
+                Ainv(6,2) = y31;
+                Ainv(6,3) = -x31;
+                Ainv(6,7) = -1;
+                Ainv(7,1) = 2;
+                Ainv(7,2) = -y12;
+                Ainv(7,3) = x12;
+                Ainv(7,4) = -2;
+                Ainv(7,5) = -y12;
+                Ainv(7,6) = x12;
+                Ainv(8,4) = 2;
+                Ainv(8,5) = -y23;
+                Ainv(8,6) = x23;
+                Ainv(8,7) = -2;
+                Ainv(8,8) = -y23;
+                Ainv(8,9) = x23;
+                Ainv(9,1) = -2;
+                Ainv(9,2) = -y31;
+                Ainv(9,3) =  x31;
+                Ainv(9,7) = 2;
+                Ainv(9,8) = -y31;
+                Ainv(9,9) = x31;
+                M_p = zeros(9,9);
+                M_m2 = zeros(6,6);
+                for j = 1:3
+                    N = obj.evalNTri(sidelen, qps(j,1), qps(j,2), Ainv);
+                    Nm = obj.evalNmTri(sidelen, qps(j,1), qps(j,2), Ainv);
+                    temp2 = N*N'./6;
+                    temp3 = Nm'*Nm./6;
+                    M_p = M_p+temp2;
+                    M_m2 = M_m2+temp3;
+                end
+                M_p = M_p*obj.femRho(iter,1)*obj.femThn(iter,1)*2.*obj.femarea(iter,1);
+                M_out = zeros(18,18);
+                for i=0:2
+                    for j = 0:2 
+                        M_out(  6*i+1,    6*j+1)   = M_m(2*i+1,  2*j+1);   % uu
+                        M_out(  6*i+1,    6*j+1+1) = M_m(2*i+1,  2*j+1+1); % uv
+                        M_out(  6*i+1+1,  6*j+1)   = M_m(2*i+1+1,2*j+1);   % vu
+                        M_out(  6*i+1+1,  6*j+1+1) = M_m(2*i+1+1,2*j+1+1); % vv
+                        M_out(2+6*i+1,  2+6*j+1)   = M_p(3*i+1,  3*j+1);   % ww
+                        M_out(2+6*i+1,  2+6*j+1+1) = M_p(3*i+1,  3*j+1+1); % wx
+                        M_out(2+6*i+1,  2+6*j+2+1) = M_p(3*i+1,  3*j+2+1); % wy
+                        M_out(2+6*i+1+1,2+6*j+1)   = M_p(3*i+1+1,3*j+1);   % xw
+                        M_out(2+6*i+1+1,2+6*j+1+1) = M_p(3*i+1+1,3*j+1+1); % xx
+                        M_out(2+6*i+1+1,2+6*j+2+1) = M_p(3*i+1+1,3*j+2+1); % xy
+                        M_out(2+6*i+2+1,2+6*j+1)   = M_p(3*i+2+1,3*j+1);   % yw
+                        M_out(2+6*i+2+1,2+6*j+1+1) = M_p(3*i+2+1,3*j+1+1); % yx
+                        M_out(2+6*i+2+1,2+6*j+2+1) = M_p(3*i+2+1,3*j+2+1); % yy
+                    end
+                end
+                TSub = [trafo,zeros(3,3);zeros(3,3),trafo];
+                MSub = zeros(6,6);
+                MNew = zeros(18,18);
+                %Kl = K_out;
+                Mg = zeros(18,18);
+                for i=0:2
+                    for j = 0:2
+                        % copy values into temporary sub-matrix for correct format to transformation
+                        for k=0:5
+                            for l=0:5
+                                MSub(k+1,l+1) = M_out(i*6+k+1,j*6+l+1);
+                            end
+                        end
+                        % the actual transformation step
+                        MSub=TSub'*MSub*TSub;
+                        % copy transformed values into new global stiffness matrix
+                        for k=0:5
+                            for l=0:5
+                                MNew(i*6+k+1,j*6+l+1) = MSub(k+1,l+1);
+                            end
+                        end
+                    end
+                end
+        
+                for alpha = 0:5
+                    for beta=0:5
+                        for i=0:2
+                            for j=0:2
+                                Mg(3*alpha+i+1,3*beta+j+1) = MNew(6*i+alpha+1,6*j+beta+1);
+                            end  
+                        end
+                    end
+                end
+                linearidx = zeros(1,size(obj.femutils.IndexRow{iter}(:),1));
+                for i = 1:size(obj.femutils.IndexRow{iter}(:),1)
+                    linearidx(i) = sub2ind(size(obj.femLHS),obj.femutils.IndexRow{iter}(i),obj.femutils.IndexCol{iter}(i));
+                    %obj.femLHS(obj.femutils.IndexRow{iter}(i),obj.femutils.IndexCol{iter}(i)) = obj.femLHS(obj.femutils.IndexRow{iter}(i),obj.femutils.IndexCol{iter}(i))+Kg(i);
+                end
+                obj.femMass(linearidx) = obj.femMass(linearidx)+Mg(:)';
+                obj.femDamp(linearidx) = obj.femDamp(linearidx)+Mg(:)'./obj.femRho(iter,1).*obj.femVisc(iter,1);
+                if mod(iter,floor(size(obj.femtri.ConnectivityList,1)/10))==1
+                    fprintf("%d / %d \n",iter,size(obj.femtri.ConnectivityList,1));
+                end
+                
+            end
+            obj.femMass(obj.femutils.MatIndex==0,:)=[];
+            obj.femMass(:,obj.femutils.MatIndex==0)=[];
+            obj.femDamp(obj.femutils.MatIndex==0,:)=[];
+            obj.femDamp(:,obj.femutils.MatIndex==0)=[];
+
+        end
+
         function [delta,deltadot] = solveFem(obj,distLoad,selfLoadFlag)
             %distLoad:空力解析メッシュにかかる分布加重。圧力など
             if nargin < 3
@@ -2536,7 +3591,7 @@ classdef UNLSI
                 end
     
                 femRHSp = Fp(obj.femutils.MatIndex==1,1);
-                delta_p = lsqminnorm(obj.femLHS,femRHSp,1e-12);
+                delta_p = lsqminnorm(obj.femLHS,femRHSp,obj.settingUNLSI.lsqminnormTol);
                 %delta_p = obj.femMass\femRHSp;
                 disp_buff = zeros(size(obj.femtri.Points,1)*6,1);
                 disp_buff(obj.femutils.InvMatIndex,1)=delta_p;
@@ -2561,7 +3616,7 @@ classdef UNLSI
                     delta{iter} = zeros(obj.femutils.nbVerts,6);
                     deltadot{iter} = zeros(obj.femutils.nbVerts,6);
                 end
-                Fp = sparse(6*size(obj.femutils.usedVerts,2),1);%S = sparse(m,n) は、すべての要素がゼロである m 行 n 列のスパース行列を作成
+                Fp = sparse(6*size(obj.femutils.usedVerts,2),1);
                 interpLoad = obj.verts2centerMat'*(distLoad(:,iter).*obj.area);
                 vNormal = vertexNormal(obj.tri);
                 %femPointLoad = obj.fem2aeroMat'*interpLoad;
@@ -2600,6 +3655,7 @@ classdef UNLSI
                 end
                 disp_buff = zeros(size(obj.femtri.Points,1)*6,1);
                 disp_buff(obj.femutils.InvMatIndex,1)=ybuff(end,1:numel(y))';
+                disp_buff(isnan(disp_buff)) = 0;
                 delta{iter} = zeros(size(obj.femtri.Points,1),6);    
                 delta{iter}(obj.femutils.usedVerts,1)=disp_buff(1:obj.femutils.nbVerts,1);
                 delta{iter}(obj.femutils.usedVerts,2)=disp_buff(obj.femutils.nbVerts+1:2*obj.femutils.nbVerts,1);
@@ -2628,6 +3684,30 @@ classdef UNLSI
             delta(obj.femutils.usedVerts,3)=disp_buff(2*obj.femutils.nbVerts+1:3*obj.femutils.nbVerts,1);
         end
 
+        function deltaInterp = interpFemDelta(obj,delta,xyzinAeroMesh)
+            deltaAero = zeros(size(obj.tri.Points));
+            deltaAero(obj.femutils.usedAeroVerts,1) = obj.fem2aeroMat*delta(obj.femutils.usedVerts,1);
+            deltaAero(obj.femutils.usedAeroVerts,2) = obj.fem2aeroMat*delta(obj.femutils.usedVerts,2);
+            deltaAero(obj.femutils.usedAeroVerts,3) = obj.fem2aeroMat*delta(obj.femutils.usedVerts,3);
+            deltaAero(obj.femutils.usedAeroVerts,4) = obj.fem2aeroMat*delta(obj.femutils.usedVerts,4);
+            deltaAero(obj.femutils.usedAeroVerts,5) = obj.fem2aeroMat*delta(obj.femutils.usedVerts,5);
+            deltaAero(obj.femutils.usedAeroVerts,6) = obj.fem2aeroMat*delta(obj.femutils.usedVerts,6);
+
+            %空力メッシュから補間点への補間
+            phi = @(r)obj.phi3(r,1);
+            Avv = phi(obj.calcRMat(obj.tri.Points,obj.tri.Points));
+            Acv = phi(obj.calcRMat(obj.tri.Points,xyzinAeroMesh));
+            
+            interpMat = Acv'*pinv(Avv);
+            deltaInterp(:,1)  = interpMat*deltaAero(:,1);
+            deltaInterp(:,2)  = interpMat*deltaAero(:,2);
+            deltaInterp(:,3)  = interpMat*deltaAero(:,3);
+            deltaInterp(:,4)  = interpMat*deltaAero(:,4);
+            deltaInterp(:,5)  = interpMat*deltaAero(:,5);
+            deltaInterp(:,6)  = interpMat*deltaAero(:,6);
+
+        end
+
         function modVerts = calcModifiedVerts(obj,delta)
             %メッシュ変形を使って変位後の解析メッシュを計算する
             modVerts = obj.tri.Points;
@@ -2643,10 +3723,15 @@ classdef UNLSI
             res = 1./beta * log(1+exp(beta.*x));
         end
 
-        function res = sigmoid(x,c,a)
-            res = 1./(1 + exp(-a.*(x-c)));
-        end
         
+        function val = valLimiter(val,minVal,maxVal,a)
+            sigmoid = @(x)1./(1 + exp(-a.*(x)));
+            maxCoef = 1-sigmoid(val - maxVal);
+            val = val .* maxCoef + maxVal .* (1-maxCoef);
+            minCoef = 1-sigmoid(-val + minVal);
+            val = val .* minCoef + minVal .* (1-minCoef);
+        end
+
         function dcm = rod2dcm(ra,angle)
             %angleはdegreeなので注意
             dcm = zeros(3,3);
@@ -2782,7 +3867,10 @@ classdef UNLSI
                 Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                 PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                 PB = PA-Al.*smdot;
-                phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0;
+                
                 srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
                 VortexAr = phiV;
                 VortexBr = srcV;
@@ -2805,7 +3893,10 @@ classdef UNLSI
                 Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                 PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                 PB = PA-Al.*smdot;
-                phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0;
+                
                 srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
                 VortexAr = VortexAr+phiV;
                 VortexBr = VortexBr+srcV;
@@ -2828,7 +3919,10 @@ classdef UNLSI
                 Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                 PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                 PB = PA-Al.*smdot;
-                phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0;
+                
                 srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
                 VortexAr = VortexAr+phiV;
                 VortexBr = VortexBr+srcV;
@@ -2859,7 +3953,10 @@ classdef UNLSI
                     Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                     PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                     PB = PA-Al.*smdot;
-                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                    dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                    phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0;
+                    
                     srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
                     VortexAr = VortexAr+phiV;
                     VortexBr = VortexBr+srcV;
@@ -2882,7 +3979,10 @@ classdef UNLSI
                     Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                     PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                     PB = PA-Al.*smdot;
-                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                    dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                    phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0;
+                    
                     srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
                     VortexAr = VortexAr+phiV;
                     VortexBr = VortexBr+srcV;
@@ -2905,7 +4005,10 @@ classdef UNLSI
                     Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                     PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                     PB = PA-Al.*smdot;
-                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                    dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                    phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0;
+                    
                     srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
                     VortexAr = VortexAr+phiV;
                     VortexBr = VortexBr+srcV;
@@ -2986,7 +4089,10 @@ classdef UNLSI
                     Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                     PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                     PB = PA-Al.*smdot;
-                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                    dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                    phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0;
+                    
                     srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
                     VortexAcb = phiV;
                     VortexBcb = srcV;
@@ -3009,7 +4115,10 @@ classdef UNLSI
                     Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                     PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                     PB = PA-Al.*smdot;
-                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                    dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                    phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0;
+                    
                     srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
                     VortexAcb = VortexAcb+phiV;
                     VortexBcb = VortexBcb+srcV;
@@ -3032,7 +4141,10 @@ classdef UNLSI
                     Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                     PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                     PB = PA-Al.*smdot;
-                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                    dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                    phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0;
+                    
                     srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
                     VortexAcb = VortexAcb+phiV;
                     VortexBcb = VortexBcb+srcV;
@@ -3063,7 +4175,10 @@ classdef UNLSI
                         Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                         PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                         PB = PA-Al.*smdot;
-                        phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                        dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                        phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                        phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0;
+                        
                         srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
                         VortexAcb = VortexAcb+phiV;
                         VortexBcb = VortexBcb+srcV;
@@ -3086,7 +4201,9 @@ classdef UNLSI
                         Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                         PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                         PB = PA-Al.*smdot;
-                        phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                        dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                        phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                        phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0; 
                         srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
                         VortexAcb = VortexAcb+phiV;
                         VortexBcb = VortexBcb+srcV;
@@ -3109,7 +4226,9 @@ classdef UNLSI
                         Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                         PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                         PB = PA-Al.*smdot;
-                        phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                        dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                        phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                        phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0;
                         srcV = Al.*(log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm)-PN.*phiV;
                         VortexAcb = VortexAcb+phiV;
                         VortexBcb = VortexBcb+srcV;
@@ -3134,7 +4253,7 @@ classdef UNLSI
             end
         end
 
-        function [VortexA] = wakeInfluenceMatrix(obj,wakeNo,edgeNo,rowIndex)
+        function [VortexA] = wakeInfluenceMatrix(obj,wakeNo,edgeNo,rowIndex,wakeShape)
             %%%%%%%%%%%%wakeからパネルへの影響関数%%%%%%%%%%%%%%%%%
             %wakeNoとedgeNoを指定して全パネルへの影響を計算
             %
@@ -3148,145 +4267,64 @@ classdef UNLSI
             POI.Z = center(rowIndex,3);
             nrow = numel(rowIndex);
             VortexA = zeros(nrow,1);
-            for i = 1:1
-                wakepos(1,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+[obj.settingUNLSI.wingWakeLength*obj.CREF*(i-1),0,0];
-                wakepos(2,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+[obj.settingUNLSI.wingWakeLength*obj.CREF*(i-1),0,0];
-                wakepos(3,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+[obj.settingUNLSI.wingWakeLength*obj.CREF*i,0,0];
-                wakepos(4,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+[obj.settingUNLSI.wingWakeLength*obj.CREF*i,0,0];
-                [~, ~, nbuff] = obj.vertex(wakepos(1,:),wakepos(2,:),wakepos(3,:));
-                
-                ulvec = obj.center(obj.wakeline{wakeNo}.lowerID(edgeNo),:)-obj.center(obj.wakeline{wakeNo}.upperID(edgeNo),:);
-                uldist = dot(ulvec,nbuff);
-                if uldist >= 0
-                    Nw1.X = repmat(wakepos(1,1),[nrow,1]);
-                    Nw1.Y = repmat(wakepos(1,2),[nrow,1]);
-                    Nw1.Z = repmat(wakepos(1,3),[nrow,1]);
-                    Nw2.X = repmat(wakepos(2,1),[nrow,1]);
-                    Nw2.Y = repmat(wakepos(2,2),[nrow,1]);
-                    Nw2.Z = repmat(wakepos(2,3),[nrow,1]);
-                    Nw3.X = repmat(wakepos(3,1),[nrow,1]);
-                    Nw3.Y = repmat(wakepos(3,2),[nrow,1]);
-                    Nw3.Z = repmat(wakepos(3,3),[nrow,1]);
-                    Nw4.X = repmat(wakepos(4,1),[nrow,1]);
-                    Nw4.Y = repmat(wakepos(4,2),[nrow,1]);
-                    Nw4.Z = repmat(wakepos(4,3),[nrow,1]);
-                else
-                    Nw1.X = repmat(wakepos(2,1),[nrow,1]);
-                    Nw1.Y = repmat(wakepos(2,2),[nrow,1]);
-                    Nw1.Z = repmat(wakepos(2,3),[nrow,1]);
-                    Nw2.X = repmat(wakepos(1,1),[nrow,1]);
-                    Nw2.Y = repmat(wakepos(1,2),[nrow,1]);
-                    Nw2.Z = repmat(wakepos(1,3),[nrow,1]);
-                    Nw3.X = repmat(wakepos(4,1),[nrow,1]);
-                    Nw3.Y = repmat(wakepos(4,2),[nrow,1]);
-                    Nw3.Z = repmat(wakepos(4,3),[nrow,1]);
-                    Nw4.X = repmat(wakepos(3,1),[nrow,1]);
-                    Nw4.Y = repmat(wakepos(3,2),[nrow,1]);
-                    Nw4.Z = repmat(wakepos(3,3),[nrow,1]);
-                end
-                [b1, b2, nw] = obj.vertex([Nw1.X(1),Nw1.Y(1),Nw1.Z(1)],[Nw2.X(1),Nw2.Y(1),Nw2.Z(1)],[Nw3.X(1),Nw3.Y(1),Nw3.Z(1)]);
-                cw = mean([[Nw1.X(1),Nw1.Y(1),Nw1.Z(1)];[Nw2.X(1),Nw2.Y(1),Nw2.Z(1)];[Nw3.X(1),Nw3.Y(1),Nw3.Z(1)];[Nw4.X(1),Nw4.Y(1),Nw4.Z(1)]],1);
-                n.X = repmat(nw(1),[nrow,1]);
-                n.Y = repmat(nw(2),[nrow,1]);
-                n.Z = repmat(nw(3),[nrow,1]);
-                %Amat = repmat(b1*2,[nbPanel,1]);
-                c.X = repmat(cw(1),[nrow,1]);
-                c.Y = repmat(cw(2),[nrow,1]);
-                c.Z = repmat(cw(3),[nrow,1]);
-                n12.X = (Nw3.X+Nw4.X)./2;
-                n12.Y = (Nw3.Y+Nw4.Y)./2;
-                n12.Z = (Nw3.Z+Nw4.Z)./2;
-
-                pjk.X = POI.X-c.X;
-                pjk.Y = POI.Y-c.Y;
-                pjk.Z = POI.Z-c.Z;
-                PN = obj.matrix_dot(pjk,n);
-                
-                %1回目
-                a.X = POI.X-Nw1.X;
-                a.Y = POI.Y-Nw1.Y;
-                a.Z = POI.Z-Nw1.Z;
-                b.X = POI.X-Nw2.X;
-                b.Y = POI.Y-Nw2.Y;
-                b.Z = POI.Z-Nw2.Z;
-                s.X = Nw2.X-Nw1.X;
-                s.Y = Nw2.Y-Nw1.Y;
-                s.Z = Nw2.Z-Nw1.Z;
-                anorm = obj.matrix_norm(a);
-                bnorm = obj.matrix_norm(b);
-                m = obj.getUnitVector(c,n12);
-                l = obj.matrix_cross(m,n);
-                smdot = obj.matrix_dot(s,m);
-                Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
-                PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
-                PB = PA-Al.*smdot;
-                dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
-                phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
-                VortexA = VortexA+phiV;
-                %2回目
-                a.X = POI.X-Nw2.X;
-                a.Y = POI.Y-Nw2.Y;
-                a.Z = POI.Z-Nw2.Z;
-                b.X = POI.X-Nw3.X;
-                b.Y = POI.Y-Nw3.Y;
-                b.Z = POI.Z-Nw3.Z;
-                s.X = Nw3.X-Nw2.X;
-                s.Y = Nw3.Y-Nw2.Y;
-                s.Z = Nw3.Z-Nw2.Z;
-                anorm = obj.matrix_norm(a);
-                bnorm = obj.matrix_norm(b);
-                m = obj.getUnitVector(c,n12);
-                l = obj.matrix_cross(m,n);
-                smdot = obj.matrix_dot(s,m);
-                Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
-                PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
-                PB = PA-Al.*smdot;
-                phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
-                VortexA = VortexA+phiV;
-                %3回目
-                a.X = POI.X-Nw3.X;
-                a.Y = POI.Y-Nw3.Y;
-                a.Z = POI.Z-Nw3.Z;
-                b.X = POI.X-Nw4.X;
-                b.Y = POI.Y-Nw4.Y;
-                b.Z = POI.Z-Nw4.Z;
-                s.X = Nw4.X-Nw3.X;
-                s.Y = Nw4.Y-Nw3.Y;
-                s.Z = Nw4.Z-Nw3.Z;
-                anorm = obj.matrix_norm(a);
-                bnorm = obj.matrix_norm(b);
-                m = obj.getUnitVector(c,n12);
-                l = obj.matrix_cross(m,n);
-                smdot = obj.matrix_dot(s,m);
-                Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
-                PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
-                PB = PA-Al.*smdot;
-                phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
-                VortexA = VortexA+phiV;
-                %4回目
-                a.X = POI.X-Nw4.X;
-                a.Y = POI.Y-Nw4.Y;
-                a.Z = POI.Z-Nw4.Z;
-                b.X = POI.X-Nw1.X;
-                b.Y = POI.Y-Nw1.Y;
-                b.Z = POI.Z-Nw1.Z;
-                s.X = Nw1.X-Nw4.X;
-                s.Y = Nw1.Y-Nw4.Y;
-                s.Z = Nw1.Z-Nw4.Z;
-                anorm = obj.matrix_norm(a);
-                bnorm = obj.matrix_norm(b);
-                m = obj.getUnitVector(c,n12);
-                l = obj.matrix_cross(m,n);
-                smdot = obj.matrix_dot(s,m);
-                Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
-                PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
-                PB = PA-Al.*smdot;
-                phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
-                VortexA = VortexA+phiV;
-
-                %半裁
-                if obj.halfmesh == 1
-                    POI.Y = -POI.Y;
+             for i = 1:size(wakeShape,1)
+                if obj.wakeline{wakeNo}.validPanel{edgeNo}(i,1) == 1
+                    if i == 1
+                        wakepos(1,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:);
+                        wakepos(2,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:);
+                        wakepos(3,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+wakeShape(i,:);
+                        wakepos(4,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+wakeShape(i,:);
+                    else
+                        wakepos(1,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+wakeShape(i-1,:);
+                        wakepos(2,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+wakeShape(i-1,:);
+                        wakepos(3,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+wakeShape(i,:);
+                        wakepos(4,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+wakeShape(i,:);
+                    end
+                    
+                    [~, ~, nbuff] = obj.vertex(wakepos(1,:),wakepos(2,:),wakepos(3,:));
+                    
+                    ulvec = obj.center(obj.wakeline{wakeNo}.lowerID(edgeNo),:)-obj.center(obj.wakeline{wakeNo}.upperID(edgeNo),:);
+                    uldist = dot(ulvec,nbuff);
+                    if uldist >= 0
+                        Nw1.X = repmat(wakepos(1,1),[nrow,1]);
+                        Nw1.Y = repmat(wakepos(1,2),[nrow,1]);
+                        Nw1.Z = repmat(wakepos(1,3),[nrow,1]);
+                        Nw2.X = repmat(wakepos(2,1),[nrow,1]);
+                        Nw2.Y = repmat(wakepos(2,2),[nrow,1]);
+                        Nw2.Z = repmat(wakepos(2,3),[nrow,1]);
+                        Nw3.X = repmat(wakepos(3,1),[nrow,1]);
+                        Nw3.Y = repmat(wakepos(3,2),[nrow,1]);
+                        Nw3.Z = repmat(wakepos(3,3),[nrow,1]);
+                        Nw4.X = repmat(wakepos(4,1),[nrow,1]);
+                        Nw4.Y = repmat(wakepos(4,2),[nrow,1]);
+                        Nw4.Z = repmat(wakepos(4,3),[nrow,1]);
+                    else
+                        Nw1.X = repmat(wakepos(2,1),[nrow,1]);
+                        Nw1.Y = repmat(wakepos(2,2),[nrow,1]);
+                        Nw1.Z = repmat(wakepos(2,3),[nrow,1]);
+                        Nw2.X = repmat(wakepos(1,1),[nrow,1]);
+                        Nw2.Y = repmat(wakepos(1,2),[nrow,1]);
+                        Nw2.Z = repmat(wakepos(1,3),[nrow,1]);
+                        Nw3.X = repmat(wakepos(4,1),[nrow,1]);
+                        Nw3.Y = repmat(wakepos(4,2),[nrow,1]);
+                        Nw3.Z = repmat(wakepos(4,3),[nrow,1]);
+                        Nw4.X = repmat(wakepos(3,1),[nrow,1]);
+                        Nw4.Y = repmat(wakepos(3,2),[nrow,1]);
+                        Nw4.Z = repmat(wakepos(3,3),[nrow,1]);
+                    end
+                    [b1, b2, nw] = obj.vertex([Nw1.X(1),Nw1.Y(1),Nw1.Z(1)],[Nw2.X(1),Nw2.Y(1),Nw2.Z(1)],[Nw3.X(1),Nw3.Y(1),Nw3.Z(1)]);
+                    cw = mean([[Nw1.X(1),Nw1.Y(1),Nw1.Z(1)];[Nw2.X(1),Nw2.Y(1),Nw2.Z(1)];[Nw3.X(1),Nw3.Y(1),Nw3.Z(1)];[Nw4.X(1),Nw4.Y(1),Nw4.Z(1)]],1);
+                    n.X = repmat(nw(1),[nrow,1]);
+                    n.Y = repmat(nw(2),[nrow,1]);
+                    n.Z = repmat(nw(3),[nrow,1]);
+                    %Amat = repmat(b1*2,[nbPanel,1]);
+                    c.X = repmat(cw(1),[nrow,1]);
+                    c.Y = repmat(cw(2),[nrow,1]);
+                    c.Z = repmat(cw(3),[nrow,1]);
+                    n12.X = (Nw3.X+Nw4.X)./2;
+                    n12.Y = (Nw3.Y+Nw4.Y)./2;
+                    n12.Z = (Nw3.Z+Nw4.Z)./2;
+    
                     pjk.X = POI.X-c.X;
                     pjk.Y = POI.Y-c.Y;
                     pjk.Z = POI.Z-c.Z;
@@ -3307,10 +4345,13 @@ classdef UNLSI
                     m = obj.getUnitVector(c,n12);
                     l = obj.matrix_cross(m,n);
                     smdot = obj.matrix_dot(s,m);
+                    snorm = obj.matrix_norm(s);
                     Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                     PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                     PB = PA-Al.*smdot;
-                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                    dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                    phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0;
                     
                     VortexA = VortexA+phiV;
                     %2回目
@@ -3328,10 +4369,14 @@ classdef UNLSI
                     m = obj.getUnitVector(c,n12);
                     l = obj.matrix_cross(m,n);
                     smdot = obj.matrix_dot(s,m);
+                    snorm = obj.matrix_norm(s);
                     Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                     PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                     PB = PA-Al.*smdot;
-                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                    dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                    phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0;
+                    
                     VortexA = VortexA+phiV;
                     %3回目
                     a.X = POI.X-Nw3.X;
@@ -3348,10 +4393,13 @@ classdef UNLSI
                     m = obj.getUnitVector(c,n12);
                     l = obj.matrix_cross(m,n);
                     smdot = obj.matrix_dot(s,m);
+                    snorm = obj.matrix_norm(s);
                     Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                     PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                     PB = PA-Al.*smdot;
-                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                    dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                    phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0;
                     VortexA = VortexA+phiV;
                     %4回目
                     a.X = POI.X-Nw4.X;
@@ -3368,16 +4416,597 @@ classdef UNLSI
                     m = obj.getUnitVector(c,n12);
                     l = obj.matrix_cross(m,n);
                     smdot = obj.matrix_dot(s,m);
+                    snorm = obj.matrix_norm(s);
                     Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
                     PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
                     PB = PA-Al.*smdot;
-                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                    dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                    phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                    phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0;
+                    
                     VortexA = VortexA+phiV;
+    
+                    %半裁
+                    if obj.halfmesh == 1
+                        POI.Y = -POI.Y;
+                        pjk.X = POI.X-c.X;
+                        pjk.Y = POI.Y-c.Y;
+                        pjk.Z = POI.Z-c.Z;
+                        PN = obj.matrix_dot(pjk,n);
+                        
+                        %1回目
+                        a.X = POI.X-Nw1.X;
+                        a.Y = POI.Y-Nw1.Y;
+                        a.Z = POI.Z-Nw1.Z;
+                        b.X = POI.X-Nw2.X;
+                        b.Y = POI.Y-Nw2.Y;
+                        b.Z = POI.Z-Nw2.Z;
+                        s.X = Nw2.X-Nw1.X;
+                        s.Y = Nw2.Y-Nw1.Y;
+                        s.Z = Nw2.Z-Nw1.Z;
+                        anorm = obj.matrix_norm(a);
+                        bnorm = obj.matrix_norm(b);
+                        m = obj.getUnitVector(c,n12);
+                        l = obj.matrix_cross(m,n);
+                        smdot = obj.matrix_dot(s,m);
+                        snorm = obj.matrix_norm(s);
+                        Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
+                        PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
+                        PB = PA-Al.*smdot;
+                        dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                        phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                        phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0;
+                        
+                        
+                        VortexA = VortexA+phiV;
+                        %2回目
+                        a.X = POI.X-Nw2.X;
+                        a.Y = POI.Y-Nw2.Y;
+                        a.Z = POI.Z-Nw2.Z;
+                        b.X = POI.X-Nw3.X;
+                        b.Y = POI.Y-Nw3.Y;
+                        b.Z = POI.Z-Nw3.Z;
+                        s.X = Nw3.X-Nw2.X;
+                        s.Y = Nw3.Y-Nw2.Y;
+                        s.Z = Nw3.Z-Nw2.Z;
+                        anorm = obj.matrix_norm(a);
+                        bnorm = obj.matrix_norm(b);
+                        m = obj.getUnitVector(c,n12);
+                        l = obj.matrix_cross(m,n);
+                        smdot = obj.matrix_dot(s,m);
+                        snorm = obj.matrix_norm(s);
+                        Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
+                        PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
+                        PB = PA-Al.*smdot;
+                        dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                        phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                        phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0;
+                        
+                        VortexA = VortexA+phiV;
+                        %3回目
+                        a.X = POI.X-Nw3.X;
+                        a.Y = POI.Y-Nw3.Y;
+                        a.Z = POI.Z-Nw3.Z;
+                        b.X = POI.X-Nw4.X;
+                        b.Y = POI.Y-Nw4.Y;
+                        b.Z = POI.Z-Nw4.Z;
+                        s.X = Nw4.X-Nw3.X;
+                        s.Y = Nw4.Y-Nw3.Y;
+                        s.Z = Nw4.Z-Nw3.Z;
+                        anorm = obj.matrix_norm(a);
+                        bnorm = obj.matrix_norm(b);
+                        m = obj.getUnitVector(c,n12);
+                        l = obj.matrix_cross(m,n);
+                        smdot = obj.matrix_dot(s,m);
+                        snorm = obj.matrix_norm(s);
+                        Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
+                        PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
+                        PB = PA-Al.*smdot;
+                        dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                        phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                        phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0;
+                        
+                        VortexA = VortexA+phiV;
+                        %4回目
+                        a.X = POI.X-Nw4.X;
+                        a.Y = POI.Y-Nw4.Y;
+                        a.Z = POI.Z-Nw4.Z;
+                        b.X = POI.X-Nw1.X;
+                        b.Y = POI.Y-Nw1.Y;
+                        b.Z = POI.Z-Nw1.Z;
+                        s.X = Nw1.X-Nw4.X;
+                        s.Y = Nw1.Y-Nw4.Y;
+                        s.Z = Nw1.Z-Nw4.Z;
+                        anorm = obj.matrix_norm(a);
+                        bnorm = obj.matrix_norm(b);
+                        m = obj.getUnitVector(c,n12);
+                        l = obj.matrix_cross(m,n);
+                        smdot = obj.matrix_dot(s,m);
+                        snorm = obj.matrix_norm(s);
+                        Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
+                        PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
+                        PB = PA-Al.*smdot;
+                        dnom = (PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2);
+                        phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),dnom);
+                        phiV(abs(dnom) == 0 & abs(PN) < obj.settingUNLSI.pnThreshold * snorm) = 0;
+                        
+                        VortexA = VortexA+phiV;
+                    end
                 end
             end
 
         end
         
+        function VelocityA = velocityInfluence(obj,controlPoint)
+            %%%%%%%%%%%%%%%%%%%影響係数の計算　パネル⇒パネル%%%%%%%%%%%%%%%
+            %rowIndex : 計算する行
+            %colIndex : 計算する列
+            %Velocity~r : numel(rowIndex)×nbPanelの影響係数
+            %Velocity~c : nbPanel×numel(rowIndex)の影響係数
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+            verts = obj.tri.Points;
+            con  = obj.tri.ConnectivityList(obj.paneltype==1,:);
+            center = obj.center(obj.paneltype==1,:);
+            normal = obj.orgNormal(obj.paneltype==1,:);
+
+            nbPanel = size(con,1);
+
+            POI.X(:,1) = controlPoint(:,1);
+            POI.Y(:,1) = controlPoint(:,2);
+            POI.Z(:,1) = controlPoint(:,3);
+            
+            c.X(1,:) = center(:,1)';
+            c.Y(1,:) = center(:,2)';
+            c.Z(1,:) = center(:,3)';
+            n.X(1,:) = normal(:,1)';
+            n.Y(1,:) = normal(:,2)';
+            n.Z(1,:) = normal(:,3)';
+            N1.X(1,:) = verts(con(:,1),1)';
+            N1.Y(1,:) = verts(con(:,1),2)';
+            N1.Z(1,:) = verts(con(:,1),3)';
+            N2.X(1,:) = verts(con(:,2),1)';
+            N2.Y(1,:) = verts(con(:,2),2)';
+            N2.Z(1,:) = verts(con(:,2),3)';
+            N3.X(1,:) = verts(con(:,3),1)';
+            N3.Y(1,:) = verts(con(:,3),2)';
+            N3.Z(1,:) = verts(con(:,3),3)';
+            POI.X = repmat(POI.X,[1,nbPanel]);
+            POI.Y = repmat(POI.Y,[1,nbPanel]);
+            POI.Z = repmat(POI.Z,[1,nbPanel]);
+
+            c.X = repmat(c.X,[size(controlPoint,1),1]);
+            c.Y = repmat(c.Y,[size(controlPoint,1),1]);
+            c.Z = repmat(c.Z,[size(controlPoint,1),1]);
+            n.X = repmat(n.X,[size(controlPoint,1),1]);
+            n.Y = repmat(n.Y,[size(controlPoint,1),1]);
+            n.Z = repmat(n.Z,[size(controlPoint,1),1]);
+            N1.X = repmat(N1.X,[size(controlPoint,1),1]);
+            N1.Y = repmat(N1.Y,[size(controlPoint,1),1]);
+            N1.Z = repmat(N1.Z,[size(controlPoint,1),1]);
+            N2.X = repmat(N2.X,[size(controlPoint,1),1]);
+            N2.Y = repmat(N2.Y,[size(controlPoint,1),1]);
+            N2.Z = repmat(N2.Z,[size(controlPoint,1),1]);
+            N3.X = repmat(N3.X,[size(controlPoint,1),1]);
+            N3.Y = repmat(N3.Y,[size(controlPoint,1),1]);
+            N3.Z = repmat(N3.Z,[size(controlPoint,1),1]);
+
+%             n12.X = (N1.X+N2.X)./2;
+%             n12.Y = (N1.Y+N2.Y)./2;
+%             n12.Z = (N1.Z+N2.Z)./2;
+
+            pjk.X = POI.X-c.X;
+            pjk.Y = POI.Y-c.Y;
+            pjk.Z = POI.Z-c.Z;
+            %PN = obj.matrix_dot(pjk,n);
+
+            %1回目
+            a.X = POI.X-N1.X;
+            a.Y = POI.Y-N1.Y;
+            a.Z = POI.Z-N1.Z;
+            b.X = POI.X-N2.X;
+            b.Y = POI.Y-N2.Y;
+            b.Z = POI.Z-N2.Z;
+            anorm = obj.matrix_norm(a);
+            bnorm = obj.matrix_norm(b);
+            %m = obj.getUnitVector(c,n12);
+            %l = obj.matrix_cross(m,n);
+            s.X = N2.X-N1.X;
+            s.Y = N2.Y-N1.Y;
+            s.Z = N2.Z-N1.Z;
+            %smdot = obj.matrix_dot(s,m);
+            %sldot = obj.matrix_dot(s,l);
+            snorm = obj.matrix_norm(s);
+            %Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
+            %PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
+            %PB = PA-Al.*smdot;
+            %phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+            Vmu = obj.matrix_cross(a,b);
+            VelocityA.X = (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.X;
+            VelocityA.Y = (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Y;
+            VelocityA.Z = (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Z;
+%             VelocityB.X =  (log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm).*(smdot.*l.X-sldot.*m.X)+phiV.*n.X;
+%             VelocityB.Y =  (log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm).*(smdot.*l.Y-sldot.*m.Y)+phiV.*n.Y;
+%             VelocityB.Z =  (log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm).*(smdot.*l.Z-sldot.*m.Z)+phiV.*n.Z;
+
+            
+            %2回目
+            a.X = POI.X-N2.X;
+            a.Y = POI.Y-N2.Y;
+            a.Z = POI.Z-N2.Z;
+            b.X = POI.X-N3.X;
+            b.Y = POI.Y-N3.Y;
+            b.Z = POI.Z-N3.Z;
+            anorm = obj.matrix_norm(a);
+            bnorm = obj.matrix_norm(b);
+            %m = obj.getUnitVector(c,n12);
+            %l = obj.matrix_cross(m,n);
+            s.X = N3.X-N2.X;
+            s.Y = N3.Y-N2.Y;
+            s.Z = N3.Z-N2.Z;
+            %smdot = obj.matrix_dot(s,m);
+%             sldot = obj.matrix_dot(s,l);
+            snorm = obj.matrix_norm(s);
+%             Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
+%             PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
+%             PB = PA-Al.*smdot;
+            %phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+            Vmu = obj.matrix_cross(a,b);
+            VelocityA.X = VelocityA.X + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.X;
+            VelocityA.Y = VelocityA.Y + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Y;
+            VelocityA.Z = VelocityA.Z + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Z;
+%             VelocityB.X = VelocityB.X + (log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm).*(smdot.*l.X-sldot.*m.X)+phiV.*n.X;
+%             VelocityB.Y = VelocityB.Y + (log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm).*(smdot.*l.Y-sldot.*m.Y)+phiV.*n.Y;
+%             VelocityB.Z = VelocityB.Z + (log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm).*(smdot.*l.Z-sldot.*m.Z)+phiV.*n.Z;
+            %3回目
+            a.X = POI.X-N3.X;
+            a.Y = POI.Y-N3.Y;
+            a.Z = POI.Z-N3.Z;
+            b.X = POI.X-N1.X;
+            b.Y = POI.Y-N1.Y;
+            b.Z = POI.Z-N1.Z;
+            anorm = obj.matrix_norm(a);
+            bnorm = obj.matrix_norm(b);
+%             m = obj.getUnitVector(c,n12);
+%             l = obj.matrix_cross(m,n);
+            s.X = N1.X-N3.X;
+            s.Y = N1.Y-N3.Y;
+            s.Z = N1.Z-N3.Z;
+%             smdot = obj.matrix_dot(s,m);
+%             sldot = obj.matrix_dot(s,l);
+            snorm = obj.matrix_norm(s);
+%             Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
+%             PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
+%             PB = PA-Al.*smdot;
+%             phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+            Vmu = obj.matrix_cross(a,b);
+            VelocityA.X = VelocityA.X + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.X;
+            VelocityA.Y = VelocityA.Y + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Y;
+            VelocityA.Z = VelocityA.Z + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Z;
+%             VelocityB.X = VelocityB.X + (log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm).*(smdot.*l.X-sldot.*m.X)+phiV.*n.X;
+%             VelocityB.Y = VelocityB.Y + (log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm).*(smdot.*l.Y-sldot.*m.Y)+phiV.*n.Y;
+%             VelocityB.Z = VelocityB.Z + (log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm).*(smdot.*l.Z-sldot.*m.Z)+phiV.*n.Z;
+
+            %半裁の考慮
+            if obj.halfmesh == 1
+                POI.Y = -POI.Y;
+                pjk.X = POI.X-c.X;
+                pjk.Y = POI.Y-c.Y;
+                pjk.Z = POI.Z-c.Z;
+                %PN = obj.matrix_dot(pjk,n);
+                %1回目
+                a.X = POI.X-N1.X;
+                a.Y = POI.Y-N1.Y;
+                a.Z = POI.Z-N1.Z;
+                b.X = POI.X-N2.X;
+                b.Y = POI.Y-N2.Y;
+                b.Z = POI.Z-N2.Z;
+                anorm = obj.matrix_norm(a);
+                bnorm = obj.matrix_norm(b);
+%                 m = obj.getUnitVector(c,n12);
+%                 l = obj.matrix_cross(m,n);
+                s.X = N2.X-N1.X;
+                s.Y = N2.Y-N1.Y;
+                s.Z = N2.Z-N1.Z;
+%                 smdot = obj.matrix_dot(s,m);
+%                 sldot = obj.matrix_dot(s,l);
+                snorm = obj.matrix_norm(s);
+%                 Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
+%                 PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
+%                 PB = PA-Al.*smdot;
+%                 phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                Vmu = obj.matrix_cross(a,b);
+                VelocityA.X = VelocityA.X + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.X;
+                VelocityA.Y = VelocityA.Y + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Y;
+                VelocityA.Z = VelocityA.Z + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Z;
+%                 VelocityB.X = VelocityB.X + (log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm).*(smdot.*l.X-sldot.*m.X)+phiV.*n.X;
+%                 VelocityB.Y = VelocityB.Y - (log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm).*(smdot.*l.Y-sldot.*m.Y)+phiV.*n.Y;
+%                 VelocityB.Z = VelocityB.Z + (log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm).*(smdot.*l.Z-sldot.*m.Z)+phiV.*n.Z;
+                %2回目
+                a.X = POI.X-N2.X;
+                a.Y = POI.Y-N2.Y;
+                a.Z = POI.Z-N2.Z;
+                b.X = POI.X-N3.X;
+                b.Y = POI.Y-N3.Y;
+                b.Z = POI.Z-N3.Z;
+                anorm = obj.matrix_norm(a);
+                bnorm = obj.matrix_norm(b);
+%                 m = obj.getUnitVector(c,n12);
+%                 l = obj.matrix_cross(m,n);
+                s.X = N3.X-N2.X;
+                s.Y = N3.Y-N2.Y;
+                s.Z = N3.Z-N2.Z;
+%                 smdot = obj.matrix_dot(s,m);
+%                 sldot = obj.matrix_dot(s,l);
+                snorm = obj.matrix_norm(s);
+%                 Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
+%                 PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
+%                 PB = PA-Al.*smdot;
+%                 phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                Vmu = obj.matrix_cross(a,b);
+                VelocityA.X = VelocityA.X + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.X;
+                VelocityA.Y = VelocityA.Y + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Y;
+                VelocityA.Z = VelocityA.Z + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Z;
+%                 VelocityB.X = VelocityB.X + (log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm).*(smdot.*l.X-sldot.*m.X)+phiV.*n.X;
+%                 VelocityB.Y = VelocityB.Y - (log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm).*(smdot.*l.Y-sldot.*m.Y)+phiV.*n.Y;
+%                 VelocityB.Z = VelocityB.Z + (log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm).*(smdot.*l.Z-sldot.*m.Z)+phiV.*n.Z;
+                %3回目
+                a.X = POI.X-N3.X;
+                a.Y = POI.Y-N3.Y;
+                a.Z = POI.Z-N3.Z;
+                b.X = POI.X-N1.X;
+                b.Y = POI.Y-N1.Y;
+                b.Z = POI.Z-N1.Z;
+                anorm = obj.matrix_norm(a);
+                bnorm = obj.matrix_norm(b);
+%                 m = obj.getUnitVector(c,n12);
+%                 l = obj.matrix_cross(m,n);
+                s.X = N1.X-N3.X;
+                s.Y = N1.Y-N3.Y;
+                s.Z = N1.Z-N3.Z;
+%                 smdot = obj.matrix_dot(s,m);
+%                 sldot = obj.matrix_dot(s,l);
+                snorm = obj.matrix_norm(s);
+%                 Al = obj.matrix_dot(n,obj.matrix_cross(s,a));
+%                 PA = obj.matrix_dot(a,obj.matrix_cross(l,obj.matrix_cross(a,s)));
+%                 PB = PA-Al.*smdot;
+%                 phiV = atan2((smdot.*PN.*(bnorm.*PA-anorm.*PB)),(PA.*PB+PN.^2.*anorm.*bnorm.*(smdot).^2));
+                Vmu = obj.matrix_cross(a,b);
+                VelocityA.X = VelocityA.X + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.X;
+                VelocityA.Y = VelocityA.Y + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Y;
+                VelocityA.Z = VelocityA.Z + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Z;
+%                 VelocityB.X = VelocityB.X + (log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm).*(smdot.*l.X-sldot.*m.X)+phiV.*n.X;
+%                 VelocityB.Y = VelocityB.Y - (log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm).*(smdot.*l.Y-sldot.*m.Y)+phiV.*n.Y;
+%                 VelocityB.Z = VelocityB.Z + (log(((anorm+bnorm+snorm)./(anorm+bnorm-snorm)))./snorm).*(smdot.*l.Z-sldot.*m.Z)+phiV.*n.Z;
+            end
+        end
+
+        function [VelocityA] = wakeVelocityInfluence(obj,wakeNo,edgeNo,controlPoint,wakeShape)
+            %%%%%%%%%%%%wakeからパネルへの影響関数%%%%%%%%%%%%%%%%%
+            %wakeNoとedgeNoを指定して全パネルへの影響を計算
+            %
+            %
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+            POI.X = controlPoint(:,1);
+            POI.Y = controlPoint(:,2);
+            POI.Z = controlPoint(:,3);
+            nrow = size(controlPoint,1);
+            VelocityA.X = zeros(nrow,1);
+            VelocityA.Y = zeros(nrow,1);
+            VelocityA.Z = zeros(nrow,1);
+            for i = 1:size(wakeShape,1)
+                if obj.wakeline{wakeNo}.validPanel{edgeNo}(i,1) == 1
+                    if i == 1
+                        wakepos(1,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:);
+                        wakepos(2,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:);
+                        wakepos(3,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+wakeShape(i,:);
+                        wakepos(4,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+wakeShape(i,:);
+                    else
+                        wakepos(1,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+wakeShape(i-1,:);
+                        wakepos(2,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+wakeShape(i-1,:);
+                        wakepos(3,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+wakeShape(i,:);
+                        wakepos(4,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+wakeShape(i,:);
+                    end
+                    [~, ~, nbuff] = obj.vertex(wakepos(1,:),wakepos(2,:),wakepos(3,:));
+                    ulvec = obj.center(obj.wakeline{wakeNo}.lowerID(edgeNo),:)-obj.center(obj.wakeline{wakeNo}.upperID(edgeNo),:);
+                    uldist = dot(ulvec,nbuff);
+                    if uldist >= 0
+                        Nw1.X = repmat(wakepos(1,1),[nrow,1]);
+                        Nw1.Y = repmat(wakepos(1,2),[nrow,1]);
+                        Nw1.Z = repmat(wakepos(1,3),[nrow,1]);
+                        Nw2.X = repmat(wakepos(2,1),[nrow,1]);
+                        Nw2.Y = repmat(wakepos(2,2),[nrow,1]);
+                        Nw2.Z = repmat(wakepos(2,3),[nrow,1]);
+                        Nw3.X = repmat(wakepos(3,1),[nrow,1]);
+                        Nw3.Y = repmat(wakepos(3,2),[nrow,1]);
+                        Nw3.Z = repmat(wakepos(3,3),[nrow,1]);
+                        Nw4.X = repmat(wakepos(4,1),[nrow,1]);
+                        Nw4.Y = repmat(wakepos(4,2),[nrow,1]);
+                        Nw4.Z = repmat(wakepos(4,3),[nrow,1]);
+                    else
+                        Nw1.X = repmat(wakepos(2,1),[nrow,1]);
+                        Nw1.Y = repmat(wakepos(2,2),[nrow,1]);
+                        Nw1.Z = repmat(wakepos(2,3),[nrow,1]);
+                        Nw2.X = repmat(wakepos(1,1),[nrow,1]);
+                        Nw2.Y = repmat(wakepos(1,2),[nrow,1]);
+                        Nw2.Z = repmat(wakepos(1,3),[nrow,1]);
+                        Nw3.X = repmat(wakepos(4,1),[nrow,1]);
+                        Nw3.Y = repmat(wakepos(4,2),[nrow,1]);
+                        Nw3.Z = repmat(wakepos(4,3),[nrow,1]);
+                        Nw4.X = repmat(wakepos(3,1),[nrow,1]);
+                        Nw4.Y = repmat(wakepos(3,2),[nrow,1]);
+                        Nw4.Z = repmat(wakepos(3,3),[nrow,1]);
+                    end
+                    [b1, b2, nw] = obj.vertex([Nw1.X(1),Nw1.Y(1),Nw1.Z(1)],[Nw2.X(1),Nw2.Y(1),Nw2.Z(1)],[Nw3.X(1),Nw3.Y(1),Nw3.Z(1)]);
+                    cw = mean([[Nw1.X(1),Nw1.Y(1),Nw1.Z(1)];[Nw2.X(1),Nw2.Y(1),Nw2.Z(1)];[Nw3.X(1),Nw3.Y(1),Nw3.Z(1)];[Nw4.X(1),Nw4.Y(1),Nw4.Z(1)]],1);
+                    n.X = repmat(nw(1),[nrow,1]);
+                    n.Y = repmat(nw(2),[nrow,1]);
+                    n.Z = repmat(nw(3),[nrow,1]);
+                    %Amat = repmat(b1*2,[nbPanel,1]);
+                    c.X = repmat(cw(1),[nrow,1]);
+                    c.Y = repmat(cw(2),[nrow,1]);
+                    c.Z = repmat(cw(3),[nrow,1]);
+                    n12.X = (Nw3.X+Nw4.X)./2;
+                    n12.Y = (Nw3.Y+Nw4.Y)./2;
+                    n12.Z = (Nw3.Z+Nw4.Z)./2;
+    
+                    pjk.X = POI.X-c.X;
+                    pjk.Y = POI.Y-c.Y;
+                    pjk.Z = POI.Z-c.Z;
+                    %PN = obj.matrix_dot(pjk,n);
+                    
+                    %1回目
+    %                 a.X = POI.X-Nw1.X;
+    %                 a.Y = POI.Y-Nw1.Y;
+    %                 a.Z = POI.Z-Nw1.Z;
+    %                 b.X = POI.X-Nw2.X;
+    %                 b.Y = POI.Y-Nw2.Y;
+    %                 b.Z = POI.Z-Nw2.Z;
+    %                 s.X = Nw2.X-Nw1.X;
+    %                 s.Y = Nw2.Y-Nw1.Y;
+    %                 s.Z = Nw2.Z-Nw1.Z;
+    %                 anorm = obj.matrix_norm(a);
+    %                 bnorm = obj.matrix_norm(b);
+    %                 Vmu = obj.matrix_cross(a,b);
+    %                 VelocityA.X = (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))).*Vmu.X;
+    %                 VelocityA.Y = (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))).*Vmu.Y;
+    %                 VelocityA.Z = (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))).*Vmu.Z;
+                    %2回目
+                    a.X = POI.X-Nw2.X;
+                    a.Y = POI.Y-Nw2.Y;
+                    a.Z = POI.Z-Nw2.Z;
+                    b.X = POI.X-Nw3.X;
+                    b.Y = POI.Y-Nw3.Y;
+                    b.Z = POI.Z-Nw3.Z;
+                    s.X = Nw3.X-Nw2.X;
+                    s.Y = Nw3.Y-Nw2.Y;
+                    s.Z = Nw3.Z-Nw2.Z;
+                    anorm = obj.matrix_norm(a);
+                    bnorm = obj.matrix_norm(b);
+                    snorm = obj.matrix_norm(s);
+                    Vmu = obj.matrix_cross(a,b);
+    %                 VelocityA.X = VelocityA.X + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))).*Vmu.X;
+    %                 VelocityA.Y = VelocityA.Y + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))).*Vmu.Y;
+    %                 VelocityA.Z = VelocityA.Z + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))).*Vmu.Z;
+                    VelocityA.X = VelocityA.X + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.X;
+                    VelocityA.Y = VelocityA.Y + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Y;
+                    VelocityA.Z = VelocityA.Z + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Z;
+                    %3回目
+    %                 a.X = POI.X-Nw3.X;
+    %                 a.Y = POI.Y-Nw3.Y;
+    %                 a.Z = POI.Z-Nw3.Z;
+    %                 b.X = POI.X-Nw4.X;
+    %                 b.Y = POI.Y-Nw4.Y;
+    %                 b.Z = POI.Z-Nw4.Z;
+    %                 s.X = Nw4.X-Nw3.X;
+    %                 s.Y = Nw4.Y-Nw3.Y;
+    %                 s.Z = Nw4.Z-Nw3.Z;
+    %                 anorm = obj.matrix_norm(a);
+    %                 bnorm = obj.matrix_norm(b);
+    %                 Vmu = obj.matrix_cross(a,b);
+    %                 VelocityA.X = VelocityA.X + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))).*Vmu.X;
+    %                 VelocityA.Y = VelocityA.Y + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))).*Vmu.Y;
+    %                 VelocityA.Z = VelocityA.Z + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))).*Vmu.Z;
+                    %4回目
+                    a.X = POI.X-Nw4.X;
+                    a.Y = POI.Y-Nw4.Y;
+                    a.Z = POI.Z-Nw4.Z;
+                    b.X = POI.X-Nw1.X;
+                    b.Y = POI.Y-Nw1.Y;
+                    b.Z = POI.Z-Nw1.Z;
+                    s.X = Nw1.X-Nw4.X;
+                    s.Y = Nw1.Y-Nw4.Y;
+                    s.Z = Nw1.Z-Nw4.Z;
+                    anorm = obj.matrix_norm(a);
+                    bnorm = obj.matrix_norm(b);
+                    snorm = obj.matrix_norm(s);
+                    Vmu = obj.matrix_cross(a,b);
+                    VelocityA.X = VelocityA.X + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.X;
+                    VelocityA.Y = VelocityA.Y + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Y;
+                    VelocityA.Z = VelocityA.Z + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Z;
+    
+                    %半裁
+                    if obj.halfmesh == 1
+                        POI.Y = -POI.Y;
+                        pjk.X = POI.X-c.X;
+                        pjk.Y = POI.Y-c.Y;
+                        pjk.Z = POI.Z-c.Z;
+                        %PN = obj.matrix_dot(pjk,n);
+                        
+                        %1回目
+    %                     a.X = POI.X-Nw1.X;
+    %                     a.Y = POI.Y-Nw1.Y;
+    %                     a.Z = POI.Z-Nw1.Z;
+    %                     b.X = POI.X-Nw2.X;
+    %                     b.Y = POI.Y-Nw2.Y;
+    %                     b.Z = POI.Z-Nw2.Z;
+    %                     s.X = Nw2.X-Nw1.X;
+    %                     s.Y = Nw2.Y-Nw1.Y;
+    %                     s.Z = Nw2.Z-Nw1.Z;
+    %                     anorm = obj.matrix_norm(a);
+    %                     bnorm = obj.matrix_norm(b);
+    %                     Vmu = obj.matrix_cross(a,b);
+    %                     VelocityA.X = VelocityA.X + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))).*Vmu.X;
+    %                     VelocityA.Y = VelocityA.Y - (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))).*Vmu.Y;
+    %                     VelocityA.Z = VelocityA.Z + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))).*Vmu.Z;
+                        
+                        %2回目
+                        a.X = POI.X-Nw2.X;
+                        a.Y = POI.Y-Nw2.Y;
+                        a.Z = POI.Z-Nw2.Z;
+                        b.X = POI.X-Nw3.X;
+                        b.Y = POI.Y-Nw3.Y;
+                        b.Z = POI.Z-Nw3.Z;
+                        s.X = Nw3.X-Nw2.X;
+                        s.Y = Nw3.Y-Nw2.Y;
+                        s.Z = Nw3.Z-Nw2.Z;
+                        anorm = obj.matrix_norm(a);
+                        bnorm = obj.matrix_norm(b);
+                        snorm = obj.matrix_norm(s);
+                        Vmu = obj.matrix_cross(a,b);
+                        VelocityA.X = VelocityA.X + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.X;
+                        VelocityA.Y = VelocityA.Y + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Y;
+                        VelocityA.Z = VelocityA.Z + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Z;
+                        %3回目
+    %                     a.X = POI.X-Nw3.X;
+    %                     a.Y = POI.Y-Nw3.Y;
+    %                     a.Z = POI.Z-Nw3.Z;
+    %                     b.X = POI.X-Nw4.X;
+    %                     b.Y = POI.Y-Nw4.Y;
+    %                     b.Z = POI.Z-Nw4.Z;
+    %                     s.X = Nw4.X-Nw3.X;
+    %                     s.Y = Nw4.Y-Nw3.Y;
+    %                     s.Z = Nw4.Z-Nw3.Z;
+    %                     anorm = obj.matrix_norm(a);
+    %                     bnorm = obj.matrix_norm(b);
+    %                     Vmu = obj.matrix_cross(a,b);
+    %                     VelocityA.X = VelocityA.X + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))).*Vmu.X;
+    %                     VelocityA.Y = VelocityA.Y - (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))).*Vmu.Y;
+    %                     VelocityA.Z = VelocityA.Z + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))).*Vmu.Z;
+                        %4回目
+                        a.X = POI.X-Nw4.X;
+                        a.Y = POI.Y-Nw4.Y;
+                        a.Z = POI.Z-Nw4.Z;
+                        b.X = POI.X-Nw1.X;
+                        b.Y = POI.Y-Nw1.Y;
+                        b.Z = POI.Z-Nw1.Z;
+                        s.X = Nw1.X-Nw4.X;
+                        s.Y = Nw1.Y-Nw4.Y;
+                        s.Z = Nw1.Z-Nw4.Z;
+                        anorm = obj.matrix_norm(a);
+                        bnorm = obj.matrix_norm(b);
+                        snorm = obj.matrix_norm(s);
+                        Vmu = obj.matrix_cross(a,b);
+                        VelocityA.X = VelocityA.X + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.X;
+                        VelocityA.Y = VelocityA.Y + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Y;
+                        VelocityA.Z = VelocityA.Z + (anorm+bnorm)./(anorm.*bnorm.*(anorm.*bnorm+obj.matrix_dot(a,b))+obj.settingUNLSI.deltaVortexCore^2.*snorm.*snorm).*Vmu.Z;
+                    end
+                end
+            end
+
+        end
+ 
         function [VortexAi,VortexBi,VortexAo,VortexBo,wakeVA] = propellerInfluenceMatrix(obj,propNo,propWakeLength)
             ID = obj.prop{propNo}.ID;
             verts = obj.tri.Points;
@@ -4018,6 +5647,7 @@ classdef UNLSI
 		        end
 	        end
         end
+        
         function out = evalNTri(C,L1,L2,Ainv)
 
             mu1 = (C(1)-C(2))/C(3);
@@ -4055,6 +5685,7 @@ classdef UNLSI
 
 
         end
+        
         function out = evalNmTri(C,L1,L2,Ainv)
 	        % some abbreviations to shorten the following terms
             L3 = 1-L1-L2;
@@ -4270,8 +5901,6 @@ end
             R = sqrt(squeeze(R));
         end
 
-
-
         function [p, info] = bisection(fun,a,b)
             % provide the equation you want to solve with R.H.S = 0 form. 
             % Write the L.H.S by using inline function
@@ -4428,6 +6057,7 @@ end
             pp.scaleShift = scaleShift;
             pp.scaleWeight = scaleWeight;
         end
+        
         function [pp] = invRppMake(pp,fd)
             pp.w = pp.invR*fd;
             pp.res_samp = fd;
@@ -4440,6 +6070,7 @@ end
         function phi = phi2(r,r0)
             phi = 1./sqrt(r.*r+r0.*r0);
         end
+        
         function phi = phi3(r,r0)
             phi = r.^2.*log(r./r0);
             phi(r<=0) = 0;
@@ -4474,10 +6105,841 @@ end
             %H2 = repmat(Xs',[nInterp,1]);
             %M = val_interp*pp.val_samp';
             %r = sqrt(H1-2.*M+H2);
-            % r = obj.calcRMat(val_interp,pp.val_samp);
             r = obj.calcRMat(pp.val_samp,val_interp);
             fi = phi(r,pp.R0)'*pp.w(:);
         end
+
+        function [intMatrix, intSurface] = SurfaceIntersection(obj,surface1, surface2, varargin)
+        %SURFACEINTERSECTION intersection of 2 surfaces
+        % [intMatrix, intSurface] = SurfaceIntersection(surface1, surface2)
+        % calculates the intersection of surfaces 1 and 2. Code can either return
+        % just the matrix indicating which face of surface1 intersected with face
+        % of surface2, which is calculated using Tomas Moller algorithm, or can
+        % also return the actual line of intersection. In case when parts of the
+        % surface 1 and 2 lay on the same plane the intersection is a 2D area
+        % instead of 1D edge. In such a case the intersection area will be
+        % triangulated and intSurface.edges will hold the edges of the
+        % triangulation surface and intSurface.faces will hold the faces.
+        %
+        % INPUT:
+        %  * surface1 & surface2 - two surfaces defined as structs or classes.
+        %    Several inputs are possible:
+        %    - struct with "faces" and "vertices" fields
+        %    - 'triangulation' class (only the boundary surface will be used)
+        %    - 'delaunayTriangulation' class
+        %
+        % OUTPUT:
+        % * intMatrix - sparse Matrix with n1 x n2 dimension where n1 and n2 are
+        %               number of faces in surfaces
+        % * intSurface - a structure with following fields:
+        %     intSurface.vertices - N x 3 array of unique points
+        %     intSurface.edges    - N x 2 array of edge vertex ID's
+        %     intSurface.faces    - N x 3 array of face vertex ID's
+        %
+        % ALGORITHM:
+        % Based on Triangle/triangle intersection test routine by Tomas Mler, 1997.
+        %  See article "A Fast Triangle-Triangle Intersection Test",
+        %  Journal of Graphics Tools, 2(2), 1997
+        %  http://web.stanford.edu/class/cs277/resources/papers/Moller1997b.pdf
+        %  http://fileadmin.cs.lth.se/cs/Personal/Tomas_Akenine-Moller/code/opttritri.txt
+        
+        %% Get FACES and VERTICES inputs
+        if isa(surface1, 'triangulation')
+          [surface1.faces, surface1.vertices] = freeBoundary(surface1);
+        elseif isa(surface1, 'delaunayTriangulation')
+          S = surface1;
+          surface1 = [];
+          surface1.faces    = S.ConnectivityList;
+          surface1.vertices = S.Points;
+          clear S
+        end
+        if isa(surface2, 'triangulation')
+          [surface2.faces, surface1.vertices] = freeBoundary(surface2);
+        elseif isa(surface2, 'delaunayTriangulation')
+          S = surface2;
+          surface2 = [];
+          surface2.faces    = S.ConnectivityList;
+          surface2.vertices = S.Points;
+          clear S
+        end
+        ok1 = isstruct(surface1) && isfield(surface1, 'vertices') && isfield(surface1, 'faces');
+        ok2 = isstruct(surface2) && isfield(surface2, 'vertices') && isfield(surface2, 'faces');
+        assert(ok1, 'Surface #1 must be a struct with "faces" and "vertices" fields' );
+        assert(ok2, 'Surface #2 must be a struct with "faces" and "vertices" fields' );
+        
+        %% Flip dimentions if necessery
+        if size(surface1.faces,1)==3 && size(surface1.faces,2)~=3
+          surface1.faces = surface1.faces';
+        end
+        if size(surface1.vertices,1)==3 && size(surface1.vertices,2)~=3
+          surface1.vertices = surface1.vertices';
+        end
+        if size(surface2.faces,1)==3 && size(surface2.faces,2)~=3
+          surface2.faces = surface2.faces';
+        end
+        if size(surface2.vertices,1)==3 && size(surface2.vertices,2)~=3
+          surface2.vertices = surface2.vertices';
+        end
+        
+        %% Parse extra parameters
+        getIntersection = (nargout>1);
+        debug = false;
+        PointRoundingTol = 1e6;
+        algorithm = 'moller';
+        k=1;
+        nVarargs = length(varargin);
+        while (k<=nVarargs)
+          assert(ischar(varargin{k}), 'Incorrect input parameters')
+          switch lower(varargin{k})
+            case 'debug'
+              debug = varargin{k+1}~=0;
+              k = k+1;
+            case 'algorithm'
+              algorithm = lower(strtrim(varargin{k+1}));
+              k = k+1;
+            case 'pointroundingtol'
+              PointRoundingTol = varargin{k+1};
+              k = k+1;
+          end
+          k = k+1;
+        end
+        
+        %% Initialize variables
+        epsilon = eps;
+        nFace1 = size(surface1.faces,1);
+        nFace2 = size(surface2.faces,1);
+        nVert1 = size(surface1.vertices,1);
+        nVert2 = size(surface2.vertices,1);
+        
+        %% create strip down versions of MATLAB cross and dot function
+        cross_prod = @(a,b) [...
+          a(:,2).*b(:,3)-a(:,3).*b(:,2), ...
+          a(:,3).*b(:,1)-a(:,1).*b(:,3), ...
+          a(:,1).*b(:,2)-a(:,2).*b(:,1)];
+        dot_prod = @(a,b) a(:,1).*b(:,1)+a(:,2).*b(:,2)+a(:,3).*b(:,3);
+        normalize = @(V) bsxfun(@rdivide,V, sqrt(sum(V.^2,2)));
+        
+        %% Initialize output variables
+        % intersect is a nFace1 x nFace2 matrix. Possible values: -2 (do not know),
+        % -1 (coplanar with unknown overlap), 0 (no intersections), 1 (intersects).
+        % Negative values are internal only.
+        intMatrix  = zeros([nFace1,nFace2], 'int8')-2; % -2 indicates that there was no succesful test yet
+        intSurface.vertices = [];
+        intSurface.faces    = [];
+        intSurface.edges    = [];
+        
+        % =======================================================================
+        %% === Stage 1 ==========================================================
+        % =======================================================================
+        % Each triangle is a subset of the plane it lies in, so for two triangles
+        % to intersect they must overlap along the line of intersection of their
+        % planes. Hence, a necessary condition for intersection is that each
+        % triangle must intersect the plane of the other.
+        % Mler痴 method begins by checking the mutual intersection of each
+        % triangle with the plane of the other. To do so, it determines for each
+        % triangle on which side of the other triangle痴 supporting plane its
+        % vertices lie. Now, if all vertices of one triangle lie on the same side
+        % and no vertex is on the plane, the intersection is rejected.
+        
+        %% compute plane equations for each triangle of the surface #1
+        % plane equation #1: N1.X-d1=0
+        V1 = surface1.vertices(surface1.faces(:,1),:);
+        V2 = surface1.vertices(surface1.faces(:,2),:);
+        V3 = surface1.vertices(surface1.faces(:,3),:);
+        N1 = cross_prod(V2-V1,V3-V1); % array size nFace1 x 3
+        N1 = normalize(N1);
+        d1 = dot_prod(N1,V1);         % array size nFace1 x 1
+        
+        %% Distance from surface #2 vertices to planes of surface #1
+        % Calculate signed distance from all vertices of surface #2 to each plane
+        % of of surface #1
+        du = zeros(nFace1,nVert2);
+        for iVert2 = 1:nVert2
+          p = surface2.vertices(iVert2,:);
+          du(:,iVert2) = N1(:,1)*p(1) + N1(:,2)*p(2) + N1(:,3)*p(3) - d1;
+        end
+        if debug
+          assert(all(size(du)==[nFace1,nVert2]), 'Incorrect array dimensions: dv')
+        end
+        du(abs(du)<epsilon)=0; % robustness check
+        % Distances from vertex 1, 2 & 3 of faces of surface #2 to planes of surface #1
+        du1 = du(:,surface2.faces(:,1));
+        du2 = du(:,surface2.faces(:,2));
+        du3 = du(:,surface2.faces(:,3));
+        if debug
+          assert(all(size(du1)==size(intMatrix)), 'Incorrect array dimensions: du1')
+        end
+        clear du
+        intMatrix(du1.*du2>0 & du1.*du3>0) = 0;   % same sign on all of them & not equal 0
+        if(all(intMatrix==0)), return; end        % no intersections
+        intMatrix(du1==0 & du2==0 & du3==0) = -1; % coplanar with unknown overlap
+        
+        %% compute plane of triangle (U0,U1,U2)
+        % plane equation 2: N2.X-d2=0
+        U1 = surface2.vertices(surface2.faces(:,1),:);
+        U2 = surface2.vertices(surface2.faces(:,2),:);
+        U3 = surface2.vertices(surface2.faces(:,3),:);
+        N2 = cross_prod(U2-U1,U3-U1); % array size nFace1 x 3
+        N2 = normalize(N2);
+        d2 = dot_prod(N2,U1);        % array size nFace1 x 1
+        
+        %% Distance from surface #1 vertices to planes of surface #2
+        % Calculate signed distance from all vertices of surface #1 to each plane
+        % of of surface #2
+        dv = zeros(nFace2,nVert1);
+        for iVert1 = 1:nVert1
+          p = surface1.vertices(iVert1,:);
+          dv(:,iVert1) = N2(:,1)*p(1) + N2(:,2)*p(2) + N2(:,3)*p(3) - d2;
+        end
+        if debug
+          assert(all(size(dv)==[nFace2,nVert1]), 'Incorrect array dimensions: dv')
+        end
+        dv(abs(dv)<epsilon)=0; % robustness check
+        % Distances from vertex 1, 2 & 3 of faces of surface #1 to planes of surface #2
+        dv1 = dv(:,surface1.faces(:,1))';
+        dv2 = dv(:,surface1.faces(:,2))';
+        dv3 = dv(:,surface1.faces(:,3))';
+        if debug
+          assert(all(size(dv1)==size(intMatrix)), 'Incorrect array dimensions: dv1')
+        end
+        clear dv
+        intMatrix(dv1.*dv2>0 & dv1.*dv3>0) = 0;   % same sign on all of them & not equal 0
+        if(all(intMatrix==0)), return; end        % no intersections
+        intMatrix(dv1==0 & dv2==0 & dv3==0) = -1; % coplanar with unknown overlap
+        
+        % =======================================================================
+        %% === Stage 2 ==========================================================
+        % =======================================================================
+        
+        %% Process remaining (non-coplanar) triangle pairs
+        tMsk = (intMatrix==-2);
+        n = nnz(tMsk);
+        if n>0
+          [face1, face2] = find(tMsk);
+          switch lower(algorithm)
+            case 'moller'
+              if size(dv1(tMsk),1)==1
+                dv = [dv1(tMsk)', dv2(tMsk)', dv3(tMsk)'];
+                du = [du1(tMsk)', du2(tMsk)', du3(tMsk)'];
+              else
+                dv = [dv1(tMsk), dv2(tMsk), dv3(tMsk)];
+                du = [du1(tMsk), du2(tMsk), du3(tMsk)];
+              end
+              
+              [intMatrix(tMsk), intSurface] = obj.TriangleIntersection3D_Moller(obj,...
+                V1(face1,:), V2(face1,:), V3(face1,:), N1(face1,:), d1(face1,:), dv, ...
+                U1(face2,:), U2(face2,:), U3(face2,:), N2(face2,:), d2(face2,:), du, ...
+                getIntersection, debug);
+            otherwise
+              error('Unknown algorithm name');
+          end
+        end % if
+        
+        %% Process coplanar triangle pairs. Pass #1:
+        % compare the overlap of the bounding boxes
+        tMsk = (intMatrix==-1);
+        if nnz(tMsk)>0
+          [face1, face2] = find(tMsk);
+          overlap = true;
+          for idim = 1:3
+            v = [V1(face1,idim), V2(face1,idim), V3(face1,idim)];
+            u = [U1(face2,idim), U2(face2,idim), U3(face2,idim)];
+            t1 = min(v,[],2);
+            t2 = max(v,[],2);
+            s1 = min(u,[],2);
+            s2 = max(u,[],2);
+            overlap = overlap & (s1<=t2 & t1<=s2);
+          end
+          % if overlap intMatrix will remain "-1" otherwise it will change to "0"
+          intMatrix(tMsk) = -1*overlap;
+          clear v u t1 t2 s1 s2 overlap
+        end
+        
+        %% Process coplanar triangle pairs. Pass #2:
+        % use edge-edge intersections
+        tMsk = (intMatrix==-1);
+        if nnz(tMsk)>0
+          [face1, face2] = find(tMsk);
+          
+          % repack data prior to function call
+          V(:,:,1)=V1(face1,:); V(:,:,2)=V2(face1,:); V(:,:,3)=V3(face1,:);
+          U(:,:,1)=U1(face2,:); U(:,:,2)=U2(face2,:); U(:,:,3)=U3(face2,:);
+          [intMatrix(tMsk), intSurface2] = obj.TriangleIntersection2D(obj,V, U, ...
+            N1(face1,:), getIntersection, debug);
+          
+          %% Merge surfaces
+          if getIntersection
+            np = size(intSurface.vertices,1);
+            intSurface.vertices = [intSurface.vertices; intSurface2.vertices];
+            intSurface.faces    = [intSurface.faces;    intSurface2.faces+np];
+            intSurface.edges    = [intSurface.edges;    intSurface2.edges+np];
+            if debug
+              np = size(intSurface.vertices,1);
+              assert(max(intSurface.faces(:))<=np, 'Bad surface definition')
+              assert(max(intSurface.edges(:))<=np, 'Bad surface definition')
+            end
+          end
+        end
+        
+        %% Clean up the outputs
+        intMatrix = sparse(double(intMatrix));
+        if(getIntersection)
+          % make point array unique
+          P = round(intSurface.vertices*PointRoundingTol)/PointRoundingTol;
+          [~,ia,ic] = unique(P,'rows'); % V = P(ia,:) and P = V(ic,:).
+          intSurface.vertices = intSurface.vertices(ia,:);
+          intSurface.faces = ic(intSurface.faces);
+          intSurface.edges = ic(intSurface.edges);
+        end
+        end % function
+     
+        function [iMsk, intSurface] = TriangleIntersection3D_Moller(obj,...
+          V1, V2, V3, N1, d1, dv, ...
+          U1, U2, U3, N2, d2, du, ...
+          getIntersection, debug)
+        %TriangleIntersection3D tests if 2 triangles defined in 3D intersect.
+        % This is a secondary test following Tomas Moller algorithm
+        %
+        % INPUTS:
+        %   V1, V2, V3, - Nx3 array of surface 1 triangle vertex coordinates
+        %   U1, U2, U3, - Nx3 array of surface 2 triangle vertex coordinates
+        %   N1, d1      - Nx3 array of surface 1 triangle plane equations N1.X-d1=0
+        %   N2, d2      - Nx3 array of surface 2 triangle plane equations N2.X-d2=0
+        %   dv          - Nx3 array of distances of surface 1 triangle vertices to surface 2 planes
+        %   du          - Nx3 array of distances of surface 2 triangle vertices to surface 1 planes
+        %   getIntersection - do we need to output the intersecting surface?
+        %      Algorithm is much simpler if we do not.
+        %   debug       - In the debugging mode much more extra "sanity check" test
+        %      are performed.
+        %
+        % OUTPUT:
+        %   iMsk - N x 1 intersection boolean mask marking which triangles overlap
+        %   intSurface - intersection surface
+        %
+        % ALGORITHM:
+        % The input triangles are guaranteed to intersect the line of intersection
+        % of the two planes. Furthermore, these intersections form intervals on
+        % this line, and the triangles overlap iff these intervals overlap as well.
+        % Hence, the last part of  the algorithm computes a parametric equation
+        % L(t) of the line of intersection of the two planes, finds the intervals
+        % (i.e. scalar intervals on L(t)) for which the line lies inside each
+        % triangle and performs a one-dimensional interval overlap test.
+        if debug
+          ok = size(N1,2)==3 && size(N2,2)==3 && size(dv,2)==3 && size(du,2)==3 && ...
+            size(V1,2)==3 && size(V2,2)==3 && size(V3,2)==3 && ...
+            size(U1,2)==3 && size(U2,2)==3 && size(U3,2)==3;
+          assert(ok, 'Incorrect array dimensions');
+        end
+        
+        %% create strip down versions of MATLAB cross and dot function
+        cross_prod = @(a,b) [...
+          a(:,2).*b(:,3)-a(:,3).*b(:,2), ...
+          a(:,3).*b(:,1)-a(:,1).*b(:,3), ...
+          a(:,1).*b(:,2)-a(:,2).*b(:,1)];
+        dot_prod = @(a,b) a(:,1).*b(:,1)+a(:,2).*b(:,2)+a(:,3).*b(:,3);
+        normalize = @(V) bsxfun(@rdivide,V, sqrt(sum(V.^2,2)));
+        
+        %% Find intervals of surface 1 and 2 triangles
+        % compute the scalar intervals on L(t) for which the line lies inside each
+        % triangle
+        
+        % Plane creates two open half-spaces. Find the odd vertex, which:
+        % 1) if no or two vertices are on the plane than pick the vertex which is
+        %    by itself in its half-space
+        % 2) if one vertex is on the plane and the other two occupy the same
+        %    half-space than pick the vertex on the plane
+        % 3) if one vertex is on the plane and the other two occupy different
+        %    half-spaces than pick one of the vertices off the plane
+        % Find vertex using a look-up table "lut" with key calculated based on
+        % sign of dv and du arrays
+        lut = [0;3;3;2;1;3;2;2;1;1;2;3;3;0;3;3;2;1;1;2;2;3;1;2;3;3;0];
+        n = numel(d1);
+        rows = (1:n)';
+        
+        %% order surface 1 triangle vertices
+        a1 = lut(sign(dv)*[9; 3; 1] + 14); % calculate the key and call the look-up table
+        [b1, c1] = obj.otherDim(a1);
+        if debug
+          assert(all(a1>0), 'Something Wrong: triangles are coplanar')
+        end
+        a1 = sub2ind([n,3],rows,a1); % convert row and column IDs to array indecies
+        b1 = sub2ind([n,3],rows,b1);
+        c1 = sub2ind([n,3],rows,c1);
+        
+        %% order surface 2 triangle vertices
+        a2 = lut(sign(du)*[9; 3; 1] + 14); % calculate the key and call the look-up table
+        [b2, c2] = obj.otherDim(a2);
+        if debug
+          assert(all(a2>0), 'Something Wrong: triangles are coplanar')
+        end
+        a2 = sub2ind([n,3],rows,a2);
+        b2 = sub2ind([n,3],rows,b2);
+        c2 = sub2ind([n,3],rows,c2);
+        
+        %% compute direction of L the line of intersection of 2 planes
+        % containing 2 triangles. Line L parametric equation: t*D+O=0
+        D = cross_prod(N1,N2);    % D must be perpendicular to both N1 and N2
+        [~, maxDim] = max(abs(D),[],2); % compute and index to the largest component of D
+        if(getIntersection)
+          D = normalize(D);
+          O = zeros(n,3);
+          d = [d1, d2, zeros(n,1)];
+          for r =1:n
+            N = [N1(r,:); N2(r,:); 0, 0, 0];
+            N(3,maxDim(r)) = 1;
+            dd = d(r,:)';
+            O(r,:) = (N\dd)'; %Solve systems of linear equations N*D3 = d for D3
+          end
+          clear N d dd
+        end
+        
+        %% projection of triangle(V1,V2,V3) and triangle(U1,U2,U3) onto intersection line
+        % Vp and Up are Nx3 arrays with columns indicating corners of triangles 1 and 2
+        if(getIntersection)
+          Vp=[dot_prod(V1-O,D), dot_prod(V2-O,D), dot_prod(V3-O,D)];
+          Up=[dot_prod(U1-O,D), dot_prod(U2-O,D), dot_prod(U3-O,D)];
+        else
+          % Project on one of the axis (closest to the intersection line) instead.
+          % Simplified projection is faster and sufficient if we do not need
+          % intersection line
+          idx = sub2ind([n,3],rows,maxDim);
+          Vp = [V1(idx), V2(idx), V3(idx)];
+          Up = [U1(idx), U2(idx), U3(idx)];
+        end
+        clear V1 V2 V3 U1 U2 U3
+        
+        %% Calculate surface 1 and 2 triangle intervals
+        % t1 and t2 are intersection points of surface 1 with the intersection line
+        % t*D+O=0, and s1 & s2 are intersection points of surface 2 with the same
+        % line. Tomas Moller algorithm made this section much more complicated
+        % trying to avoid divisions. However, I could not detect any speed-up.
+        % Operations (ADD: 12; MUL:4 ; DIV:4 )
+        t1 = Vp(a1) - (Vp(b1)-Vp(a1)).*dv(a1)./(dv(b1)-dv(a1));
+        t2 = Vp(a1) - (Vp(c1)-Vp(a1)).*dv(a1)./(dv(c1)-dv(a1));
+        s1 = Up(a2) - (Up(b2)-Up(a2)).*du(a2)./(du(b2)-du(a2));
+        s2 = Up(a2) - (Up(c2)-Up(a2)).*du(a2)./(du(c2)-du(a2));
+        
+        %% Order the intervals as to t1<t2 and s1<s2
+        msk = t2<t1; % order t1 and t2 so t1<t2
+        t = t1(msk); t1(msk)=t2(msk); t2(msk)=t; % swap
+        msk = s2<s1; % order s1 and s2 so s1<s2
+        t = s1(msk); s1(msk)=s2(msk); s2(msk)=t; % swap
+        
+        %% Perform THE final test we were preparying for.
+        % It test for the overlap of 2 1D intervals s1->s2 and t1->t2
+        iMsk = (s1<t2 & t1<s2);
+        
+        %% calculate intersection segments
+        n = nnz(iMsk);
+        if(getIntersection && n>0)
+          % p1 = D*max(t1,s1) + O;    p2 = D*min(t2,s2) + O
+          p1 = bsxfun(@times,D(iMsk,:),max(t1(iMsk),s1(iMsk))) + O(iMsk,:);
+          p2 = bsxfun(@times,D(iMsk,:),min(t2(iMsk),s2(iMsk))) + O(iMsk,:);
+          intSurface.vertices = [p1; p2];
+          intSurface.faces    = [1:n; n+1:2*n; n+1:2*n]';
+          intSurface.edges    = intSurface.faces(:,1:2);
+        else
+          intSurface.vertices = [];
+          intSurface.faces    = [];
+          intSurface.edges    = [];
+        end % if
+        end % function
+           
+        function [overlap, intSurface] = TriangleIntersection2D(obj,V, U, N, ...
+          getIntersection, debug)
+        % Triangles V(V0,V1,V2) and U(U0,U1,U2) are are coplanar. Do they overlap?
+        % INPUTS:
+        % N - array(n,3) of surface normals where V(i,:,:) and U(i,:,:) are on the same plane
+        % V - array(n,3,3) (nFace x 3 dimensions x 3 vertices) of surface #1 vertices
+        % U - array(n,3,3) (nFace x 3 dimensions x 3 vertices) of surface #2 vertices
+        %
+        % OUTPUT:
+        %   iMsk - N x 1 intersection boolean mask marking which triangles overlap
+        %   intSurface - intersection surface
+        
+        
+        %  * parameters: vertices of triangle 1: V0,V1,V2
+        %  *             vertices of triangle 2: U0,U1,U2
+        %  * result    : returns 1 if the triangles intersect, otherwise 0
+        
+        %% Constants needed for creating a mesh based on 3 to 6 points in a circle
+        tri_mesh{6}  = [1 2 6; 2 4 6; 2 3 4; 4 5 6];
+        tri_mesh{5}  = [1 2 3; 1 3 4; 4 5 1];
+        tri_mesh{4}  = [1 2 3; 1 3 4];
+        tri_mesh{3}  = 1:3;
+        vertices = [];
+        faces    = [];
+        pairs    = [];  % each row corresponds to pair of faces. match row number with face number
+        nVert    = 0;
+        
+        %% use edge-edge intersections
+        overlap = false(size(N,1),1);
+        i1Idx = [1 1 1 2 2 2 3 3 3];
+        i2Idx = [3 3 3 1 1 1 2 2 2];
+        j1Idx = [1 2 3 1 2 3 1 2 3];
+        j2Idx = [3 1 2 3 1 2 3 1 2];
+        for row = 1:size(N,1)
+          % When it is necesary to project 3D plane on 2D, dIdx will be the optimal
+          % dimensions to use.
+          [~, a] = max(abs(N(row,:))); 
+          [b, c] = obj.otherDim(a); 
+          dIdx = [b, c]; 
+          order = [];
+        
+          %% test all edges of triangle 1 against the edges of triangle 2
+          % triangles overlap if edges cross
+          [edgeMat, P] = obj.EdgesIntersect3D(...
+            squeeze(V(row,:,i1Idx))',squeeze(V(row,:,i2Idx))', ...
+            squeeze(U(row,:,j1Idx))',squeeze(U(row,:,j2Idx))');
+          overlap(row) = any(edgeMat);
+          if ~getIntersection && overlap(row), continue; end
+          
+          if ~overlap(row)
+            %% project onto an axis-aligned plane, that maximizes the area
+            % of the triangles, compute indices: dIdx which correspond to 2 smallest N1
+            % components.
+            V2d = [V(row,dIdx,1); V(row,dIdx,2); V(row,dIdx,3)]; % each row is a 2D vertex
+            U2d = [U(row,dIdx,1); U(row,dIdx,2); U(row,dIdx,3)];
+            
+            %% test if tri1 is totally contained in tri2 or vice varsa
+            if obj.PointInTriangle2D(V2d(1,:), U2d) % tri1 is totally contained in tri2
+              overlap(row) = true;
+              order = 1:3;
+            elseif obj.PointInTriangle2D(U2d(1,:), V2d) % tri2 is totally contained in tri1
+              overlap(row) = true;
+              order = 4:6;
+            end
+            if overlap(row) && ~getIntersection, continue; end
+            clear V2d U2d
+          end
+          
+          %% Build the intersection surface
+          if getIntersection && overlap(row)
+            %Assemble all the points which might be needed for desining
+            %intersection polygon: Intersection points and points from triangle 1
+            %and 2
+            points   = [P(edgeMat,:); squeeze(V(row,:,:))'; squeeze(U(row,:,:))'];
+            if isempty(order) % when one tri is totally contained in the other tri then order is set
+              order = obj.IntersectionPolygon(obj,edgeMat>0, points, dIdx, debug);
+              if isempty(order), continue; end
+            end
+            nPoint   = length(order);    % how many points will be added?
+            nFace    = nPoint-2;         % how many faces will be added?
+            vertices = [vertices; points(order,:)]; %#ok<*AGROW>
+            faces    = [faces; nVert+tri_mesh{nPoint} ];
+            pairs    = [pairs; row+zeros(nFace,1)];  % each row corresponds to pair of faces. match row number with face number
+            nVert    = nVert + nPoint;
+            if debug
+              assert(max(faces(:))<=size(vertices,1), 'Bad surface definition')
+            end
+          end
+        end % for
+        
+        %% Prepare outputs
+        intSurface.vertices = vertices;
+        intSurface.faces    = faces;
+        if isempty(faces)
+          intSurface.edges = [];
+        else
+          intSurface.edges = [faces(:,1:2); faces(:,2:3); faces(:,[1,3])];
+        end
+        end % function
+               
+        function polygon = IntersectionPolygon(obj,edgeMat, points, dIdx, debug)
+        % edgeMat is an edge intersection matrix with 3 rows for edges between
+        % the points 1-3, 1-2, & 2-3 of the triangle 1 and 3 columns for the same
+        % edges of the triangle 2. If 2 edges intersect a point of intersection
+        % is calculated and stored in array "points" followed by points of the
+        % triangles 1 & 2.  This function calculates the polygon of the intersection
+        % between 2 triangles.
+        
+        persistent orderLUT verified
+        if isempty(orderLUT) || isempty(orderLUT{3})
+          % This pre-calculated look-up table is used to quickly look up the order of
+          % the vertices in array "points" which make up polygon of the intersection
+          % between 2 triangles. A unique key is calculated for each edgeMat using
+          % dot product between edgeMat(:) and [256 128 64 32 16 8 4 2 1], which is
+          % used to look up point order around the polygon. Negative numbers in the
+          % LUT indicate values which were not observed yet so they were not
+          % independently verified.
+          % reshape(sprintf('%09s',dec2base(key, 2)),3,3) will convert from the key
+          % to matrix.
+          OrderLUT = zeros(432,1);  
+          OrderLUT(003) = 127;
+          OrderLUT(005) = 128;
+          OrderLUT(006) = 126;
+          OrderLUT(009) = 124;
+          OrderLUT(010) = 1427;
+          OrderLUT(012) = 1428;
+          OrderLUT(017) = 1427;
+          OrderLUT(018) = 124;
+          OrderLUT(020) = 1426;
+          OrderLUT(024) = 127;
+          OrderLUT(027) = 1243;
+          OrderLUT(029) = 12438;
+          OrderLUT(030) = 12034;
+          OrderLUT(033) = 1428;
+          OrderLUT(034) = 1426;
+          OrderLUT(036) = 124;
+          OrderLUT(040) = 128;
+          OrderLUT(043) = 21834;
+          OrderLUT(045) = 1243;
+          OrderLUT(046) = 21349;
+          OrderLUT(048) = 126;
+          OrderLUT(051) = 12340;
+          OrderLUT(053) = 12943;
+          OrderLUT(054) = 1243;
+          OrderLUT(065) = 125;
+          OrderLUT(066) = 1527;
+          OrderLUT(068) = 1825;
+          OrderLUT(072) = 123;
+          OrderLUT(080) = 1327;
+          OrderLUT(083) = 15234;
+          OrderLUT(085) = -15234;
+          OrderLUT(086) = -15243;
+          OrderLUT(090) = 13247;
+          OrderLUT(092) = -13247;
+          OrderLUT(096) = 1328;
+          OrderLUT(099) = 152834;
+          OrderLUT(101) = 15234;
+          OrderLUT(102) = 152349;
+          OrderLUT(106) = 132847;
+          OrderLUT(108) = 13247;
+          OrderLUT(114) = 102347;
+          OrderLUT(116) = -13247;
+          OrderLUT(129) = 1527;
+          OrderLUT(130) = 125;
+          OrderLUT(132) = 1526;
+          OrderLUT(136) = 1327;
+          OrderLUT(139) = 15243;
+          OrderLUT(141) = 152438;
+          OrderLUT(142) = 152034;
+          OrderLUT(144) = 123;
+          OrderLUT(153) = 12347;
+          OrderLUT(156) = 123047;
+          OrderLUT(160) = 1326;
+          OrderLUT(163) = -152043;
+          OrderLUT(165) = 13247;
+          OrderLUT(166) = 15234;
+          OrderLUT(169) = -182347;
+          OrderLUT(172) = 193247;
+          OrderLUT(177) = -132047;
+          OrderLUT(180) = 13247;
+          OrderLUT(192) = 127;
+          OrderLUT(195) = 1243;
+          OrderLUT(197) = 12438;
+          OrderLUT(198) = 12034;
+          OrderLUT(202) = 12364;
+          OrderLUT(204) = 123648;
+          OrderLUT(209) = 21364;
+          OrderLUT(212) = -21364;
+          OrderLUT(216) = 1243;
+          OrderLUT(225) = -124638;
+          OrderLUT(226) = 120364;
+          OrderLUT(232) = 12438;
+          OrderLUT(238) = 124356;
+          OrderLUT(240) = 12034;
+          OrderLUT(245) = -214356;
+          OrderLUT(257) = 1528;
+          OrderLUT(258) = 1526;
+          OrderLUT(260) = 125;
+          OrderLUT(264) = 1328;
+          OrderLUT(267) = -152438;
+          OrderLUT(269) = 15243;
+          OrderLUT(270) = -152943;
+          OrderLUT(272) = 1326;
+          OrderLUT(275) = 152340;
+          OrderLUT(277) = 152943;
+          OrderLUT(278) = 15243;
+          OrderLUT(281) = 182347;
+          OrderLUT(282) = -103247;
+          OrderLUT(288) = 123;
+          OrderLUT(297) = 12347;
+          OrderLUT(298) = -123947;
+          OrderLUT(305) = 123947;
+          OrderLUT(306) = 12347;
+          OrderLUT(320) = 128;
+          OrderLUT(323) = 21834;
+          OrderLUT(325) = 1243;
+          OrderLUT(326) = 21349;
+          OrderLUT(330) = -123648;
+          OrderLUT(332) = 12364;
+          OrderLUT(337) = 183642;
+          OrderLUT(340) = -129364;
+          OrderLUT(344) = 21834;
+          OrderLUT(350) = -124365;
+          OrderLUT(353) = 12463;
+          OrderLUT(354) = 136492;
+          OrderLUT(360) = 1243;
+          OrderLUT(368) = 12943;
+          OrderLUT(371) = 126543;
+          OrderLUT(384) = 126;
+          OrderLUT(387) = 12340;
+          OrderLUT(389) = 12943;
+          OrderLUT(390) = 1243;
+          OrderLUT(394) = -103642;
+          OrderLUT(396) = 129364;
+          OrderLUT(401) = 123640;
+          OrderLUT(404) = 12364;
+          OrderLUT(408) = 12340;
+          OrderLUT(413) = 215643;
+          OrderLUT(417) = -136492;
+          OrderLUT(418) = 12463;
+          OrderLUT(424) = 13492;
+          OrderLUT(427) = -213456;
+          OrderLUT(432) = 1342;
+          
+          % Convert to more convinient format
+          orderLUT = cell(size(OrderLUT));
+          for i = 1:size(OrderLUT,1)
+            polygon = abs(OrderLUT(i));
+            if polygon>0
+              polygon = num2str(polygon)-48; % Convert from a single number to array of digits
+              polygon(polygon==0) = 10;      % 0 stands for 10
+              orderLUT{i} = polygon;
+            end
+          end
+          % Negative numbers in the LUT indicate values which were not observed yet
+          % so they were not independently verified.
+          verified = OrderLUT>0;
+          clear OrderLUT
+        end
+        
+        %% Calculate unique key for each edgeMat configuration
+        key = dot(1*edgeMat(:)', [256 128 64 32 16 8 4 2 1]);
+        assert(key<=432, 'Error: in IntersectionPolygon: key is out of bound');
+        
+        %% Look up the point order around the polygon
+        polygon = orderLUT{key};
+        if (isempty(polygon))
+          return
+        end
+        
+        %% in a rare case of 2 intersections there is ambiguity if one or two
+        % vertices of the triangle lay inside the other triangle. OrderLUT stores
+        % only the single vertex cases.
+        nx = nnz(edgeMat(:));
+        if nx==2
+          pList = polygon;       % list of vertices to check
+          pList(pList<=nx) = []; % keep only the triangle points of the polygon
+          flip = false;    % was there a flip from single vertex to vertices case?
+          for ip = 1:length(pList)
+            p = pList(ip);                 % point to check
+            t = floor((p-nx-1)/3);         % does it belong to triangle 0 or 1 (actually 1 or 2)
+            tri = (1:3) + nx + 3*abs(1-t); % Points belonging to the other triangle
+            if ~obj.PointInTriangle2D(points(p,dIdx), points(tri,dIdx))
+              d = nx+t*3;    % offset
+              % "p-d" is vertex number of point just tested: 1, 2, or 3. "b, c" are
+              % the other 2 vertices
+              [b, c] = obj.otherDim(p-d);
+              polygon = [polygon(polygon~=p), b+d, c+d]; % remove i2 and add i0 and i1
+              flip = true;
+            end
+          end
+          if flip
+            % if ther were any flips than use existing codes to figure out the
+            % order of the points around the polygon
+            DT = delaunayTriangulation(points(polygon,dIdx));
+            idx = freeBoundary(DT)';
+            idx(2,:) = [];
+            polygon = polygon(idx);
+          end
+        end
+        
+        %% Check to duplicate points
+        tol = 1e6;
+        P = round(points(polygon,:)*tol)/tol;
+        [~,ia] = unique(P,'rows'); % V = P(ia,:) and P = V(ic,:).
+        polygon = polygon(sort(ia));
+        
+        %% Test the results using more expensive function
+        doPlot = (~verified(key));
+        if debug && length(polygon)>3
+          DT = delaunayTriangulation(points(polygon,dIdx));
+          idx = freeBoundary(DT)';
+          idx(2,:) = [];
+          k = max(abs(diff(idx)));
+          %doPlot = (k>1 && k<(length(idx)-1)) || (~verified(key));
+          assert(k==1 || k==(length(idx)-1), 'Two triangle intersection polygon is not convex')
+        end
+        if debug && doPlot % plot the interesting cases
+          obj.PlotTwoTriangles(points, polygon, 'm')
+          title(sprintf('key = %i', key));
+        end 
+        
+        end % function
+                
+        function PlotTwoTriangles(points, polygon, color)
+        % Plotting function used for debugging
+        nx = size(points,1)-6;
+        d = (max(points,[],1)-min(points,[],1))/200;
+        figure(2)
+        clf
+        hold on
+        line( points(nx+(1:2),1), points(nx+(1:2),2), points(nx+(1:2),3), 'Color', 'g');
+        line( points(nx+(2:3),1), points(nx+(2:3),2), points(nx+(2:3),3), 'Color', 'g');
+        line( points(nx+[1,3],1), points(nx+[1,3],2), points(nx+[1,3],3), 'Color', 'g');
+        line( points(nx+(4:5),1), points(nx+(4:5),2), points(nx+(4:5),3), 'Color', 'b');
+        line( points(nx+(5:6),1), points(nx+(5:6),2), points(nx+(5:6),3), 'Color', 'b');
+        line( points(nx+[4,6],1), points(nx+[4,6],2), points(nx+[4,6],3), 'Color', 'b');
+        plot3( points(:,1), points(:,2), points(:,3), 'm.');
+        if (length(polygon)>2)
+          idx = polygon([1:end, 1]);
+          plot3( points(idx,1), points(idx,2),points(idx,3), 'Color', color, 'LineWidth', 1);
+        end
+        for i = 1:nx+6
+          text(points(i,1)+d(1), points(i,2)+d(2), points(i,3), num2str(i))
+        end
+        
+        end % function
+        
+        function [intersect, X] = EdgesIntersect3D(V1,V2, U1,U2)
+        %EdgesIntersectPoint3D calculates point of intersection of 2 coplanar
+        % segments in 3D
+        %
+        % INPUTS:
+        %   V1,V2 - 1 x 3 coordinates of endpoints of edge 1
+        %   U1,U2 - 1 x 3 coordinates of endpoints of edge 2
+        % OUTPUT:
+        %   X - 1 x 3 coordinates of the intersection point
+        A = V2-V1;
+        B = U1-U2;
+        C = U1-V1;
+        %% Solve system of equations [A,B,1] * [d;e;0] = C for d and e
+        det3 = @(a,b) ... % determinant of a matrix with columns: [a, b, 1]
+          a(:,1).*b(:,2)-a(:,3).*b(:,2) + ...
+          a(:,2).*b(:,3)-a(:,2).*b(:,1) + ...
+          a(:,3).*b(:,1)-a(:,1).*b(:,3);
+        f=det3(A,B); % https://en.wikipedia.org/wiki/Cramer%27s_rule#Explicit_formulas_for_small_systems
+        t=det3(C,B)./f; % use Cramer's rule
+        s=det3(A,C)./f;
+        intersect = (t>=0 & t<=1 & s>=0 & s<=1);
+        X = V1 + bsxfun(@times,A,t);
+        end % function
+        
+        function inside = PointInTriangle2D(V1, U)
+        % check if V1 is inside triangle U (U1,U2,U3)
+        % Algorithm is checking on which side of the half-plane created by the
+        % edges the point is. It uses sign of determinant to calculate orientation
+        % of point triplets.
+        % INPUTS:
+        %   V1 - 1 x 2 coordinates of a point
+        %   U  - 3 x 2 coordinates of endpoints of 3 edges of a triangle
+        % OUTPUT:
+        %   inside - a boolean or boolean array
+        det2 = @(A,B,C) (A(:,1)-C(:,1))*(B(:,2)-C(:,2)) - (B(:,1)-C(:,1))*(A(:,2)-C(:,2));
+        b1 = (det2(U(1,:), U(2,:), V1) > 0);
+        b2 = (det2(U(2,:), U(3,:), V1) > 0);
+        b3 = (det2(U(3,:), U(1,:), V1) > 0);
+        inside = ((b1 == b2) & (b2 == b3)); % inside if same orientation for all 3 edges
+        end % function
+        
+        function [b, c] = otherDim(a)
+        % return set [1 2 3] without k
+        b = mod(a+1,3)+1;  % b and c are vertices which are on the same side of the plane
+        c = 6-a-b;         % a+b+c = 6
+        end
+        
 
     end
 
