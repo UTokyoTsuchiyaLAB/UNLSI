@@ -82,6 +82,7 @@ classdef UNLSI
         femVisc
         fem2aeroMat
         femverts2centerMat %femメッシュでの節点量⇛パネルセンター量への変換行列
+        % vertsTol
     end
 
     methods(Access = public)
@@ -93,9 +94,9 @@ classdef UNLSI
         % halfmesh: 半裁フラグ (0: 半裁でない, 1: 半裁)
         % vertsMergeTol: 頂点のマージ許容誤差 (省略可)
         function obj = UNLSI(verts,connectivity,surfID,wakelineID,halfmesh,vertsMergeTol)
-            warning('off','MATLAB:triangulation:PtsNotInTriWarnId');
+            % warning('off','MATLAB:triangulation:PtsNotInTriWarnId');
             if ~exist('vertsMergeTol', 'var')
-                obj.settingUNLSI.vertsTol = 0.001;
+                obj.settingUNLSI.vertsTol = 0.001;%0.001;
             else
                 obj.settingUNLSI.vertsTol = vertsMergeTol;
             end
@@ -126,8 +127,8 @@ classdef UNLSI
             obj.settingUNLSI.edgeAngleThreshold = 50; % 近隣パネルとして登録するための角度の閾値
             obj.settingUNLSI.nCalcDivide = 5; % makeEquationの計算を分割するための分割数
             %obj.settingUNLSI.angularVelocity = []; % 正規化された主流の角速度
-            obj.settingUNLSI.propCalcFlag = 1; % プロペラの計算フラグ
-            obj.settingUNLSI.deflDerivFlag = 1; % 舵角の微分フラグ
+            obj.settingUNLSI.propCalcFlag = 0; % プロペラの計算フラグ
+            obj.settingUNLSI.deflDerivFlag = 0; % 舵角の微分フラグ
             obj.settingUNLSI.propWakeLength = 3; % プロペラwakeの長さ
             obj.settingUNLSI.nPropWake = 101; % propWake円周上の点の数
             obj.settingUNLSI.kCf = 1.015*(10^-5); % 摩擦係数に関するk
@@ -150,6 +151,7 @@ classdef UNLSI
             obj.settingUNLSI.pnThreshold = sqrt(eps);
             obj.settingUNLSI.defaultCpLimit = [-1000,1000];
             obj.settingUNLSI.CpSlope = 5;
+            % obj.settingUNLSI.vertsTol = 0.5;
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             obj.halfmesh = halfmesh;
             obj.flowNoTable = [];
@@ -448,7 +450,6 @@ classdef UNLSI
             warning('off', 'MATLAB:triangulation:PtsNotInTriWarnId');
             % vertsのチェックとマージ
             [verts, connectivity, wakelineID] = obj.mergeVerts(obj.settingUNLSI.vertsTol, verts, connectivity, wakelineID);
-            
             % 三角形分割オブジェクトを作成
             obj.tri = triangulation(connectivity, verts);
             
