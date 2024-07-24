@@ -1567,12 +1567,12 @@ classdef UNLSI
             % パネル法連立方程式行列の作成
             for i = 1:nPanel
                 if obj.paneltype(i) == 1
-                    CPmat = obj.center(obj.cluster{i},1:3);
-                    pnt = obj.center(i,:);
+                    CPmat = approxmatedObj.center(obj.cluster{i},1:3);
+                    pnt = approxmatedObj.center(i,:);
                     m = obj.tri.Points(obj.tri.ConnectivityList(i,1),:)'-pnt(:);
                     m = m./norm(m);
-                    l = cross(m,obj.orgNormal(i,:)');
-                    Minv = [l,m,obj.orgNormal(i,:)'];
+                    l = cross(m,approxmatedObj.orgNormal(i,:)');
+                    Minv = [l,m,approxmatedObj.orgNormal(i,:)'];
                     lmnMat = (Minv\(CPmat-repmat(pnt,[size(CPmat,1),1]))')';
                     bb = [lmnMat(1:end,1),lmnMat(1:end,2),lmnMat(1:end,3),ones(size(lmnMat,1),1)];
                     Bmat=pinv(bb,sqrt(eps));
@@ -1612,6 +1612,40 @@ classdef UNLSI
                 end
             else
                 approxmatedObj = approxmatedObj.makeWakeEquation();
+            end
+            for wakeNo = 1:numel(approxmatedObj.wakeline)
+                theta = linspace(pi,0,size(approxmatedObj.wakeline{wakeNo}.validedge,2)*approxmatedObj.settingUNLSI.LLTnInterp+1);
+                iter = 1;
+                approxmatedObj.LLT.sp{wakeNo} = [];
+                approxmatedObj.LLT.calcMu{wakeNo} = zeros(1,nbPanel);
+                s = zeros(1,numel(approxmatedObj.wakeline{wakeNo}.edge));
+                jter = 1;
+                for edgeNo = 1:numel(approxmatedObj.wakeline{wakeNo}.edge)-1
+                    s(edgeNo+1) = s(edgeNo) + norm(approxmatedObj.tri.Points(approxmatedObj.wakeline{wakeNo}.edge(edgeNo),2:3)-approxmatedObj.tri.Points(approxmatedObj.wakeline{wakeNo}.edge(edgeNo+1),2:3));
+                    if approxmatedObj.wakeline{wakeNo}.valid(edgeNo) == 1
+                        approxmatedObj.LLT.sp{wakeNo} =  [approxmatedObj.LLT.sp{wakeNo},(s(edgeNo)+s(edgeNo+1))./2];
+                        jter = jter+1;
+                    end
+                end
+                for edgeNo = 1:size(approxmatedObj.wakeline{wakeNo}.validedge,2)
+                    interpID(1) = approxmatedObj.IndexPanel2Solver(approxmatedObj.wakeline{wakeNo}.upperID(edgeNo));
+                    interpID(2) = approxmatedObj.IndexPanel2Solver(approxmatedObj.wakeline{wakeNo}.lowerID(edgeNo));
+                    approxmatedObj.LLT.calcMu{wakeNo}(iter,interpID(1)) = -1;
+                    approxmatedObj.LLT.calcMu{wakeNo}(iter,interpID(2)) = 1;
+                    iter = iter+1;
+                end
+                sd = (s(end)-s(1))*(cos(theta)./2+0.5)+s(1);
+                approxmatedObj.LLT.sinterp{wakeNo} = (sd(2:end)+sd(1:end-1))./2;
+                approxmatedObj.LLT.yinterp{wakeNo} = interp1(s,approxmatedObj.tri.Points(approxmatedObj.wakeline{wakeNo}.edge(:),2),approxmatedObj.LLT.sinterp{wakeNo},'linear','extrap');
+                approxmatedObj.LLT.zinterp{wakeNo} = interp1(s,approxmatedObj.tri.Points(approxmatedObj.wakeline{wakeNo}.edge(:),3),approxmatedObj.LLT.sinterp{wakeNo},'linear','extrap');
+                yd = interp1(s,approxmatedObj.tri.Points(approxmatedObj.wakeline{wakeNo}.edge(:),2),sd,'linear','extrap');
+                zd = interp1(s,approxmatedObj.tri.Points(approxmatedObj.wakeline{wakeNo}.edge(:),3),sd,'linear','extrap');
+                approxmatedObj.LLT.phiinterp{wakeNo} = atan((zd(2:end)-zd(1:end-1))./(yd(2:end)-yd(1:end-1)));
+                approxmatedObj.LLT.spanel{wakeNo} = (sd(2:end)-sd(1:end-1))./2;
+
+            end
+            if numel(approxmatedObj.wakeline)>0
+                approxmatedObj.LLT.Qij = approxmatedObj.Calc_Q(horzcat(approxmatedObj.LLT.yinterp{:}),horzcat(approxmatedObj.LLT.zinterp{:}),horzcat(approxmatedObj.LLT.phiinterp{:}),horzcat(approxmatedObj.LLT.spanel{:}),approxmatedObj.halfmesh);
             end
         end
 
