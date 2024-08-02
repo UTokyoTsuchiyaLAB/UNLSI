@@ -68,7 +68,9 @@ classdef UNLSI
         ppDyn %動安定微係数補完局面(griddedInterp)
         femutils
         femLHS
+        femLHS_L
         femMass
+        femMass_L
         femDamp
         femRHS
         femtri
@@ -82,6 +84,7 @@ classdef UNLSI
         femVisc
         fem2aeroMat
         femverts2centerMat %femメッシュでの節点量⇛パネルセンター量への変換行列
+        femPointLoad
         % vertsTol
     end
 
@@ -125,7 +128,7 @@ classdef UNLSI
             obj.settingUNLSI.LLTnInterp = 20; % LLT法の補間点の数
             obj.settingUNLSI.nCluster = 50; % パネルクラスターの目標数
             obj.settingUNLSI.edgeAngleThreshold = 50; % 近隣パネルとして登録するための角度の閾値
-            obj.settingUNLSI.nCalcDivide = 5; % makeEquationの計算を分割するための分割数
+            obj.settingUNLSI.nCalcDivide = 16; % makeEquationの計算を分割するための分割数
             %obj.settingUNLSI.angularVelocity = []; % 正規化された主流の角速度
             obj.settingUNLSI.propCalcFlag = 0; % プロペラの計算フラグ
             obj.settingUNLSI.deflDerivFlag = 0; % 舵角の微分フラグ
@@ -616,6 +619,53 @@ classdef UNLSI
             %deflMatrices = cell2mat(cellfun(@(idx) reshape(obj.deflAngle(idx, 6:14), [3, 3]), indices, 'UniformOutput', false));
             %obj.modNormal = cell2mat(arrayfun(@(i) (deflMatrices((i-1)*3+1:i*3, :) * obj.orgNormal(i, :)')', 1:numel(obj.paneltype), 'UniformOutput', false));
         end
+
+        function obj = exportMesh(obj,filetype,filename)
+            %%%%%%%%%%%%%%%%%メッシュのエクスポート%%%%%%%%%%%%%%%
+            %メッシュをtriフォーマットかvspgeomフォーマットでエクスポートする
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            if strcmpi(filetype,"tri")
+                filename = strcat(filename,".tri");
+
+                verts = obj.tri.Points;
+                connectivity = obj.tri.ConnectivityList;
+                surfID = obj.surfID;
+                [prows, pcols] = size(verts);
+                [crows, ccols] = size(connectivity);
+                [srows, scols] = size(surfID);
+                fid = fopen(filename, 'w');
+                if fid == -1
+                    error('ファイルを開けませんでした: %s', filename);
+                end
+                fprintf(fid, '%d %d \n', prows,crows);%heder
+                for i = 1:prows
+                    for j = 1:pcols
+                        fprintf(fid, '%.6f ', verts(i, j)); % データをスペース区切りで書き込む
+                    end
+                    fprintf(fid, '\n'); % 行の終わりに改行を追加
+                end
+                
+                
+                for i = 1:crows
+                    for j = 1:ccols
+                        fprintf(fid, '%d ', connectivity(i, j)); % データをスペース区切りで書き込む
+                    end
+                    fprintf(fid, '\n'); % 行の終わりに改行を追加
+                end
+
+                for i = 1:srows
+                    for j = 1:scols
+                        fprintf(fid, '%d ', surfID(i, j)); % データをスペース区切りで書き込む
+                    end
+                    fprintf(fid, '\n'); % 行の終わりに改行を追加
+                end
+                fclose(fid);
+            elseif strcmpi(filetype,"vspgeom")
+                error("未作成");
+            else
+                error("Invalid filetype");
+            end
+        end
         
         function obj = checkWakeIntersect(obj)
             for wakeNo = 1:numel(obj.wakeline)
@@ -980,7 +1030,7 @@ classdef UNLSI
                 obj.RHS(:,si(i):ei(i)) = VortexBc;
             end
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
+            
             %wakeパネル⇒機体パネルへの影響
             %
             for wakeNo = 1:numel(obj.wakeline)
@@ -1588,6 +1638,10 @@ classdef UNLSI
             approxmatedObj.approxMat = [];
             approxmatedObj.approximated = 1;
             dv = approxmatedObj.tri.Points-obj.tri.Points;
+            disp('here');
+            % disp(size(obj.approxMat))
+            % fprintf('calcIndex: %d',obj.approxMat.calcIndex);
+            % disp(isempty(obj.approxMat.calcIndex{i}));
             for i = 1:size(modifiedVerts,1)
                 if ~isempty(obj.approxMat.calcIndex{i})
                     obj.approxMat.dVAcX{i}(obj.approxMat.calcIndex{i},:) = 0; 
@@ -3411,7 +3465,9 @@ classdef UNLSI
                 end
                 
             end
-            obj.femLHS(obj.femutils.MatIndex==0,:)=[];
+            obj.femLHS_L = obj.femLHS;
+            obj.femMass_L = obj.femMass;
+            obj.femLHS(obj.femutils.MatIndex==0,:)=[];%固定境界条件で0担っている行を削除
             obj.femLHS(:,obj.femutils.MatIndex==0)=[];
             obj.femMass(obj.femutils.MatIndex==0,:)=[];
             obj.femMass(:,obj.femutils.MatIndex==0)=[];
@@ -3596,7 +3652,7 @@ classdef UNLSI
 
         end
 
-        function [delta,deltadot] = solveFem(obj,distLoad,selfLoadFlag)
+        function [delta,deltadot,femPointLoad] = solveFem(obj,distLoad,selfLoadFlag)
             %distLoad:空力解析メッシュにかかる分布加重。圧力など
             if nargin < 3
                 selfLoadFlag = 1; %defaultは自重による荷重を含める。
@@ -3640,7 +3696,7 @@ classdef UNLSI
                 deltadot{iter} = zeros(size(obj.femtri.Points,1),6);
             end
         end
-        function [delta,deltadot]  = solveAeroelastic(obj,tspan,delta,deltadot,distLoad,selfLoadFlag)
+        function [delta,deltadot,femPointLoad]  = solveAeroelastic(obj,tspan,delta,deltadot,distLoad,selfLoadFlag)
             %distLoad:空力解析メッシュにかかる分布加重。圧力など
             if nargin < 3
                 selfLoadFlag = 1; %defaultは自重による荷重を含める。
