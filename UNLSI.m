@@ -72,6 +72,7 @@ classdef UNLSI
         femMass
         femMass_L
         femDamp
+        femDamp_L
         femRHS
         femtri
         femID
@@ -85,6 +86,7 @@ classdef UNLSI
         fem2aeroMat
         femverts2centerMat %femメッシュでの節点量⇛パネルセンター量への変換行列
         femPointLoad
+        aeroMat2fem
         % vertsTol
     end
 
@@ -1638,7 +1640,13 @@ classdef UNLSI
             approxmatedObj.approxMat = [];
             approxmatedObj.approximated = 1;
             dv = approxmatedObj.tri.Points-obj.tri.Points;
-            disp('here');
+            disp(size(dv));
+            if dv == 0
+                disp('dv is zero');
+            end
+            writematrix(dv,'dv.csv');
+
+            % disp('here');
             % disp(size(obj.approxMat))
             % fprintf('calcIndex: %d',obj.approxMat.calcIndex);
             % disp(isempty(obj.approxMat.calcIndex{i}));
@@ -3206,6 +3214,20 @@ classdef UNLSI
             invM = pinv(Mss);
             Mp = pinv(Pss*invM*Pss');
             obj.fem2aeroMat = Aas * [Mp*Pss*invM;invM-invM*Pss'*Mp*Pss*invM];
+            
+
+            %空力メッシュから構造メッシュへの変換行列の作成
+            aeromeshScaling = abs(max(obj.tri.Points(obj.femutils.usedAeroVerts,:),[],1)-min(obj.tri.Points(obj.femutils.usedAeroVerts,:),[],1));
+            aeromeshScaling(aeromeshScaling==0) = 1;
+            Raa = obj.calcRMat(obj.tri.Points(obj.femutils.usedAeroVerts,:)./aeromeshScaling,obj.tri.Points(obj.femutils.usedAeroVerts,:)./aeromeshScaling);
+            Maa = phi(Raa);
+            Paa = [ones(size(obj.tri.Points(obj.femutils.usedAeroVerts,:),1),1),obj.tri.Points(obj.femutils.usedAeroVerts,:)./aeromeshScaling ]';
+            Rsa = obj.calcRMat(obj.femtri.Points(obj.femutils.usedVerts,:)./aeromeshScaling,obj.tri.Points(obj.femutils.usedAeroVerts,:)./aeromeshScaling);
+            Asa = [ones(size(obj.femtri.Points(obj.femutils.usedVerts,:),1),1),obj.femtri.Points(obj.femutils.usedVerts,:)./aeromeshScaling,phi(Rsa)];
+            invM = pinv(Maa);
+            Mp = pinv(Paa*invM*Paa');
+            obj.aeroMat2fem = Asa * [Mp*Paa*invM;invM-invM*Paa'*Mp*Paa*invM];
+
 
             %femのパネル中心座標からメッシュノードへ投影する変換行列の作成
             phi = @(r)obj.phi3(r,1);
@@ -3370,7 +3392,7 @@ classdef UNLSI
                     B = obj.evalBTri(sidelen, qps(j,1), qps(j,2), dphi);
                     N = obj.evalNTri(sidelen, qps(j,1), qps(j,2), Ainv);
                     Nm = obj.evalNmTri(sidelen, qps(j,1), qps(j,2), Ainv);
-                    temp = B'*Y'*Dp*Y*B./6;
+                    temp = B'*Y'*Dp*Y*B./6;%temp1-3 101式
                     temp2 = N*N'./6;
                     temp3 = Nm'*Nm./6;
                     Ke_p = Ke_p+temp;
@@ -3381,7 +3403,7 @@ classdef UNLSI
                 M_p = M_p*obj.femRho(iter,1)*obj.femThn(iter,1)*2.*obj.femarea(iter,1);
                 K_out = zeros(18,18);
                 M_out = zeros(18,18);
-                for i=0:2
+                for i=0:2%%%%要素剛性行列と要素質量行列の作成
                     for j = 0:2 
                         K_out(  6*i+1,    6*j+1)   = Ke_m(2*i+1,  2*j+1);   % uu
                         K_out(  6*i+1,    6*j+1+1) = Ke_m(2*i+1,  2*j+1+1); % uv
@@ -3467,6 +3489,7 @@ classdef UNLSI
             end
             obj.femLHS_L = obj.femLHS;
             obj.femMass_L = obj.femMass;
+            obj.femDamp_L = obj.femDamp;
             obj.femLHS(obj.femutils.MatIndex==0,:)=[];%固定境界条件で0担っている行を削除
             obj.femLHS(:,obj.femutils.MatIndex==0)=[];
             obj.femMass(obj.femutils.MatIndex==0,:)=[];
@@ -3645,6 +3668,7 @@ classdef UNLSI
                 end
                 
             end
+            obj.femDamp_L = obj.femDamp;
             obj.femMass(obj.femutils.MatIndex==0,:)=[];
             obj.femMass(:,obj.femutils.MatIndex==0)=[];
             obj.femDamp(obj.femutils.MatIndex==0,:)=[];
