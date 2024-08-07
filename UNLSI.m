@@ -1717,9 +1717,9 @@ classdef UNLSI
             deltap0_buff = delta0{1}(:);
             deltap0 = deltap0_buff(obj.femutils.MatIndex==1,1);
             calcCount = 1;
-            for i = 1:size(deltaap0,1)
+            for i = 1:size(deltap0,1)
                 deltapf = deltap0;
-                deltapf(i,1) = deltaap0(i,1)+pert;%i番目を摂動
+                deltapf(i,1) = deltap0(i,1)+pert;%i番目を摂動
                 disp_buff = zeros(size(obj.femtri.Points,1)*6,1);
                 disp_buff(obj.femutils.InvMatIndex,1)= deltapf;%逆行列で元の形に復元
                 deltaf = delta0;
@@ -1733,6 +1733,7 @@ classdef UNLSI
                 newVerts = obj.calcModifiedVerts(deltaf{calcCount});
                 calcCount = calcCount+1;
             end
+        end
 
         function obj = setProp(obj,propNo,ID,diameter,XZsliced)
             %IDのパネルタイプをプロペラ==4に変更
@@ -3855,7 +3856,7 @@ classdef UNLSI
         end
 
     end        
-end
+
     methods(Static)
 
         function res = softplus(x,beta)
