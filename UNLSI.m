@@ -1640,11 +1640,12 @@ classdef UNLSI
             approxmatedObj.approxMat = [];
             approxmatedObj.approximated = 1;
             dv = approxmatedObj.tri.Points-obj.tri.Points;
-            disp(size(dv));
-            if dv == 0
-                disp('dv is zero');
-            end
-            writematrix(dv,'dv.csv');
+            % disp(size(dv));
+            % if dv == 0
+            %     disp('dv is zero');
+            % end
+            % B = all(dv,'all')
+            % writematrix(dv,'dv.csv');
 
             % disp('here');
             % disp(size(obj.approxMat))
@@ -1710,6 +1711,28 @@ classdef UNLSI
                 approxmatedObj.LLT.Qij = approxmatedObj.Calc_Q(horzcat(approxmatedObj.LLT.yinterp{:}),horzcat(approxmatedObj.LLT.zinterp{:}),horzcat(approxmatedObj.LLT.phiinterp{:}),horzcat(approxmatedObj.LLT.spanel{:}),approxmatedObj.halfmesh);
             end
         end
+
+        function newVerts = moveVerts(obj,delta0)
+            pert = eps^(1/3);
+            deltap0_buff = delta0{1}(:);
+            deltap0 = deltap0_buff(obj.femutils.MatIndex==1,1);
+            calcCount = 1;
+            for i = 1:size(deltaap0,1)
+                deltapf = deltap0;
+                deltapf(i,1) = deltaap0(i,1)+pert;%i番目を摂動
+                disp_buff = zeros(size(obj.femtri.Points,1)*6,1);
+                disp_buff(obj.femutils.InvMatIndex,1)= deltapf;%逆行列で元の形に復元
+                deltaf = delta0;
+                deltaf{calcCount} = zeros(size(obj.femtri.Points,1),6);
+                deltaf{calcCount}(obj.femutils.usedVerts,1)=disp_buff(1:obj.femutils.nbVerts,1);
+                deltaf{calcCount}(obj.femutils.usedVerts,2)=disp_buff(obj.femutils.nbVerts+1:2*obj.femutils.nbVerts,1);
+                deltaf{calcCount}(obj.femutils.usedVerts,3)=disp_buff(2*obj.femutils.nbVerts+1:3*obj.femutils.nbVerts,1);
+                deltaf{calcCount}(obj.femutils.usedVerts,4)=disp_buff(3*obj.femutils.nbVerts+1:4*obj.femutils.nbVerts,1);
+                deltaf{calcCount}(obj.femutils.usedVerts,5)=disp_buff(4*obj.femutils.nbVerts+1:5*obj.femutils.nbVerts,1);
+                deltaf{calcCount}(obj.femutils.usedVerts,6)=disp_buff(5*obj.femutils.nbVerts+1:6*obj.femutils.nbVerts,1);
+                newVerts = obj.calcModifiedVerts(deltaf{calcCount});
+                calcCount = calcCount+1;
+            end
 
         function obj = setProp(obj,propNo,ID,diameter,XZsliced)
             %IDのパネルタイプをプロペラ==4に変更
@@ -3832,6 +3855,7 @@ classdef UNLSI
         end
 
     end        
+end
     methods(Static)
 
         function res = softplus(x,beta)
