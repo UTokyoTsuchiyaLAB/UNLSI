@@ -3815,6 +3815,27 @@ classdef UNLSI
             end
         end
 
+        function [eigenList,V] = calcEigen(obj,deltaLoad)
+            Kmatrix = obj.femLHS;
+            % Mmatrix = obj.femMass;
+            % Dmatrix = obj.femDamp;
+            % Mmatrix = full(Mmatrix);  
+            deltaLoad(obj.femutils.MatIndex==0,:)=[];
+            deltaLoad(:,obj.femutils.MatIndex==0)=[];
+            A12 = lsqminnorm(obj.femMass,(deltaLoad+Kmatrix));
+            A11 = lsqminnorm(obj.femMass,-obj.femDamp);
+            A11(abs(A11)<1e-13) = 0;
+            A12(abs(A12)<1e-13) = 0;
+            A = [A11 A12;eye(size(A11,1)) zeros(size(A11,1))];
+            A = full(A);
+            [V,e] = eig(A);
+            [d,ind] = sort(diag(e),'ComparisonMethod','real');
+            e = e(ind,ind);%固有値
+            eigenList = diag(e);
+            V = V(:,ind);%固有ベクトル
+        end
+
+
         function delta = femSol2Delta(obj,femSol)
             disp_buff(obj.femutils.InvMatIndex,1)=femSol;
             delta = zeros(size(obj.femtri.Points));
