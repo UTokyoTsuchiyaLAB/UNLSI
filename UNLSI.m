@@ -85,7 +85,6 @@ classdef UNLSI
         femVisc
         fem2aeroMat
         femverts2centerMat %femメッシュでの節点量⇛パネルセンター量への変換行列
-        femPointLoad
         aeroMat2fem
         % vertsTol
     end
@@ -441,6 +440,7 @@ classdef UNLSI
                     caxis(colorlim);
                 end
             end
+            colorbar;
             axis equal;xlabel("x");ylabel("y");zlabel("z");
             drawnow();pause(0.1);
         end
@@ -586,7 +586,10 @@ classdef UNLSI
             end
             
             % メッシュのチェックと修正
+            fprintf("minimum area = %d",min(obj.area));
+            fprintf('maximum area = %d',max(obj.area));
             obj = obj.checkMesh(obj.settingUNLSI.checkMeshTol, "delete");
+            % obj = obj.checkMesh(obj.settingUNLSI.checkMeshTol, "warning");
             obj = obj.checkWakeIntersect();
             % ワーニングメッセージをオンにする
             warning('on', 'MATLAB:triangulation:PtsNotInTriWarnId');
@@ -622,7 +625,7 @@ classdef UNLSI
             %obj.modNormal = cell2mat(arrayfun(@(i) (deflMatrices((i-1)*3+1:i*3, :) * obj.orgNormal(i, :)')', 1:numel(obj.paneltype), 'UniformOutput', false));
         end
 
-        function obj = exportMesh(obj,filetype,filename)
+        function obj = exportMesh(obj,filetype,filename,uv1,uv2,uv3)
             %%%%%%%%%%%%%%%%%メッシュのエクスポート%%%%%%%%%%%%%%%
             %メッシュをtriフォーマットかvspgeomフォーマットでエクスポートする
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -663,6 +666,33 @@ classdef UNLSI
                 end
                 fclose(fid);
             elseif strcmpi(filetype,"vspgeom")
+                fid = fopen(filename, 'w');
+                if fid == -1
+                    error('ファイルを開けませんでした: %s', filename);
+                end
+                fprintf(fid,'%d\n',size(obj.tri.Points,1));%節点数       
+                for i = 1:size(obj.tri.Points,1)
+                    fprintf(fid,'%f %f %f\n',obj.tri.Points(i,1),obj.tri.Points(i,2),obj.tri.Points(i,3));
+                end         
+                fprintf(fid,'%d\n',size(obj.tri.ConnectivityList,1));%三角形要素数
+                for i = 1:size(obj.tri.ConnectivityList,1)
+                    fprintf(fid,'3 %d %d %d\n',obj.tri.ConnectivityList(i,1),obj.tri.ConnectivityList(i,2),obj.tri.ConnectivityList(i,3));
+                end
+
+                %surf ID
+                for i = 1:size(obj.tri.ConnectivityList,1)
+                    fprintf(fid,'%d %f %f %f %f %f %f\n',obj.surfID(i),uv1(i,1),uv1(i,2),uv2(i,1),uv2(i,2),uv3(i,1),uv3(i,2));
+                end
+
+                %wake
+                fprintf(fid,'%d\n',size((obj.wakelineID),1));%number of wakes
+                   %以下copilot 要確認 
+                for i = 1:size(obj.wakelineID,1)
+                    fprintf(fid,'%d\n',size(obj.wakelineID{i},2));%number of edges
+                    for j = 1:size(obj.wakelineID{i},2)
+                        fprintf(fid,'%d\n',obj.wakelineID{i}(j));
+                    end
+                end
                 error("未作成");
             else
                 error("Invalid filetype");
@@ -858,6 +888,8 @@ classdef UNLSI
                     error("some panel areas are too small");
                 end
             end
+            fprintf("minimum fem mesh area=%d \n",min(obj.femarea));
+            fprintf("maximum fem mesh area=%d \n",max(obj.femarea));
         end
         
         function obj = setPanelType(obj,ID,typename)
@@ -1006,7 +1038,11 @@ classdef UNLSI
                     m = m./norm(m);
                     l = cross(m,obj.orgNormal(i,:)');
                     Minv = [l,m,obj.orgNormal(i,:)'];
+                    % Minvinv_temp = pinv(Minv);
+                    % B = CPmat - repmat(pnt,[size(CPmat,1),1]);
+                    % lmnMat = lsqminnorm(Minv',B')';
                     lmnMat = (Minv\(CPmat-repmat(pnt,[size(CPmat,1),1]))')';
+                    % lmnMat = (Minvinv_temp*(CPmat-repmat(pnt,[size(CPmat,1),1]))')';
                     bb = [lmnMat(1:end,1),lmnMat(1:end,2),lmnMat(1:end,3),ones(size(lmnMat,1),1)];
                     Bmat=pinv(bb,sqrt(eps));
                     Vnmat = Minv*[1,0,0,0;0,1,0,0;0,0,1,0;]*Bmat;
@@ -1031,6 +1067,8 @@ classdef UNLSI
                 obj.LHS(:,si(i):ei(i)) = VortexAc; 
                 obj.RHS(:,si(i):ei(i)) = VortexBc;
             end
+            obj.LHS(~isfinite(obj.LHS)) = 0;
+            obj.RHS(~isfinite(obj.RHS)) = 0;
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             
             %wakeパネル⇒機体パネルへの影響
@@ -1608,108 +1646,132 @@ classdef UNLSI
             fprintf("\n");
         end
 
-        function approxmatedObj = makeApproximatedInstance(obj,modifiedVerts)
-                nPanel = numel(obj.paneltype);
-                nbPanel = sum(obj.paneltype == 1);
-                approxmatedObj = obj.setVerts(modifiedVerts);
-                approxmatedObj.mu2v{1} = sparse(nPanel,nbPanel);
-                approxmatedObj.mu2v{2} = sparse(nPanel,nbPanel);
-                approxmatedObj.mu2v{3} = sparse(nPanel,nbPanel);
+        function approxmatedObj = makeApproximatedInstance(obj,modifiedVerts,skipCpMatandLLT)
+            if nargin < 3
+                skipCpMatandLLT = 0;
+            end
+            nPanel = numel(obj.paneltype);
+            nbPanel = sum(obj.paneltype == 1);
+            approxmatedObj = obj.setVerts(modifiedVerts);
             
             % パネル法連立方程式行列の作成
-            for i = 1:nPanel
-                if obj.paneltype(i) == 1
-                    CPmat = approxmatedObj.center(obj.cluster{i},1:3);
-                    pnt = approxmatedObj.center(i,:);
-                    m = obj.tri.Points(obj.tri.ConnectivityList(i,1),:)'-pnt(:);
-                    m = m./norm(m);
-                    l = cross(m,approxmatedObj.orgNormal(i,:)');
-                    Minv = [l,m,approxmatedObj.orgNormal(i,:)'];
-                    lmnMat = (Minv\(CPmat-repmat(pnt,[size(CPmat,1),1]))')';
-                    bb = [lmnMat(1:end,1),lmnMat(1:end,2),lmnMat(1:end,3),ones(size(lmnMat,1),1)];
-                    Bmat=pinv(bb,sqrt(eps));
-                    Vnmat = Minv*[1,0,0,0;0,1,0,0;0,0,1,0;]*Bmat;
-                    for iter = 1:3
-                        approxmatedObj.mu2v{iter}(i,obj.IndexPanel2Solver(obj.cluster{i})) = Vnmat(iter,:);
+            if skipCpMatandLLT == 0
+                for i = 1:nPanel
+                    if approxmatedObj.paneltype(i) == 1
+                        CPmat = approxmatedObj.center(approxmatedObj.cluster{i},1:3);
+                        pnt = approxmatedObj.center(i,:);
+                        m = approxmatedObj.tri.Points(approxmatedObj.tri.ConnectivityList(i,1),:)'-pnt(:);
+                        m = m./norm(m);
+                        l = cross(m,approxmatedObj.orgNormal(i,:)');
+                        Minv = [l,m,approxmatedObj.orgNormal(i,:)'];
+                        lmnMat = (Minv\(CPmat-repmat(pnt,[size(CPmat,1),1]))')';
+                        bb = [lmnMat(1:end,1),lmnMat(1:end,2),lmnMat(1:end,3),ones(size(lmnMat,1),1)];
+                        Bmat=pinv(bb,sqrt(eps));
+                        Vnmat = Minv*[1,0,0,0;0,1,0,0;0,0,1,0;]*Bmat;
+                        for iter = 1:3
+                            approxmatedObj.mu2v{iter}(i,approxmatedObj.IndexPanel2Solver(obj.cluster{i})) = Vnmat(iter,:);
+                        end
                     end
                 end
             end
 
-       
 
-            approxmatedObj.approxMat = [];
+
+            %approxmatedObj.approxMat = [];
             approxmatedObj.approximated = 1;
             dv = approxmatedObj.tri.Points-obj.tri.Points;
-            % disp(size(dv));
-            % if dv == 0
-            %     disp('dv is zero');
-            % end
-            % B = all(dv,'all')
-            % writematrix(dv,'dv.csv');
-
-            % disp('here');
-            % disp(size(obj.approxMat))
-            % fprintf('calcIndex: %d',obj.approxMat.calcIndex);
-            % disp(isempty(obj.approxMat.calcIndex{i}));
-            for i = 1:size(modifiedVerts,1)
+            calcIndex = find(abs(dv(:,1))>sqrt(eps))';
+            for i = calcIndex
                 if ~isempty(obj.approxMat.calcIndex{i})
                     obj.approxMat.dVAcX{i}(obj.approxMat.calcIndex{i},:) = 0; 
                     obj.approxMat.dVBcX{i}(obj.approxMat.calcIndex{i},:) = 0; 
+                    approxmatedObj.LHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.LHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVArX{i}.*dv(i,1);
+                    approxmatedObj.RHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.RHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVBrX{i}.*dv(i,1);
+                    approxmatedObj.LHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.LHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVAcX{i}.*dv(i,1);
+                    approxmatedObj.RHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.RHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVBcX{i}.*dv(i,1);
+                end
+            end
+            calcIndex = find(abs(dv(:,2))>sqrt(eps))';
+            for i = calcIndex
+                if ~isempty(obj.approxMat.calcIndex{i})
                     obj.approxMat.dVAcY{i}(obj.approxMat.calcIndex{i},:) = 0; 
                     obj.approxMat.dVBcY{i}(obj.approxMat.calcIndex{i},:) = 0;
+                    approxmatedObj.LHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.LHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVArY{i}.*dv(i,2);
+                    approxmatedObj.RHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.RHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVBrY{i}.*dv(i,2);
+                    approxmatedObj.LHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.LHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVAcY{i}.*dv(i,2);
+                    approxmatedObj.RHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.RHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVBcY{i}.*dv(i,2);
+                end
+            end
+            calcIndex = find(abs(dv(:,3))>sqrt(eps))';
+            for i = calcIndex
+                if ~isempty(obj.approxMat.calcIndex{i})
                     obj.approxMat.dVAcZ{i}(obj.approxMat.calcIndex{i},:) = 0; 
                     obj.approxMat.dVBcZ{i}(obj.approxMat.calcIndex{i},:) = 0;
-                    approxmatedObj.LHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.LHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVArX{i}.*dv(i,1)+obj.approxMat.dVArY{i}.*dv(i,2)+obj.approxMat.dVArZ{i}.*dv(i,3);
-                    approxmatedObj.RHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.RHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVBrX{i}.*dv(i,1)+obj.approxMat.dVBrY{i}.*dv(i,2)+obj.approxMat.dVBrZ{i}.*dv(i,3);
-                    approxmatedObj.LHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.LHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVAcX{i}.*dv(i,1)+obj.approxMat.dVAcY{i}.*dv(i,2)+obj.approxMat.dVAcZ{i}.*dv(i,3);
-                    approxmatedObj.RHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.RHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVBcX{i}.*dv(i,1)+obj.approxMat.dVBcY{i}.*dv(i,2)+obj.approxMat.dVBcZ{i}.*dv(i,3);
+                    approxmatedObj.LHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.LHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVArZ{i}.*dv(i,3);
+                    approxmatedObj.RHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.RHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVBrZ{i}.*dv(i,3);
+                    approxmatedObj.LHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.LHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVAcZ{i}.*dv(i,3);
+                    approxmatedObj.RHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.RHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVBcZ{i}.*dv(i,3);
                 end
             end
             if obj.approxMat.wakeGradFlag == 1
-                for i = 1:size(modifiedVerts,1)
+                calcIndex = find(abs(dv(:,1))>sqrt(eps))';
+                for i = calcIndex
                     obj.approxMat.dVAcwX{i}(obj.approxMat.calcIndex{i},:) = 0;  
+                    approxmatedObj.wakeLHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.wakeLHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVArwX{i}.*dv(i,1);
+                    approxmatedObj.wakeLHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.wakeLHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVAcwX{i}.*dv(i,1);
+                end
+                calcIndex = find(abs(dv(:,2))>sqrt(eps))';
+                for i = calcIndex  
                     obj.approxMat.dVAcwY{i}(obj.approxMat.calcIndex{i},:) = 0; 
+                    approxmatedObj.wakeLHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.wakeLHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVArwY{i}.*dv(i,2);
+                    approxmatedObj.wakeLHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.wakeLHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVAcwY{i}.*dv(i,2);
+                end
+                calcIndex = find(abs(dv(:,3))>sqrt(eps))';
+                for i = calcIndex
                     obj.approxMat.dVAcwZ{i}(obj.approxMat.calcIndex{i},:) = 0;
-                    approxmatedObj.wakeLHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.wakeLHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVArwX{i}.*dv(i,1)+obj.approxMat.dVArwY{i}.*dv(i,2)+obj.approxMat.dVArwZ{i}.*dv(i,3);
-                    approxmatedObj.wakeLHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.wakeLHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVAcwX{i}.*dv(i,1)+obj.approxMat.dVAcwY{i}.*dv(i,2)+obj.approxMat.dVAcwZ{i}.*dv(i,3);
+                    approxmatedObj.wakeLHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.wakeLHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVArwZ{i}.*dv(i,3);
+                    approxmatedObj.wakeLHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.wakeLHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVAcwZ{i}.*dv(i,3);
                 end
             else
                 approxmatedObj = approxmatedObj.makeWakeEquation();
             end
-            for wakeNo = 1:numel(approxmatedObj.wakeline)
-                theta = linspace(pi,0,size(approxmatedObj.wakeline{wakeNo}.validedge,2)*approxmatedObj.settingUNLSI.LLTnInterp+1);
-                iter = 1;
-                approxmatedObj.LLT.sp{wakeNo} = [];
-                approxmatedObj.LLT.calcMu{wakeNo} = zeros(1,nbPanel);
-                s = zeros(1,numel(approxmatedObj.wakeline{wakeNo}.edge));
-                jter = 1;
-                for edgeNo = 1:numel(approxmatedObj.wakeline{wakeNo}.edge)-1
-                    s(edgeNo+1) = s(edgeNo) + norm(approxmatedObj.tri.Points(approxmatedObj.wakeline{wakeNo}.edge(edgeNo),2:3)-approxmatedObj.tri.Points(approxmatedObj.wakeline{wakeNo}.edge(edgeNo+1),2:3));
-                    if approxmatedObj.wakeline{wakeNo}.valid(edgeNo) == 1
-                        approxmatedObj.LLT.sp{wakeNo} =  [approxmatedObj.LLT.sp{wakeNo},(s(edgeNo)+s(edgeNo+1))./2];
-                        jter = jter+1;
+            if skipCpMatandLLT == 0
+                for wakeNo = 1:numel(approxmatedObj.wakeline)
+                    theta = linspace(pi,0,size(approxmatedObj.wakeline{wakeNo}.validedge,2)*approxmatedObj.settingUNLSI.LLTnInterp+1);
+                    iter = 1;
+                    approxmatedObj.LLT.sp{wakeNo} = [];
+                    approxmatedObj.LLT.calcMu{wakeNo} = zeros(1,nbPanel);
+                    s = zeros(1,numel(approxmatedObj.wakeline{wakeNo}.edge));
+                    jter = 1;
+                    for edgeNo = 1:numel(approxmatedObj.wakeline{wakeNo}.edge)-1
+                        s(edgeNo+1) = s(edgeNo) + norm(approxmatedObj.tri.Points(approxmatedObj.wakeline{wakeNo}.edge(edgeNo),2:3)-approxmatedObj.tri.Points(approxmatedObj.wakeline{wakeNo}.edge(edgeNo+1),2:3));
+                        if approxmatedObj.wakeline{wakeNo}.valid(edgeNo) == 1
+                            approxmatedObj.LLT.sp{wakeNo} =  [approxmatedObj.LLT.sp{wakeNo},(s(edgeNo)+s(edgeNo+1))./2];
+                            jter = jter+1;
+                        end
                     end
+                    for edgeNo = 1:size(approxmatedObj.wakeline{wakeNo}.validedge,2)
+                        interpID(1) = approxmatedObj.IndexPanel2Solver(approxmatedObj.wakeline{wakeNo}.upperID(edgeNo));
+                        interpID(2) = approxmatedObj.IndexPanel2Solver(approxmatedObj.wakeline{wakeNo}.lowerID(edgeNo));
+                        approxmatedObj.LLT.calcMu{wakeNo}(iter,interpID(1)) = -1;
+                        approxmatedObj.LLT.calcMu{wakeNo}(iter,interpID(2)) = 1;
+                        iter = iter+1;
+                    end
+                    sd = (s(end)-s(1))*(cos(theta)./2+0.5)+s(1);
+                    approxmatedObj.LLT.sinterp{wakeNo} = (sd(2:end)+sd(1:end-1))./2;
+                    approxmatedObj.LLT.yinterp{wakeNo} = interp1(s,approxmatedObj.tri.Points(approxmatedObj.wakeline{wakeNo}.edge(:),2),approxmatedObj.LLT.sinterp{wakeNo},'linear','extrap');
+                    approxmatedObj.LLT.zinterp{wakeNo} = interp1(s,approxmatedObj.tri.Points(approxmatedObj.wakeline{wakeNo}.edge(:),3),approxmatedObj.LLT.sinterp{wakeNo},'linear','extrap');
+                    yd = interp1(s,approxmatedObj.tri.Points(approxmatedObj.wakeline{wakeNo}.edge(:),2),sd,'linear','extrap');
+                    zd = interp1(s,approxmatedObj.tri.Points(approxmatedObj.wakeline{wakeNo}.edge(:),3),sd,'linear','extrap');
+                    approxmatedObj.LLT.phiinterp{wakeNo} = atan((zd(2:end)-zd(1:end-1))./(yd(2:end)-yd(1:end-1)));
+                    approxmatedObj.LLT.spanel{wakeNo} = (sd(2:end)-sd(1:end-1))./2;
+    
                 end
-                for edgeNo = 1:size(approxmatedObj.wakeline{wakeNo}.validedge,2)
-                    interpID(1) = approxmatedObj.IndexPanel2Solver(approxmatedObj.wakeline{wakeNo}.upperID(edgeNo));
-                    interpID(2) = approxmatedObj.IndexPanel2Solver(approxmatedObj.wakeline{wakeNo}.lowerID(edgeNo));
-                    approxmatedObj.LLT.calcMu{wakeNo}(iter,interpID(1)) = -1;
-                    approxmatedObj.LLT.calcMu{wakeNo}(iter,interpID(2)) = 1;
-                    iter = iter+1;
+                if numel(approxmatedObj.wakeline)>0
+                    approxmatedObj.LLT.Qij = approxmatedObj.Calc_Q(horzcat(obj.LLT.yinterp{:}),horzcat(obj.LLT.zinterp{:}),horzcat(obj.LLT.phiinterp{:}),horzcat(obj.LLT.spanel{:}),obj.halfmesh);
                 end
-                sd = (s(end)-s(1))*(cos(theta)./2+0.5)+s(1);
-                approxmatedObj.LLT.sinterp{wakeNo} = (sd(2:end)+sd(1:end-1))./2;
-                approxmatedObj.LLT.yinterp{wakeNo} = interp1(s,approxmatedObj.tri.Points(approxmatedObj.wakeline{wakeNo}.edge(:),2),approxmatedObj.LLT.sinterp{wakeNo},'linear','extrap');
-                approxmatedObj.LLT.zinterp{wakeNo} = interp1(s,approxmatedObj.tri.Points(approxmatedObj.wakeline{wakeNo}.edge(:),3),approxmatedObj.LLT.sinterp{wakeNo},'linear','extrap');
-                yd = interp1(s,approxmatedObj.tri.Points(approxmatedObj.wakeline{wakeNo}.edge(:),2),sd,'linear','extrap');
-                zd = interp1(s,approxmatedObj.tri.Points(approxmatedObj.wakeline{wakeNo}.edge(:),3),sd,'linear','extrap');
-                approxmatedObj.LLT.phiinterp{wakeNo} = atan((zd(2:end)-zd(1:end-1))./(yd(2:end)-yd(1:end-1)));
-                approxmatedObj.LLT.spanel{wakeNo} = (sd(2:end)-sd(1:end-1))./2;
+            end
 
-            end
-            if numel(approxmatedObj.wakeline)>0
-                approxmatedObj.LLT.Qij = approxmatedObj.Calc_Q(horzcat(approxmatedObj.LLT.yinterp{:}),horzcat(approxmatedObj.LLT.zinterp{:}),horzcat(approxmatedObj.LLT.phiinterp{:}),horzcat(approxmatedObj.LLT.spanel{:}),approxmatedObj.halfmesh);
-            end
         end
 
         function newVerts = moveVerts(obj,delta0)
@@ -3178,6 +3240,7 @@ classdef UNLSI
 
             obj.femutils = [];
             obj = obj.checkFemMesh(obj.settingUNLSI.checkMeshTol,"delete");
+            % obj = obj.checkFemMesh(obj.settingUNLSI.checkMeshTol,"error");
                 
             %取り急ぎ、解析用のメッシュと空力メッシュは同一。後でFEAメッシュ等からメッシュを入れられるようにする。
             usedVertsbuff = unique(obj.femtri.ConnectivityList);
@@ -3700,12 +3763,85 @@ classdef UNLSI
 
         end
 
-        function [delta,deltadot,femPointLoad] = solveFem(obj,distLoad,selfLoadFlag)
+        function [f,jac] = calcStrongCouplingJaccobian(obj,u,delta,alpha,beta,dynPress)
+            %deltaから機体メッシュを再生成
+            %nflowVar = size(obj.LHS,1);
+            dS_du = [];
+            dR_ddelta = [];
+            R0all = [];
+            S0all = [];
+
+            modVerts = obj.calcModifiedVerts(delta{1});
+            obj2 = obj.makeApproximatedInstance(modVerts);
+            [AERODATA,Cp,Cfe,R0,obj2] = obj2.solveFlowForAdjoint(u,1,alpha,beta);
+            R0all = [R0all;R0];
+            obj2.plotGeometry(3,Cp{1},[-2,1]);
+            deltaIn{1} = delta{1};
+            [~,~,S0] = obj.solveFemForAdjoint(deltaIn,Cp{1}.*dynPress,0);
+            S0all = [S0all;S0];
+            if nargout>1
+                %u微分
+                tic;
+                pert = eps^(1/3);
+                for k = 1:numel(u)
+                    uf = u;
+                    uf(k) = uf(k)+pert;
+                    [AERODATA,Cp,Cfe,Rf,~] = obj2.solveFlowForAdjoint(uf,1,alpha,beta);
+                    deltaIn{1} = delta{1};
+                    [~,~,Sf] = obj.solveFemForAdjoint(deltaIn,Cp{1}.*dynPress,0);
+                    dS_du(:,k) = (Sf-S0)/pert;
+                end
+                toc;
+                tic;
+                %delta微分の計算
+                %dR_ddelta
+                deltap0_buff = delta{1}(:);
+                deltap0 = deltap0_buff(obj.femutils.MatIndex==1,1);
+                for k = 1:size(deltap0,1)
+                    disp(k)
+                    if k < sum(obj.femutils.MatIndex(1:sub2ind(size(delta{1}),1,4)))
+                        deltapf = deltap0;
+                        deltapf(k,1) = deltap0(k,1)+pert;
+                        disp_buff = zeros(size(obj.femtri.Points,1)*6,1);
+                        disp_buff(obj.femutils.InvMatIndex,1)=deltapf;
+                        deltaf = delta;
+                        deltaf{1} = zeros(size(obj.femtri.Points,1),6);
+                        deltaf{1}(obj.femutils.usedVerts,1)=disp_buff(1:obj.femutils.nbVerts,1);
+                        deltaf{1}(obj.femutils.usedVerts,2)=disp_buff(obj.femutils.nbVerts+1:2*obj.femutils.nbVerts,1);
+                        deltaf{1}(obj.femutils.usedVerts,3)=disp_buff(2*obj.femutils.nbVerts+1:3*obj.femutils.nbVerts,1);
+                        deltaf{1}(obj.femutils.usedVerts,4)=disp_buff(3*obj.femutils.nbVerts+1:4*obj.femutils.nbVerts,1);
+                        deltaf{1}(obj.femutils.usedVerts,5)=disp_buff(4*obj.femutils.nbVerts+1:5*obj.femutils.nbVerts,1);
+                        deltaf{1}(obj.femutils.usedVerts,6)=disp_buff(5*obj.femutils.nbVerts+1:6*obj.femutils.nbVerts,1);
+                        modVerts = obj.calcModifiedVerts(deltaf{1});
+                        obj3 = obj2.makeApproximatedInstance(modVerts,1);
+                        [AERODATA,Cp,Cfe,Rf,~] = obj3.solveFlowForAdjoint(u,1,alpha,beta);
+                        deltaIn{1} = deltaf{1};
+                        [~,~,Sf] = obj.solveFemForAdjoint(deltaIn,Cp{1}.*dynPress,0);
+                        dR_ddelta(:,k) = (Rf-R0)./pert;
+                        dS_ddelta(:,k) = (Sf-S0)./pert;
+                    else
+                        dR_ddelta(:,k) = 0;
+                        dS_ddelta(:,k) = obj.femLHS(:,k);
+                    end
+                end
+                dR_du = (obj2.LHS+obj2.wakeLHS); %亜音速
+            end
+           
+                    
+            if nargout>1
+                jac= [dR_du,dR_ddelta;dS_du./10000,dS_ddelta./10000];
+            end
+            f = [R0all;S0all./10000];
+
+        end
+
+        function [delta,deltadot,S] = solveFem(obj,distLoad,selfLoadFlag)
             %distLoad:空力解析メッシュにかかる分布加重。圧力など
             if nargin < 3
                 selfLoadFlag = 1; %defaultは自重による荷重を含める。
             end
             %空力解析メッシュから構造解析メッシュへ圧力分布を投影
+            S = [];
             for iter = 1:size(distLoad,2)
                 Fp = sparse(6*size(obj.femutils.usedVerts,2),1);
                 interpLoad = obj.verts2centerMat'*(distLoad(:,iter).*obj.area);
@@ -3742,6 +3878,58 @@ classdef UNLSI
                 delta{iter}(obj.femutils.usedVerts,5)=disp_buff(4*obj.femutils.nbVerts+1:5*obj.femutils.nbVerts,1);
                 delta{iter}(obj.femutils.usedVerts,6)=disp_buff(5*obj.femutils.nbVerts+1:6*obj.femutils.nbVerts,1);
                 deltadot{iter} = zeros(size(obj.femtri.Points,1),6);
+                Ssolve = obj.femLHS*delta_p - femRHSp;
+                S = [S;Ssolve];
+            end
+        end
+
+        function [delta,deltadot,S,obj] = solveFemForAdjoint(obj,delta,distLoad,selfLoadFlag)
+            %distLoad:空力解析メッシュにかかる分布加重。圧力など
+            if nargin < 4
+                selfLoadFlag = 1; %defaultは自重による荷重を含める。
+            end
+            %空力解析メッシュから構造解析メッシュへ圧力分布を投影
+            S = [];
+            for iter = 1:size(distLoad,2)
+                Fp = sparse(6*size(obj.femutils.usedVerts,2),1);
+                interpLoad = obj.verts2centerMat'*(distLoad(:,iter).*obj.area);
+                vNormal = vertexNormal(obj.tri);
+                %femPointLoad = obj.fem2aeroMat'*interpLoad;
+                vertsLoad = vNormal.*interpLoad;
+                if selfLoadFlag == 1
+                    selfLoad = obj.femverts2centerMat'*(9.8.*obj.femarea.*obj.femThn.*obj.femRho);
+                end
+                femPointLoad = zeros(size(obj.femtri.Points,1),3);
+                femPointLoad(obj.femutils.usedVerts,1) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,1);
+                femPointLoad(obj.femutils.usedVerts,2) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,2);
+                if selfLoadFlag == 1
+                    femPointLoad(obj.femutils.usedVerts,3) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,3) + selfLoad(obj.femutils.usedVerts,1);
+                else
+                    femPointLoad(obj.femutils.usedVerts,3) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,3);
+                end
+                for i = 1:size(obj.femutils.usedVerts,2) 
+                    Fp(i,1) = -femPointLoad(i,1);
+                    Fp(i+size(obj.femtri.Points,1),1) = -femPointLoad(i,2);
+                    Fp(i+2*size(obj.femtri.Points,1),1) = -femPointLoad(i,3);
+                end
+    
+                femRHSp = Fp(obj.femutils.MatIndex==1,1);
+                yb = sparse(vertcat(delta{iter}(:,1),delta{iter}(:,2),delta{iter}(:,3),delta{iter}(:,4),delta{iter}(:,5),delta{iter}(:,6)));
+                delta_p = yb(obj.femutils.MatIndex==1,1);
+                Ssolve = obj.femLHS*delta_p - femRHSp;
+                %delta_p = lsqminnorm(obj.femLHS,femRHSp,obj.settingUNLSI.lsqminnormTol);
+                %delta_p = obj.femMass\femRHSp;
+                disp_buff = zeros(size(obj.femtri.Points,1)*6,1);
+                disp_buff(obj.femutils.InvMatIndex,1)=delta_p;
+                delta{iter} = zeros(size(obj.femtri.Points,1),6);
+                delta{iter}(obj.femutils.usedVerts,1)=disp_buff(1:obj.femutils.nbVerts,1);
+                delta{iter}(obj.femutils.usedVerts,2)=disp_buff(obj.femutils.nbVerts+1:2*obj.femutils.nbVerts,1);
+                delta{iter}(obj.femutils.usedVerts,3)=disp_buff(2*obj.femutils.nbVerts+1:3*obj.femutils.nbVerts,1);
+                delta{iter}(obj.femutils.usedVerts,4)=disp_buff(3*obj.femutils.nbVerts+1:4*obj.femutils.nbVerts,1);
+                delta{iter}(obj.femutils.usedVerts,5)=disp_buff(4*obj.femutils.nbVerts+1:5*obj.femutils.nbVerts,1);
+                delta{iter}(obj.femutils.usedVerts,6)=disp_buff(5*obj.femutils.nbVerts+1:6*obj.femutils.nbVerts,1);
+                deltadot{iter} = zeros(size(obj.femtri.Points,1),6);
+                S = [S;Ssolve];
             end
         end
         function [delta,deltadot,femPointLoad]  = solveAeroelastic(obj,tspan,delta,deltadot,distLoad,selfLoadFlag)
@@ -3815,24 +4003,75 @@ classdef UNLSI
             end
         end
 
+        function [deltaLoad2] = removeFunc(obj,deltaLoad)
+            deltaLoad(obj.femutils.MatIndex==0,:)=[];
+            deltaLoad(:,obj.femutils.MatIndex==0)=[];
+            deltaLoad2 = deltaLoad;
+        end
+
         function [eigenList,V] = calcEigen(obj,deltaLoad)
+            disp('calculating eigen...')
             Kmatrix = obj.femLHS;
-            % Mmatrix = obj.femMass;
+            % Mmatrix = obj.femMass;size:2385 rank 2084
             % Dmatrix = obj.femDamp;
             % Mmatrix = full(Mmatrix);  
             deltaLoad(obj.femutils.MatIndex==0,:)=[];
             deltaLoad(:,obj.femutils.MatIndex==0)=[];
-            A12 = lsqminnorm(obj.femMass,(deltaLoad+Kmatrix));
-            A11 = lsqminnorm(obj.femMass,-obj.femDamp);
-            A11(abs(A11)<1e-13) = 0;
-            A12(abs(A12)<1e-13) = 0;
+            A12 = lsqminnorm(obj.femMass,deltaLoad-Kmatrix,1e-12);
+            A11 = lsqminnorm(obj.femMass,-obj.femDamp,1e-12);
+            % A11(isnan(A11)) = 0;
+            % A12(isnan(A12)) = 0;
+            A11(~isfinite(A11)) = 0;
+            A12(~isfinite(A12)) = 0;
+            % A11 = full(A11);
+            % A12 = full(A12);
+            % f = @(lamda) det([A11-lamda*eye(size(A11)),A12;eye(size(A11),1),-lamda*eye(size(A11),1)]);
+            % initial_eig = eig([A11,A12;eye(size(A11,1)),zeros(size(A11,1))]); 
+            % options = optimoptions('fsolve','Display','off');
+            % e = fsolve(f,initial_eig,options);
+            % e = sort(e,'descend','ComparisonMethod','real');
+            % eigenList = e;
+            % fprintf("size A11 %d %d \n",size(A11));
+            % fprintf("rank A11 %d\n",rank(A11));
+            % fprintf("size A12 %d %d \n",size(A12));
+            fprintf("rank A12 %d\n",rank(A12));
+            % invMmat = inv(obj.femMass);
+            % invMmat(isnan(invMmat)) = 0;
+            % A11 = -invMmat*obj.femDamp;
+            % A12 = -invMmat*(deltaLoad+Kmatrix);
             A = [A11 A12;eye(size(A11,1)) zeros(size(A11,1))];
+            % A = [zeros(size(A11,1)) eye(size(A11,1));A12 A11];
             A = full(A);
+            % fprintf("size A %d %d \n",size(A));
+            fprintf("rank A %d\n",rank(A));
             [V,e] = eig(A);
+            e(~isfinite(e)) = 0;
             [d,ind] = sort(diag(e),'ComparisonMethod','real');
             e = e(ind,ind);%固有値
             eigenList = diag(e);
-            V = V(:,ind);%固有ベクトル
+            V =0;% V(:,ind);%固有ベクトル
+        end
+        function [eigenList,V] = calcEigenM(obj,deltaLoad)
+            disp('calculating eigen...')
+            Kmatrix = obj.femLHS;
+ 
+            deltaLoad(obj.femutils.MatIndex==0,:)=[];
+            deltaLoad(:,obj.femutils.MatIndex==0)=[];
+            A12 = deltaLoad-Kmatrix;
+            A11 = -obj.femDamp;
+            A11(~isfinite(A11)) = 0;
+            A12(~isfinite(A12)) = 0;
+            fprintf("rank A12 %d\n",rank(A12));
+            A = [A11 A12;obj.femMass zeros(size(A11,1))];
+            A = full(A);
+            % fprintf("size A %d %d \n",size(A));
+            fprintf("rank A %d\n",rank(A));
+            [V,e] = eig(A);
+            e(~isfinite(e)) = 0;
+            [d,ind] = sort(diag(e),'ComparisonMethod','real');
+            e = e(ind,ind);%固有値
+            eigenList = diag(e);
+            V =0;% V(:,ind);%固有ベクトル
         end
 
 
@@ -4205,7 +4444,7 @@ classdef UNLSI
                     POI.X = repmat(POI.X,[1,ncol]);
                     POI.Y = repmat(POI.Y,[1,ncol]);
                     POI.Z = repmat(POI.Z,[1,ncol]);
-        
+
                     c.X = repmat(c.X,[nbPanel-nrow,1]);
                     c.Y = repmat(c.Y,[nbPanel-nrow,1]);
                     c.Z = repmat(c.Z,[nbPanel-nrow,1]);
@@ -4225,7 +4464,8 @@ classdef UNLSI
                     n12.X = (N1.X+N2.X)./2;
                     n12.Y = (N1.Y+N2.Y)./2;
                     n12.Z = (N1.Z+N2.Z)./2;
-        
+                    % fprintf("size of POI.X %d %d\n",size(POI.X));
+                    % fprintf("size of c.X %d %d\n",size(c.X));
                     pjk.X = POI.X-c.X;
                     pjk.Y = POI.Y-c.Y;
                     pjk.Z = POI.Z-c.Z;
