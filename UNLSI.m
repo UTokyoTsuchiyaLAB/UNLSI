@@ -4017,12 +4017,14 @@ classdef UNLSI
             % Mmatrix = full(Mmatrix);  
             deltaLoad(obj.femutils.MatIndex==0,:)=[];
             deltaLoad(:,obj.femutils.MatIndex==0)=[];
-            A12 = lsqminnorm(obj.femMass,deltaLoad-Kmatrix,1e-12);
-            A11 = lsqminnorm(obj.femMass,-obj.femDamp,1e-12);
+
+            %%%%%%%%%%%%%%%lsqminnorm%%%%%%%%%%%%%%%%%%%%
+            % A12 = lsqminnorm(obj.femMass,deltaLoad-Kmatrix,1e-12);
+            % A11 = lsqminnorm(obj.femMass,-obj.femDamp,1e-12);
             % A11(isnan(A11)) = 0;
             % A12(isnan(A12)) = 0;
-            A11(~isfinite(A11)) = 0;
-            A12(~isfinite(A12)) = 0;
+            % A11(~isfinite(A11)) = 0;
+            % A12(~isfinite(A12)) = 0;
             % A11 = full(A11);
             % A12 = full(A12);
             % f = @(lamda) det([A11-lamda*eye(size(A11)),A12;eye(size(A11),1),-lamda*eye(size(A11),1)]);
@@ -4031,14 +4033,16 @@ classdef UNLSI
             % e = fsolve(f,initial_eig,options);
             % e = sort(e,'descend','ComparisonMethod','real');
             % eigenList = e;
-            % fprintf("size A11 %d %d \n",size(A11));
-            % fprintf("rank A11 %d\n",rank(A11));
-            % fprintf("size A12 %d %d \n",size(A12));
-            fprintf("rank A12 %d\n",rank(A12));
-            % invMmat = inv(obj.femMass);
-            % invMmat(isnan(invMmat)) = 0;
-            % A11 = -invMmat*obj.femDamp;
-            % A12 = -invMmat*(deltaLoad+Kmatrix);
+
+
+            %%%%%%%%%%%%%%%pinv%%%%%%%%%%%%%%%%%%%%
+            Mmat = full(obj.femMass);
+            invMmat = pinv(Mmat,1e-12);
+            invMmat(isnan(invMmat)) = 0;
+            A11 = -invMmat*obj.femDamp;
+            A12 = -invMmat*(-deltaLoad+Kmatrix);
+            % fprintf("rank A12 %d\n",rank(A12));
+
             A = [A11 A12;eye(size(A11,1)) zeros(size(A11,1))];
             % A = [zeros(size(A11,1)) eye(size(A11,1));A12 A11];
             A = full(A);
