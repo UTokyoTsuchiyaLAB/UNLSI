@@ -57,6 +57,7 @@ np = condata(1,:);
 % Polygon points (currently triangles)
 con = condata(2:4,:);
 
+
 % Read in the surface id's and poly node data
 tdata = fscanf(fp, '%f', [7 npoly]);
 
@@ -67,6 +68,19 @@ uv1 = tdata(2:3,:);
 uv2 = tdata(4:5,:);
 uv3 = tdata(6:7,:);
 
+for i = 1:length(id)
+    if id(i) == 7
+        con2 = con(2,i);
+        con3 = con(3,i);
+        con(2,i) = con3;
+        con(3,i) = con2;
+    elseif id(i) == 12
+        con2 = con(2,i);
+        con3 = con(3,i);
+        con(2,i) = con3;
+        con(3,i) = con2;
+    end
+end
 
 % Read in the number of wakes
 nwake = fscanf(fp, '%d', 1);
