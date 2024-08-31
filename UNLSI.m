@@ -86,7 +86,7 @@ classdef UNLSI
         fem2aeroMat
         femverts2centerMat %femメッシュでの節点量⇛パネルセンター量への変換行列
         aeroMat2fem
-        % vertsTol
+        vertsTol
     end
 
     methods(Access = public)
@@ -354,6 +354,121 @@ classdef UNLSI
         end
 
 
+        % function plotGeometry(obj,id,figureNo,triColor,colorlim,method,xyz,euler)
+        %     % plotGeometry(obj,figureNo,triColor,colorlim,method,extrapmethod)
+        %     %   機体メッシュもしくは状態量をプロットする。
+        %     %   カラー値は各パネルごとの値（例えばCp）を入れると、接点の値に補間しプロットする
+        %     %
+        %     % Inputs:
+        %     %   - obj: オブジェクト自体
+        %     %   - figureNo: プロットするフィギュアの番号
+        %     %   - triColor: 各パネルのカラー値（例えばCp）
+        %     %   - colorlim: カラーマップの範囲
+        %     %   - method: カラーマップ補間の方法（"exact"または"linear"）
+        %     %   - extrapmethod: カラーマップ補間の外挿方法（"exact"または"linear"）
+        %     %
+        %     % Usage:
+        %     %   obj.plotGeometry(figureNo,triColor,colorlim,method,extrapmethod)
+        %     %
+        %     % Description:
+        %     %   この関数は、機体メッシュもしくは状態量をプロットするために使用されます。
+        %     %   カラー値は各パネルごとの値（例えばCp）を入れると、接点の値に補間しプロットします。
+        %     %   プロットするフィギュアの番号、カラーマップの範囲、カラーマップ補間の方法、カラーマップ補間の外挿方法を指定することができます。
+        %     %   カラーマップ補間の方法は、"exact"または"linear"を選択できます。
+        %     %   カラーマップ補間の外挿方法は、"exact"または"linear"を選択できます。
+        %     %
+        %     % Example:
+        %     %   obj.plotGeometry(1, Cp, [-1, 1], "exact", "linear")
+        %     %
+        %     % See also: trisurf, colormap
+        %     figure(figureNo);clf;
+        %     if nargin<4
+        %         trisurf(obj.tri,"FaceAlpha",0);
+        %         if obj.halfmesh == 1
+        %             disp("halfmesh");
+        %             hold on
+        %             F = faceNormal(obj.tri);
+        %             P = incenter(obj.tri);
+        %             trisurf(obj.tri.ConnectivityList,obj.tri.Points(:,1),-obj.tri.Points(:,2),obj.tri.Points(:,3),"FaceAlpha",0);
+        %             quiver3(P(:,1),P(:,2),P(:,3),F(:,1),F(:,2),F(:,3),2,'color','r');
+        %             hold off;
+        %         end
+        %     else
+        %         if nargin == 5
+        %             method = "linear";
+        %             xyz = [0,0,0];
+        %             euler = [0,0,0];
+        %         elseif nargin == 6
+        %             xyz = [0,0,0];
+        %             euler = [0,0,0];
+        %         end
+                
+        %         roll = euler(1);
+        %         pitch = euler(2);
+        %         yaw = euler(3);
+        %         R = [cosd(yaw)*cosd(pitch), cosd(yaw)*sind(pitch)*sind(roll) - sind(yaw)*cosd(roll), cosd(yaw)*sind(pitch)*cosd(roll) + sind(yaw)*sind(roll);
+        %             sind(yaw)*cosd(pitch), sind(yaw)*sind(pitch)*sind(roll) + cosd(yaw)*cosd(roll), sind(yaw)*sind(pitch)*cosd(roll) - cosd(yaw)*sind(roll);
+        %             -sind(pitch), cosd(pitch)*sind(roll), cosd(pitch)*cosd(roll)];
+                    
+        %         affineverts = obj.tri.Points*R'+repmat(xyz,size(obj.tri.Points,1),1);
+
+        %         if strcmpi(method,"exact")
+        %             %指定がexactの場合はパネル一枚一枚描画する
+        %             hold on;
+        %             for i = 1:numel(obj.surfID)
+        %                 if obj.paneltype(i) == 1
+        %                     trisurf([1,2,3],affineverts(obj.tri(i,:),1),affineverts(obj.tri(i,:),2),affineverts(obj.tri(i,:),3),triColor(i),'EdgeAlpha',0.15);
+        %                     F = faceNormal(obj.tri);
+        %                     P = incenter(obj.tri);
+        %                     trisurf(obj.tri.ConnectivityList,obj.tri.Points(:,1),-obj.tri.Points(:,2),obj.tri.Points(:,3),"FaceAlpha",0);
+        %                     quiver3(P(:,1),P(:,2),P(:,3),F(:,1),F(:,2),F(:,3),2,'color','r');
+        %                     if obj.halfmesh == 1
+        %                         trisurf([1,2,3],affineverts(obj.tri(i,:),1),-affineverts(obj.tri(i,:),2),affineverts(obj.tri(i,:),3),triColor(i),'EdgeAlpha',0.15);
+        %                     end
+        %                 else
+        %                     trisurf([1,2,3],affineverts(obj.tri(i,:),1),affineverts(obj.tri(i,:),2),affineverts(obj.tri(i,:),3),0,'EdgeAlpha',0.15);
+        %                     F = faceNormal(obj.tri);
+        %                     P = incenter(obj.tri);
+        %                     trisurf(obj.tri.ConnectivityList,obj.tri.Points(:,1),-obj.tri.Points(:,2),obj.tri.Points(:,3),"FaceAlpha",0);
+        %                     quiver3(P(:,1),P(:,2),P(:,3),F(:,1),F(:,2),F(:,3),2,'color','r');
+        %                     if obj.halfmesh == 1
+        %                         trisurf([1,2,3],affineverts(obj.tri(i,:),1),-affineverts(obj.tri(i,:),2),affineverts(obj.tri(i,:),3),0,'EdgeAlpha',0.15);
+        %                     end
+        %                 end
+        %             end
+        %             colormap jet;
+        %             hold off;
+        %             caxis(colorlim);
+        %         else
+
+        %             c = obj.verts2centerMat'*triColor;
+        %             trisurf(obj.tri.ConnectivityList,affineverts(:,1),affineverts(:,2),affineverts(:,3),c,'FaceColor','interp','EdgeAlpha',0.15);
+        %             colormap jet;
+        %             normIndex = find(id==9);
+        %             normIndex2 = linspace(1,length(id),length(id)); %find(obj.tri.Points(:,2) >=0);
+        %             normIndex = intersect(normIndex,normIndex2);
+        %             size(normIndex)
+        %             F = faceNormal(obj.tri,normIndex');
+        %             P = incenter(obj.tri);
+        %             P = P(normIndex,:);
+        %             fprintf("size of P: %d %d\n",size(P));
+        %             trisurf(obj.tri.ConnectivityList,obj.tri.Points(:,1),-obj.tri.Points(:,2),obj.tri.Points(:,3),"FaceAlpha",0);
+        %             quiver3(P(:,1),P(:,2),P(:,3),F(:,1),F(:,2),F(:,3),2,'color','r');
+        %             if obj.halfmesh == 1
+        %                 hold on;
+        %                 trisurf(obj.tri.ConnectivityList,affineverts(:,1),-affineverts(:,2),affineverts(:,3),c,'FaceColor','interp','EdgeAlpha',0.15);
+        %                 colormap jet;
+        %                 quiver3(P(:,1),-P(:,2),P(:,3),F(:,1),-F(:,2),F(:,3),2,'color','r');
+        %                 hold off
+        %             end
+        %             caxis(colorlim);
+        %         end
+        %     end
+        %     colorbar;
+        %     axis equal;xlabel("x");ylabel("y");zlabel("z");
+        %     drawnow();pause(0.1);
+        % end
+
         function plotGeometry(obj,figureNo,triColor,colorlim,method,xyz,euler)
             % plotGeometry(obj,figureNo,triColor,colorlim,method,extrapmethod)
             %   機体メッシュもしくは状態量をプロットする。
@@ -444,6 +559,8 @@ classdef UNLSI
             axis equal;xlabel("x");ylabel("y");zlabel("z");
             drawnow();pause(0.1);
         end
+
+ 
 
         function obj = setMesh(obj, verts, connectivity, surfID, wakelineID)
             % setMesh - メッシュを設定する関数
@@ -765,7 +882,12 @@ classdef UNLSI
             end
         end
   
-
+        % function obj = reformMesh(obj)
+        %     con2 = obj.tri.ConnectivityList(:,2);
+        %     con3 = obj.tri.ConnectivityList(:,3);
+        %     obj.tri.ConnectivityList(:,2) = con3;
+        %     obj.tri.ConnectivityList(:,3) = con2;
+        % end
         function [verts, cons, wedata] = mergeVerts(obj, tol, verts, cons, wedata)
     
          % 
@@ -3265,7 +3387,7 @@ classdef UNLSI
             obj.femutils.InvMatIndex = [];
             obj.femutils.MatIndex = zeros(6*obj.femutils.nbVerts,1);
             for i = 1:numel(obj.femutils.usedVerts)
-               if  abs(obj.femtri.Points(obj.femutils.usedVerts(i),2))<=0.01
+               if  abs(obj.femtri.Points(obj.femutils.usedVerts(i),2))<=0.01%0.01
                    obj.femutils.MatIndex(i,1) = 0;
                    obj.femutils.MatIndex(1*obj.femutils.nbVerts+i,1) = 0;
                    obj.femutils.MatIndex(2*obj.femutils.nbVerts+i,1) = 0;
@@ -3835,7 +3957,7 @@ classdef UNLSI
 
         end
 
-        function [delta,deltadot,S] = solveFem(obj,distLoad,selfLoadFlag)
+        function [delta,deltadot,S,femRHSp] = solveFem(obj,distLoad,selfLoadFlag)
             %distLoad:空力解析メッシュにかかる分布加重。圧力など
             if nargin < 3
                 selfLoadFlag = 1; %defaultは自重による荷重を含める。
@@ -4004,8 +4126,14 @@ classdef UNLSI
         end
 
         function [deltaLoad2] = removeFunc(obj,deltaLoad)
-            deltaLoad(obj.femutils.MatIndex==0,:)=[];
-            deltaLoad(:,obj.femutils.MatIndex==0)=[];
+            if size(deltaLoad,2) == 1
+                deltaLoad(obj.femutils.MatIndex==0,:)=[];
+            else
+                deltaLoad(obj.femutils.MatIndex==0,:)=[];
+                deltaLoad(:,obj.femutils.MatIndex==0)=[];
+            end
+            % deltaLoad(obj.femutils.MatIndex==0,:)=[];
+            % deltaLoad(:,obj.femutils.MatIndex==0)=[];
             deltaLoad2 = deltaLoad;
         end
 
@@ -4078,6 +4206,51 @@ classdef UNLSI
             V =0;% V(:,ind);%固有ベクトル
         end
 
+        % function  [Vs,Ds] = getModeEig(Mmatrix,Kmatrix,numMode,method)
+        %     if nargin < 4
+        %         method = 1;
+        %     end
+        %     % method = 1;
+        %     realizationFlag = 1;
+        %     Mmatrix_svd = svdMat(Mmatrix);
+        %     Kmatrix_svd = svdMat(Kmatrix);
+        %     if method == 1
+        %         opts = struct();
+        %         opts.maxit = 1000;        % 最大反復回数
+        %         opts.tol = 1e-12;          % 収束許容誤差
+        %         opts.disp = 1;          % 途中経過を表示
+        %         [V,D] = eigs(Kmatrix_svd,Mmatrix_svd,numMode,'largestreal',opts);
+        %         % fprintf('flag: %d\n',flag);
+        %         fprintf('1')
+        %     else
+        %         [V,D] = eig(Kmatrix_svd,Mmatrix_svd);
+        %     end
+        %     D(isinf(D))=0;
+        %     [d,ind] = sort(diag(D));
+        %     D = D(ind,ind);
+        %     if realizationFlag == 1
+        %         Vs = real(V(:,ind));
+        %         Vs = normc(Vs);
+        %     end
+        %     % Vs = real(V(:,ind));
+        %     Ds = diag(D);
+        %     % Vs = normc(Vs);
+        %     % Vs = [1 1 1];
+        %     % Ds = [1 1 1];
+        %     % [V,D] = eig(Kmatrix,Mmatrix);
+        %     % [d,ind] = sort(diag(D),'ComparisonMethod','real');
+        %     % D = D(ind,ind);%固有値
+        %     % V = V(:,ind);%固有ベクトル
+        % end
+        % function svdMat = svdMat(matrix)
+        %     matrix = full(matrix);
+        %     [U, S, V] = svd(matrix);
+        %     svdMat = U*S*V';
+        %     singular_values = diag(S);
+        %     condition_number = max(singular_values) / min(singular_values);
+        %     fprintf('条件数: %e\n', condition_number);
+        % end
+        
 
         function delta = femSol2Delta(obj,femSol)
             disp_buff(obj.femutils.InvMatIndex,1)=femSol;
