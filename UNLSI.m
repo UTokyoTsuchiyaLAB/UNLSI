@@ -28,6 +28,7 @@ classdef UNLSI
     properties
         settingUNLSI %パラメータセッティング
         tri %MATLAB triangulationクラス
+        id %各パネルのID
         surfID %各パネルのタグ番号
         wakeline %wakeパネルの設定
         wakelineID %生データ
@@ -123,7 +124,7 @@ classdef UNLSI
                     halfmesh = 0;
                end
             end
-
+            obj.id = surfID;
             %%%%%%%%%%%settingUNLSIの初期設定%%%%%%%%%%%%%
             obj.settingUNLSI.checkMeshTol = sqrt(eps); % メッシュの精度をチェックするための許容誤差
             obj.settingUNLSI.LLTnInterp = 20; % LLT法の補間点の数
@@ -549,6 +550,17 @@ classdef UNLSI
                     if obj.halfmesh == 1
                         hold on;
                         trisurf(obj.tri.ConnectivityList,affineverts(:,1),-affineverts(:,2),affineverts(:,3),c,'FaceColor','interp','EdgeAlpha',0.15);
+                        % normIndex = find(id==9);
+                        % normIndex2 = linspace(1,length(id),length(id)); %find(obj.tri.Points(:,2) >=0);
+                        % normIndex = intersect(normIndex,normIndex2);
+                        % size(normIndex)
+                        % F = faceNormal(obj.tri,normIndex');
+                        % P = incenter(obj.tri);
+                        % P = P(normIndex,:);
+                        % fprintf("size of P: %d %d\n",size(P));
+                        F = faceNormal(obj.tri);
+                        P = incenter(obj.tri);
+                        % quiver3(P(:,1),P(:,2),P(:,3),F(:,1),F(:,2),F(:,3),0.1,'color','r');
                         colormap jet;
                         hold off
                     end
@@ -3398,13 +3410,13 @@ classdef UNLSI
                    obj.femutils.MatIndex(i,1) = 1;
                    obj.femutils.MatIndex(1*obj.femutils.nbVerts+i,1) = 1;
                    obj.femutils.MatIndex(2*obj.femutils.nbVerts+i,1) = 1;
-                   obj.femutils.MatIndex(3*obj.femutils.nbVerts+i,1) = 1;
-                   obj.femutils.MatIndex(4*obj.femutils.nbVerts+i,1) = 1;
+                   obj.femutils.MatIndex(3*obj.femutils.nbVerts+i,1) = 0;%0930修正
+                   obj.femutils.MatIndex(4*obj.femutils.nbVerts+i,1) = 0;%0930修正
                    obj.femutils.MatIndex(5*obj.femutils.nbVerts+i,1) = 0;
                    obj.femutils.InvMatIndex=[obj.femutils.InvMatIndex,i];
                end
             end
-            obj.femutils.InvMatIndex=[obj.femutils.InvMatIndex,1*obj.femutils.nbVerts+obj.femutils.InvMatIndex,2*obj.femutils.nbVerts+obj.femutils.InvMatIndex,3*obj.femutils.nbVerts+obj.femutils.InvMatIndex,4*obj.femutils.nbVerts+obj.femutils.InvMatIndex]';
+            obj.femutils.InvMatIndex=[obj.femutils.InvMatIndex,1*obj.femutils.nbVerts+obj.femutils.InvMatIndex,2*obj.femutils.nbVerts+obj.femutils.InvMatIndex]';%0930修正
             
             %構造メッシュと空力メッシュの変換行列の作成
             %Rstrを計算

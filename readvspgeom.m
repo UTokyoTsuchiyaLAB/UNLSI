@@ -69,16 +69,16 @@ uv2 = tdata(4:5,:);
 uv3 = tdata(6:7,:);
 
 for i = 1:length(id)
-    if id(i) == 7
+    if id(i) == 15 || id(i) == 16 || id(i) ==23 || id(i) ==24
         con2 = con(2,i);
         con3 = con(3,i);
         con(2,i) = con3;
         con(3,i) = con2;
-    elseif id(i) == 12
-        con2 = con(2,i);
-        con3 = con(3,i);
-        con(2,i) = con3;
-        con(3,i) = con2;
+    % elseif id(i) == 13
+    %     con2 = con(2,i);
+    %     con3 = con(3,i);
+    %     con(2,i) = con3;
+    %     con(3,i) = con2;
     end
 end
 
