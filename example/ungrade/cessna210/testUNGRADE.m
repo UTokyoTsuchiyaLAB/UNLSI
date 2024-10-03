@@ -9,7 +9,7 @@ cmax = [35]'; %制約条件の上限値
 ungradetest = UNGRADE(@(x)vspMeshGen(x,"Cessna-210","org.des"),@(x)vspGeomGen(x,"Cessna-210","org.des"),orgVal,lb,ub,1,0.1); %コンストラクタの実行
 ungradetest.checkGeomGenWork(0.5); %設計変数が動いているかチェックする
 %%%%%%%%%%%%%%%%%%ここで種々の設定をする%%%%%%%%%%%%%%%%%%%
-%ungradetest = ungradetest.setUNGRADESettings('updateMethod','Levenberg–Marquardt','HessianUpdateMethod','SR1');
+ungradetest = ungradetest.setUNGRADESettings("femCouplingFlag",0);
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 ungradetest = ungradetest.setFlowCondition(0,0,0.262,1000000);
