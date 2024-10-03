@@ -41,7 +41,9 @@ classdef UNLSI
         cpcalctype %Cpを計算する方法の選択 %1:1-V^2 2: -2u 3: -2u-v^2-w^2
         IndexPanel2Solver %パネルのインデックス⇒ソルバー上でのインデックス
         approxMat %パネル法行列の近似行列を作成するためのセル
-        approximated %パネル法行列が近似されたものかどうか    
+        approxFemMat %パネル法行列の近似行列を作成するためのセル
+        approximated %パネル法行列が近似されたものかどうか
+        femapproximated %パネル法行列が近似されたものかどうか
         orgNormal %各パネルの法線ベクトル
         modNormal %舵角等によって変更した法線ベクトル
         center %各パネルの中心
@@ -70,7 +72,6 @@ classdef UNLSI
         femLHS
         femMass
         femDamp
-        femRHS
         femtri
         femID
         femarea
@@ -81,7 +82,11 @@ classdef UNLSI
         femRho
         femVisc
         fem2aeroMat
+        aero2femMat
         femverts2centerMat %femメッシュでの節点量⇛パネルセンター量への変換行列
+        df_ddelta %FEMにおける力の変位に関する微分
+        femEigenVec %Femの結果を固有値解析した固有ベクトル
+        femEigenVal %固有値
     end
 
     methods(Access = public)
@@ -344,7 +349,7 @@ classdef UNLSI
             end
             indices = arrayfun(@(x) find(obj.deflAngle(:, 1) == x), obj.surfID(:, 1), 'UniformOutput', false);      
             deflMatrices = cell2mat(cellfun(@(idx) reshape(obj.deflAngle(idx, 6:14), [3, 3]), indices, 'UniformOutput', false));
-            obj.modNormal = cell2mat(arrayfun(@(i) (deflMatrices((i-1)*3+1:i*3, :) * obj.orgNormal(i, :)')', 1:numel(obj.paneltype), 'UniformOutput', false));
+            obj.modNormal = reshape(cell2mat(arrayfun(@(i) (deflMatrices((i-1)*3+1:i*3, :) * obj.orgNormal(i, :)')', 1:numel(obj.paneltype), 'UniformOutput', false)),3,[])';
         end
 
 
@@ -494,6 +499,22 @@ classdef UNLSI
             obj.Cfe = {};
             obj.LHS = [];
             obj.RHS = [];
+            obj.femutils = [];
+            obj.femLHS = [];
+            obj.femMass = [];
+            obj.femDamp = [];
+            obj.femtri = [];
+            obj.femID = [];
+            obj.femarea = [];
+            obj.femNormal = [];
+            obj.femcenter = [];
+            obj.femThn = [];
+            obj.femE = [];
+            obj.femRho = [];
+            obj.femVisc = [];
+            obj.fem2aeroMat = [];
+            obj.aero2femMat = [];
+
             
             % LLTとLLTnInterpを初期化
             lltninterp = obj.settingUNLSI.LLTnInterp;
@@ -800,7 +821,7 @@ classdef UNLSI
                     newCon = obj.femtri.ConnectivityList;
                     newCon(deleteIndex,:) = [];
                     obj.femID(deleteIndex,:) = [];
-                    obj = obj.setFemMesh(obj.femtri.Points,newCon,obj.femID);
+                    obj = obj.setFemMesh(obj.femtri.Points,newCon,obj.femID,obj.femutils.aeroIDLink);
                 else
                     error("some panel areas are too small");
                 end
@@ -1295,6 +1316,70 @@ classdef UNLSI
             end
         end
 
+        function obj = calcApproximatedFemEquation(obj)
+            % calcApproximatedEquationメソッドは、近似方程式を計算するための関数です。
+            % 近似フラグが立っている場合は、エラーが発生します。
+            % nbPanelは、paneltypeが1であるパネルの数を表します。
+            % 接点に繋がるIDを決定し、近似行列の計算インデックスを設定します。
+            % また、各頂点がwakeに含まれているかどうかを判定し、影響行列を計算します。
+            % 最後に、微小変位に対する微分係数を計算します。  
+
+            if obj.femapproximated == 1
+                error("This instance is approximated. Please execute obj.makeEquation()");
+            end
+
+            % 接点に繋がるIDを決定
+            vertAttach = obj.femtri.vertexAttachments();
+            pert = eps^(1/3);
+            for i = 1:numel(vertAttach)
+                
+                if mod(i,floor(numel(vertAttach)/10))==0 || i == 1
+                    fprintf("%d/%d \n",i,numel(vertAttach));
+                end
+                % paneltype == 1以外を削除する
+                obj.approxFemMat.calcIndex{i} = vertAttach{i};
+                matsize = size(obj.femLHS);
+                obj.approxFemMat.dLHSX{i} = sparse(matsize(1),matsize(2));
+                obj.approxFemMat.dLHSY{i} = sparse(matsize(1),matsize(2));
+                obj.approxFemMat.dLHSZ{i} = sparse(matsize(1),matsize(2));
+                j=1;%X
+                newVerts = obj.femtri.Points;
+                newVerts(i,j) = obj.femtri.Points(i,j)+pert;
+                obj2f = obj.setFemVerts(newVerts,1);
+                
+                obj2f= obj2f.makeFemEquation(obj.approxFemMat.calcIndex{i});
+                newVerts = obj.femtri.Points;
+                newVerts(i,j) = obj.femtri.Points(i,j)-pert;
+                obj2r = obj.setFemVerts(newVerts,1);
+                obj2r.femRho = obj.femRho;obj2r.femE = obj.femE;obj2r.femThn = obj.femThn;obj2r.femVisc = obj.femVisc;
+                obj2r= obj2r.makeFemEquation(obj.approxFemMat.calcIndex{i});
+                obj.approxFemMat.dLHSX{i} = (obj2f.femLHS-obj2r.femLHS)./pert/2;
+                j=2;%Y
+                newVerts = obj.femtri.Points;
+                newVerts(i,j) = obj.femtri.Points(i,j)+pert;
+                obj2f = obj.setFemVerts(newVerts,1);
+                
+                obj2f= obj2f.makeFemEquation(obj.approxFemMat.calcIndex{i});
+                newVerts = obj.femtri.Points;
+                newVerts(i,j) = obj.femtri.Points(i,j)-pert;
+                obj2r = obj.setFemVerts(newVerts,1);
+                obj2r.femRho = obj.femRho;obj2r.femE = obj.femE;obj2r.femThn = obj.femThn;obj2r.femVisc = obj.femVisc;
+                obj2r= obj2r.makeFemEquation(obj.approxFemMat.calcIndex{i});
+                obj.approxFemMat.dLHSY{i} = (obj2f.femLHS-obj2r.femLHS)./pert/2;
+                j=3;%Z
+                newVerts = obj.femtri.Points;
+                newVerts(i,j) = obj.femtri.Points(i,j)+pert;
+                obj2f = obj.setFemVerts(newVerts,1);
+                
+                obj2f= obj2f.makeFemEquation(obj.approxFemMat.calcIndex{i});
+                newVerts = obj.femtri.Points;
+                newVerts(i,j) = obj.femtri.Points(i,j)-pert;
+                obj2r = obj.setFemVerts(newVerts,1);
+                obj2r.femRho = obj.femRho;obj2r.femE = obj.femE;obj2r.femThn = obj.femThn;obj2r.femVisc = obj.femVisc;
+                obj2r= obj2r.makeFemEquation(obj.approxFemMat.calcIndex{i});
+                obj.approxFemMat.dLHSZ{i} = (obj2f.femLHS-obj2r.femLHS)./pert/2;
+            end
+        end
 
 
         function obj = calcApproximatedEquation(obj,wakeGradFlag)
@@ -1546,72 +1631,181 @@ classdef UNLSI
                 obj.approxMat.dVBrZ{i} = (VortexBrf-VortexBrr)./pert/2;
                 obj.approxMat.dVAcZ{i} = (VortexAcf-VortexAcr)./pert/2;
                 obj.approxMat.dVBcZ{i} = (VortexBcf-VortexBcr)./pert/2;
-                if obj.approxMat.wakeGradFlag == 1
+
+               if obj.approxMat.wakeGradFlag == 1
                     obj.approxMat.dVArwZ{i} = (VortexArwf-VortexArwr)./pert/2;
                     obj.approxMat.dVAcwZ{i} = (VortexAcwf-VortexAcwr)./pert/2;
                 end
 
+                
+                cutoffVal = 0.0;
+                obj.approxMat.dVArX{i}(abs(obj.approxMat.dVArX{i})<cutoffVal) = 0;
+                obj.approxMat.dVBrX{i}(abs(obj.approxMat.dVBrX{i})<cutoffVal) = 0;
+                obj.approxMat.dVAcX{i}(abs(obj.approxMat.dVAcX{i})<cutoffVal) = 0;
+                obj.approxMat.dVBcX{i}(abs(obj.approxMat.dVBcX{i})<cutoffVal) = 0;
+                obj.approxMat.dVArY{i}(abs(obj.approxMat.dVArY{i})<cutoffVal) = 0;
+                obj.approxMat.dVBrY{i}(abs(obj.approxMat.dVBrY{i})<cutoffVal) = 0;
+                obj.approxMat.dVAcY{i}(abs(obj.approxMat.dVAcY{i})<cutoffVal) = 0;
+                obj.approxMat.dVBcY{i}(abs(obj.approxMat.dVBcY{i})<cutoffVal) = 0;
+                obj.approxMat.dVArZ{i}(abs(obj.approxMat.dVArZ{i})<cutoffVal) = 0;
+                obj.approxMat.dVBrZ{i}(abs(obj.approxMat.dVBrZ{i})<cutoffVal) = 0;
+                obj.approxMat.dVAcZ{i}(abs(obj.approxMat.dVAcZ{i})<cutoffVal) = 0;
+                obj.approxMat.dVBcZ{i}(abs(obj.approxMat.dVBcZ{i})<cutoffVal) = 0;
+
+
+                if obj.approxMat.wakeGradFlag == 1
+                    obj.approxMat.dVArX{i}(abs(obj.approxMat.dVArX{i})<cutoffVal) = 0;
+                    obj.approxMat.dVArY{i}(abs(obj.approxMat.dVArY{i})<cutoffVal) = 0;
+                    obj.approxMat.dVArZ{i}(abs(obj.approxMat.dVArZ{i})<cutoffVal) = 0;
+                    obj.approxMat.dVAcX{i}(abs(obj.approxMat.dVAcX{i})<cutoffVal) = 0;
+                    obj.approxMat.dVAcY{i}(abs(obj.approxMat.dVAcY{i})<cutoffVal) = 0;
+                    obj.approxMat.dVAcZ{i}(abs(obj.approxMat.dVAcZ{i})<cutoffVal) = 0;
+
+                end
             end
             fprintf("\n");
         end
+        
 
-        function approxmatedObj = makeApproximatedInstance(obj,modifiedVerts)
-                nPanel = numel(obj.paneltype);
-                nbPanel = sum(obj.paneltype == 1);
-                approxmatedObj = obj.setVerts(modifiedVerts);
-                approxmatedObj.mu2v{1} = sparse(nPanel,nbPanel);
-                approxmatedObj.mu2v{2} = sparse(nPanel,nbPanel);
-                approxmatedObj.mu2v{3} = sparse(nPanel,nbPanel);
+        function approxmatedObj = makeApproximatedInstance(obj,modifiedVerts,skipCpMatandLLT)
+            if nargin < 3
+                skipCpMatandLLT = 0;
+            end
+            nPanel = numel(obj.paneltype);
+            nbPanel = sum(obj.paneltype == 1);
+            approxmatedObj = obj.setVerts(modifiedVerts);
             
             % パネル法連立方程式行列の作成
-            for i = 1:nPanel
-                if obj.paneltype(i) == 1
-                    CPmat = obj.center(obj.cluster{i},1:3);
-                    pnt = obj.center(i,:);
-                    m = obj.tri.Points(obj.tri.ConnectivityList(i,1),:)'-pnt(:);
-                    m = m./norm(m);
-                    l = cross(m,obj.orgNormal(i,:)');
-                    Minv = [l,m,obj.orgNormal(i,:)'];
-                    lmnMat = (Minv\(CPmat-repmat(pnt,[size(CPmat,1),1]))')';
-                    bb = [lmnMat(1:end,1),lmnMat(1:end,2),lmnMat(1:end,3),ones(size(lmnMat,1),1)];
-                    Bmat=pinv(bb,sqrt(eps));
-                    Vnmat = Minv*[1,0,0,0;0,1,0,0;0,0,1,0;]*Bmat;
-                    for iter = 1:3
-                        approxmatedObj.mu2v{iter}(i,obj.IndexPanel2Solver(obj.cluster{i})) = Vnmat(iter,:);
+            if skipCpMatandLLT == 0
+                for i = 1:nPanel
+                    if approxmatedObj.paneltype(i) == 1
+                        CPmat = approxmatedObj.center(approxmatedObj.cluster{i},1:3);
+                        pnt = approxmatedObj.center(i,:);
+                        m = approxmatedObj.tri.Points(approxmatedObj.tri.ConnectivityList(i,1),:)'-pnt(:);
+                        m = m./norm(m);
+                        l = cross(m,approxmatedObj.orgNormal(i,:)');
+                        Minv = [l,m,approxmatedObj.orgNormal(i,:)'];
+                        lmnMat = (Minv\(CPmat-repmat(pnt,[size(CPmat,1),1]))')';
+                        bb = [lmnMat(1:end,1),lmnMat(1:end,2),lmnMat(1:end,3),ones(size(lmnMat,1),1)];
+                        Bmat=pinv(bb,sqrt(eps));
+                        Vnmat = Minv*[1,0,0,0;0,1,0,0;0,0,1,0;]*Bmat;
+                        for iter = 1:3
+                            approxmatedObj.mu2v{iter}(i,approxmatedObj.IndexPanel2Solver(obj.cluster{i})) = Vnmat(iter,:);
+                        end
                     end
                 end
             end
 
-       
 
-            approxmatedObj.approxMat = [];
+
+            %approxmatedObj.approxMat = [];
             approxmatedObj.approximated = 1;
             dv = approxmatedObj.tri.Points-obj.tri.Points;
-            for i = 1:size(modifiedVerts,1)
+            calcIndex = find(abs(dv(:,1))>sqrt(eps))';
+            for i = calcIndex
                 if ~isempty(obj.approxMat.calcIndex{i})
                     obj.approxMat.dVAcX{i}(obj.approxMat.calcIndex{i},:) = 0; 
                     obj.approxMat.dVBcX{i}(obj.approxMat.calcIndex{i},:) = 0; 
+                    approxmatedObj.LHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.LHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVArX{i}.*dv(i,1);
+                    approxmatedObj.RHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.RHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVBrX{i}.*dv(i,1);
+                    approxmatedObj.LHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.LHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVAcX{i}.*dv(i,1);
+                    approxmatedObj.RHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.RHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVBcX{i}.*dv(i,1);
+                end
+            end
+            calcIndex = find(abs(dv(:,2))>sqrt(eps))';
+            for i = calcIndex
+                if ~isempty(obj.approxMat.calcIndex{i})
                     obj.approxMat.dVAcY{i}(obj.approxMat.calcIndex{i},:) = 0; 
                     obj.approxMat.dVBcY{i}(obj.approxMat.calcIndex{i},:) = 0;
+                    approxmatedObj.LHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.LHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVArY{i}.*dv(i,2);
+                    approxmatedObj.RHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.RHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVBrY{i}.*dv(i,2);
+                    approxmatedObj.LHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.LHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVAcY{i}.*dv(i,2);
+                    approxmatedObj.RHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.RHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVBcY{i}.*dv(i,2);
+                end
+            end
+            calcIndex = find(abs(dv(:,3))>sqrt(eps))';
+            for i = calcIndex
+                if ~isempty(obj.approxMat.calcIndex{i})
                     obj.approxMat.dVAcZ{i}(obj.approxMat.calcIndex{i},:) = 0; 
                     obj.approxMat.dVBcZ{i}(obj.approxMat.calcIndex{i},:) = 0;
-                    approxmatedObj.LHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.LHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVArX{i}.*dv(i,1)+obj.approxMat.dVArY{i}.*dv(i,2)+obj.approxMat.dVArZ{i}.*dv(i,3);
-                    approxmatedObj.RHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.RHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVBrX{i}.*dv(i,1)+obj.approxMat.dVBrY{i}.*dv(i,2)+obj.approxMat.dVBrZ{i}.*dv(i,3);
-                    approxmatedObj.LHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.LHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVAcX{i}.*dv(i,1)+obj.approxMat.dVAcY{i}.*dv(i,2)+obj.approxMat.dVAcZ{i}.*dv(i,3);
-                    approxmatedObj.RHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.RHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVBcX{i}.*dv(i,1)+obj.approxMat.dVBcY{i}.*dv(i,2)+obj.approxMat.dVBcZ{i}.*dv(i,3);
+                    approxmatedObj.LHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.LHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVArZ{i}.*dv(i,3);
+                    approxmatedObj.RHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.RHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVBrZ{i}.*dv(i,3);
+                    approxmatedObj.LHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.LHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVAcZ{i}.*dv(i,3);
+                    approxmatedObj.RHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.RHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVBcZ{i}.*dv(i,3);
                 end
             end
             if obj.approxMat.wakeGradFlag == 1
-                for i = 1:size(modifiedVerts,1)
+                calcIndex = find(abs(dv(:,1))>sqrt(eps))';
+                for i = calcIndex
                     obj.approxMat.dVAcwX{i}(obj.approxMat.calcIndex{i},:) = 0;  
+                    approxmatedObj.wakeLHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.wakeLHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVArwX{i}.*dv(i,1);
+                    approxmatedObj.wakeLHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.wakeLHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVAcwX{i}.*dv(i,1);
+                end
+                calcIndex = find(abs(dv(:,2))>sqrt(eps))';
+                for i = calcIndex  
                     obj.approxMat.dVAcwY{i}(obj.approxMat.calcIndex{i},:) = 0; 
+                    approxmatedObj.wakeLHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.wakeLHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVArwY{i}.*dv(i,2);
+                    approxmatedObj.wakeLHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.wakeLHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVAcwY{i}.*dv(i,2);
+                end
+                calcIndex = find(abs(dv(:,3))>sqrt(eps))';
+                for i = calcIndex
                     obj.approxMat.dVAcwZ{i}(obj.approxMat.calcIndex{i},:) = 0;
-                    approxmatedObj.wakeLHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.wakeLHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVArwX{i}.*dv(i,1)+obj.approxMat.dVArwY{i}.*dv(i,2)+obj.approxMat.dVArwZ{i}.*dv(i,3);
-                    approxmatedObj.wakeLHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.wakeLHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVAcwX{i}.*dv(i,1)+obj.approxMat.dVAcwY{i}.*dv(i,2)+obj.approxMat.dVAcwZ{i}.*dv(i,3);
+                    approxmatedObj.wakeLHS(obj.approxMat.calcIndex{i},:) = approxmatedObj.wakeLHS(obj.approxMat.calcIndex{i},:)+obj.approxMat.dVArwZ{i}.*dv(i,3);
+                    approxmatedObj.wakeLHS(:,obj.approxMat.calcIndex{i}) = approxmatedObj.wakeLHS(:,obj.approxMat.calcIndex{i})+obj.approxMat.dVAcwZ{i}.*dv(i,3);
                 end
             else
                 approxmatedObj = approxmatedObj.makeWakeEquation();
             end
+            if skipCpMatandLLT == 0
+                for wakeNo = 1:numel(approxmatedObj.wakeline)
+                    theta = linspace(pi,0,size(approxmatedObj.wakeline{wakeNo}.validedge,2)*approxmatedObj.settingUNLSI.LLTnInterp+1);
+                    iter = 1;
+                    approxmatedObj.LLT.sp{wakeNo} = [];
+                    approxmatedObj.LLT.calcMu{wakeNo} = zeros(1,nbPanel);
+                    s = zeros(1,numel(approxmatedObj.wakeline{wakeNo}.edge));
+                    jter = 1;
+                    for edgeNo = 1:numel(approxmatedObj.wakeline{wakeNo}.edge)-1
+                        s(edgeNo+1) = s(edgeNo) + norm(approxmatedObj.tri.Points(approxmatedObj.wakeline{wakeNo}.edge(edgeNo),2:3)-approxmatedObj.tri.Points(approxmatedObj.wakeline{wakeNo}.edge(edgeNo+1),2:3));
+                        if approxmatedObj.wakeline{wakeNo}.valid(edgeNo) == 1
+                            approxmatedObj.LLT.sp{wakeNo} =  [approxmatedObj.LLT.sp{wakeNo},(s(edgeNo)+s(edgeNo+1))./2];
+                            jter = jter+1;
+                        end
+                    end
+                    for edgeNo = 1:size(approxmatedObj.wakeline{wakeNo}.validedge,2)
+                        interpID(1) = approxmatedObj.IndexPanel2Solver(approxmatedObj.wakeline{wakeNo}.upperID(edgeNo));
+                        interpID(2) = approxmatedObj.IndexPanel2Solver(approxmatedObj.wakeline{wakeNo}.lowerID(edgeNo));
+                        approxmatedObj.LLT.calcMu{wakeNo}(iter,interpID(1)) = -1;
+                        approxmatedObj.LLT.calcMu{wakeNo}(iter,interpID(2)) = 1;
+                        iter = iter+1;
+                    end
+                    sd = (s(end)-s(1))*(cos(theta)./2+0.5)+s(1);
+                    approxmatedObj.LLT.sinterp{wakeNo} = (sd(2:end)+sd(1:end-1))./2;
+                    approxmatedObj.LLT.yinterp{wakeNo} = interp1(s,approxmatedObj.tri.Points(approxmatedObj.wakeline{wakeNo}.edge(:),2),approxmatedObj.LLT.sinterp{wakeNo},'linear','extrap');
+                    approxmatedObj.LLT.zinterp{wakeNo} = interp1(s,approxmatedObj.tri.Points(approxmatedObj.wakeline{wakeNo}.edge(:),3),approxmatedObj.LLT.sinterp{wakeNo},'linear','extrap');
+                    yd = interp1(s,approxmatedObj.tri.Points(approxmatedObj.wakeline{wakeNo}.edge(:),2),sd,'linear','extrap');
+                    zd = interp1(s,approxmatedObj.tri.Points(approxmatedObj.wakeline{wakeNo}.edge(:),3),sd,'linear','extrap');
+                    approxmatedObj.LLT.phiinterp{wakeNo} = atan((zd(2:end)-zd(1:end-1))./(yd(2:end)-yd(1:end-1)));
+                    approxmatedObj.LLT.spanel{wakeNo} = (sd(2:end)-sd(1:end-1))./2;
+    
+                end
+                if numel(approxmatedObj.wakeline)>0
+                    approxmatedObj.LLT.Qij = approxmatedObj.Calc_Q(horzcat(obj.LLT.yinterp{:}),horzcat(obj.LLT.zinterp{:}),horzcat(obj.LLT.phiinterp{:}),horzcat(obj.LLT.spanel{:}),obj.halfmesh);
+                end
+            end
+
+        end
+
+        function approxmatedObj = makeApproximatedFemInstance(obj,modifiedVerts)
+            approxmatedObj = obj.setFemVerts(modifiedVerts);
+
+            %approxmatedObj.approxFemMat = [];
+            approxmatedObj.femapproximated = 1;
+            dv = approxmatedObj.femtri.Points-obj.femtri.Points;
+            calcIndex = find(any(abs(dv)>sqrt(eps),2))';
+            for i = calcIndex
+                approxmatedObj.femLHS = approxmatedObj.femLHS+obj.approxFemMat.dLHSX{i}.*dv(i,1)+obj.approxFemMat.dLHSY{i}.*dv(i,2)+obj.approxFemMat.dLHSZ{i}.*dv(i,3);
+            end
+            
         end
 
         function obj = setProp(obj,propNo,ID,diameter,XZsliced)
@@ -3044,8 +3238,11 @@ classdef UNLSI
 
         %FEM関連
         function obj = setFemMesh(obj,verts,connectivity,femID,aeroIDLink)
+            obj.femutils = [];
             if nargin<5
-                aeroIDLink = unique(obj.surfID);
+                obj.femutils.aeroIDLink = unique(obj.surfID);
+            else
+                obj.femutils.aeroIDLink = aeroIDLink;
             end
             [verts,connectivity] = obj.mergeVerts(obj.settingUNLSI.vertsTol,verts,connectivity);
             obj.femtri = triangulation(connectivity,verts);
@@ -3055,7 +3252,6 @@ classdef UNLSI
             obj.femarea = 0.5 * sqrt(sum(cross(obj.femtri.Points(obj.femtri.ConnectivityList(:, 2), :) - obj.femtri.Points(obj.femtri.ConnectivityList(:, 1), :), obj.femtri.Points(obj.femtri.ConnectivityList(:, 3), :) - obj.femtri.Points(obj.femtri.ConnectivityList(:, 1), :), 2).^2, 2));
             obj.femNormal = faceNormal(obj.femtri);
 
-            obj.femutils = [];
             obj = obj.checkFemMesh(obj.settingUNLSI.checkMeshTol,"delete");
                 
             %取り急ぎ、解析用のメッシュと空力メッシュは同一。後でFEAメッシュ等からメッシュを入れられるようにする。
@@ -3103,7 +3299,7 @@ classdef UNLSI
             %構造メッシュと空力メッシュの変換行列の作成
             %Rstrを計算
 
-            usedAerobuff = unique(obj.tri.ConnectivityList(any(obj.surfID == aeroIDLink(:)',2),:));
+            usedAerobuff = unique(obj.tri.ConnectivityList(any(obj.surfID == obj.femutils.aeroIDLink(:)',2),:));
             obj.femutils.usedAeroVerts =  usedAerobuff(:);
             femMeshScaling = abs(max(obj.tri.Points(obj.femutils.usedAeroVerts,:),[],1)-min(obj.tri.Points(obj.femutils.usedAeroVerts,:),[],1));
             %femMeshScaling = [1,1,1];
@@ -3123,6 +3319,59 @@ classdef UNLSI
             Avv = phi(obj.calcRMat(obj.femtri.Points,obj.femtri.Points));
             Acv = phi(obj.calcRMat(obj.femcenter,obj.femtri.Points));
             obj.femverts2centerMat = Acv*pinv(Avv);
+
+            %基準メッシュから構造メッシュへの投影UNGRADE用
+            phi = @(r)obj.phi3(r,1);%変位計算の場合はphi1の方がうまくいく
+            meshScaling = abs(max(obj.tri.Points(obj.femutils.usedAeroVerts,:),[],1)-min(obj.tri.Points(obj.femutils.usedAeroVerts,:),[],1));
+            meshScaling(meshScaling==0) = 1;
+            Agg = phi(obj.calcRMat(obj.tri.Points(obj.femutils.usedAeroVerts,:)./meshScaling,obj.tri.Points(obj.femutils.usedAeroVerts,:)./meshScaling));
+            Amg = phi(obj.calcRMat(obj.femtri.Points(obj.femutils.usedVerts,:)./meshScaling,obj.tri.Points(obj.femutils.usedAeroVerts,:)./meshScaling));
+            obj.aero2femMat = Amg*pinv(Agg);
+
+        end
+
+        function obj = setFemVerts(obj,modVerts,skipTransMat)
+            if nargin < 3
+                skipTransMat = 0;
+            end
+            obj.femtri = triangulation(obj.femtri.ConnectivityList,modVerts);
+
+            obj.femcenter = (modVerts(obj.femtri.ConnectivityList(:,1),:)+modVerts(obj.femtri.ConnectivityList(:,2),:)+modVerts(obj.femtri.ConnectivityList(:,3),:))./3;
+            obj.femarea = 0.5 * sqrt(sum(cross(obj.femtri.Points(obj.femtri.ConnectivityList(:, 2), :) - obj.femtri.Points(obj.femtri.ConnectivityList(:, 1), :), obj.femtri.Points(obj.femtri.ConnectivityList(:, 3), :) - obj.femtri.Points(obj.femtri.ConnectivityList(:, 1), :), 2).^2, 2));
+            obj.femNormal = faceNormal(obj.femtri);
+
+            if skipTransMat == 0
+                %構造メッシュと空力メッシュの変換行列の作成
+                %Rstrを計算
+    
+                usedAerobuff = unique(obj.tri.ConnectivityList(any(obj.surfID == obj.femutils.aeroIDLink(:)',2),:));
+                obj.femutils.usedAeroVerts =  usedAerobuff(:);
+                femMeshScaling = abs(max(obj.tri.Points(obj.femutils.usedAeroVerts,:),[],1)-min(obj.tri.Points(obj.femutils.usedAeroVerts,:),[],1));
+                %femMeshScaling = [1,1,1];
+                femMeshScaling(femMeshScaling==0) = 1;
+                Rss = obj.calcRMat(obj.femtri.Points(obj.femutils.usedVerts,:)./femMeshScaling,obj.femtri.Points(obj.femutils.usedVerts,:)./femMeshScaling);
+                phi = @(r)obj.phi1(r,0.001);%変位計算の場合はphi1の方がうまくいく
+                Mss = phi(Rss);
+                Pss = [ones(size(obj.femtri.Points(obj.femutils.usedVerts,:),1),1),obj.femtri.Points(obj.femutils.usedVerts,:)./femMeshScaling ]';
+                Ras = obj.calcRMat(obj.tri.Points(obj.femutils.usedAeroVerts,:)./femMeshScaling,obj.femtri.Points(obj.femutils.usedVerts,:)./femMeshScaling);
+                Aas = [ones(size(obj.tri.Points(obj.femutils.usedAeroVerts,:),1),1),obj.tri.Points(obj.femutils.usedAeroVerts,:)./femMeshScaling,phi(Ras)];
+                invM = pinv(Mss);
+                Mp = pinv(Pss*invM*Pss');
+                obj.fem2aeroMat = Aas * [Mp*Pss*invM;invM-invM*Pss'*Mp*Pss*invM];
+    
+                %femのパネル中心座標からメッシュノードへ投影する変換行列の作成
+                phi = @(r)obj.phi3(r,1);
+                Avv = phi(obj.calcRMat(obj.femtri.Points,obj.femtri.Points));
+                Acv = phi(obj.calcRMat(obj.femcenter,obj.femtri.Points));
+                obj.femverts2centerMat = Acv*pinv(Avv);
+    
+                %基準メッシュから構造メッシュへの投影UNGRADE用
+                meshScaling = abs(max(obj.tri.Points(obj.femutils.usedAeroVerts,:),[],1)-min(obj.tri.Points(obj.femutils.usedAeroVerts,:),[],1));
+                meshScaling(meshScaling==0) = 1;
+                Agg = phi(obj.calcRMat(obj.tri.Points(obj.femutils.usedAeroVerts,:)./meshScaling,obj.tri.Points(obj.femutils.usedAeroVerts,:)./meshScaling));
+                Amg = phi(obj.calcRMat(obj.femtri.Points(obj.femutils.usedVerts,:)./meshScaling,obj.tri.Points(obj.femutils.usedAeroVerts,:)./meshScaling));
+                obj.aero2femMat = Amg*pinv(Agg);
+            end
 
         end
         function plotFemMesh(obj,figID,delta,plotID)
@@ -3162,13 +3411,19 @@ classdef UNLSI
 
         
 
-        function obj = makeFemEquation(obj)
+        function obj = makeFemEquation(obj,calcID)
+            if nargin<2
+                calcID = 1:size(obj.femtri.ConnectivityList,1);
+                skipFlag = 0;
+            else
+                skipFlag = 1;
+            end
             nu = 0.34;
             qps = [1/6,1/6;2/3,1/6;1/6,2/3];
             obj.femLHS = sparse(6*numel(obj.femutils.usedVerts),6*numel(obj.femutils.usedVerts));
             obj.femMass = sparse(6*numel(obj.femutils.usedVerts),6*numel(obj.femutils.usedVerts));
             obj.femDamp = sparse(6*numel(obj.femutils.usedVerts),6*numel(obj.femutils.usedVerts));
-            for iter = 1:size(obj.femtri.ConnectivityList,1)
+            for iter = calcID
                 Dp(1,1) = 1.0; Dp(1,2) = nu;
                 Dp(2,1) = nu;  Dp(2,2) = 1.0;
                 Dp(3,3) = (1.0-nu)/2.0;
@@ -3366,14 +3621,10 @@ classdef UNLSI
                 linearidx = zeros(1,size(obj.femutils.IndexRow{iter}(:),1));
                 for i = 1:size(obj.femutils.IndexRow{iter}(:),1)
                     linearidx(i) = sub2ind(size(obj.femLHS),obj.femutils.IndexRow{iter}(i),obj.femutils.IndexCol{iter}(i));
-                    %obj.femLHS(obj.femutils.IndexRow{iter}(i),obj.femutils.IndexCol{iter}(i)) = obj.femLHS(obj.femutils.IndexRow{iter}(i),obj.femutils.IndexCol{iter}(i))+Kg(i);
                 end
                 obj.femLHS(linearidx) = obj.femLHS(linearidx)+Kg(:)';
                 obj.femMass(linearidx) = obj.femMass(linearidx)+Mg(:)';
                 obj.femDamp(linearidx) = obj.femDamp(linearidx)+Mg(:)'./obj.femRho(iter,1).*obj.femVisc(iter,1);
-                if mod(iter,floor(size(obj.femtri.ConnectivityList,1)/10))==1
-                    fprintf("%d / %d \n",iter,size(obj.femtri.ConnectivityList,1));
-                end
                 
             end
             obj.femLHS(obj.femutils.MatIndex==0,:)=[];
@@ -3382,6 +3633,30 @@ classdef UNLSI
             obj.femMass(:,obj.femutils.MatIndex==0)=[];
             obj.femDamp(obj.femutils.MatIndex==0,:)=[];
             obj.femDamp(:,obj.femutils.MatIndex==0)=[];
+
+            if skipFlag == 0
+                %すべてが0の項の処理
+                delIndex = or(all(obj.femMass==0), all(obj.femLHS==0));
+                obj.femLHS(delIndex,:) = [];
+                obj.femLHS(:,delIndex) = [];
+                obj.femMass(delIndex,:) = [];
+                obj.femMass(:,delIndex) = [];
+                obj.femDamp(delIndex,:) = [];
+                obj.femDamp(:,delIndex) = [];
+                obj.femutils.InvMatIndex(delIndex,:) = [];
+                delIndexNo = find(delIndex);
+                si = 1;
+                delIndex2 = [];
+                for i = 1:size(obj.femutils.MatIndex,1)
+                    if obj.femutils.MatIndex(i) == 1
+                        if any(si==delIndexNo)
+                            delIndex2 = [delIndex2,i];
+                        end
+                         si = si+1;
+                    end
+                end
+                obj.femutils.MatIndex(delIndex2) = 0;
+            end
 
         end
 
@@ -3559,14 +3834,37 @@ classdef UNLSI
             obj.femDamp(obj.femutils.MatIndex==0,:)=[];
             obj.femDamp(:,obj.femutils.MatIndex==0)=[];
 
+            %すべてが0の項の処理
+            delIndex = or(all(obj.femMass==0), all(obj.femLHS==0));
+            obj.femLHS(delIndex,:) = [];
+            obj.femLHS(:,delIndex) = [];
+            obj.femMass(delIndex,:) = [];
+            obj.femMass(:,delIndex) = [];
+            obj.femDamp(delIndex,:) = [];
+            obj.femDamp(:,delIndex) = [];
+            obj.femutils.InvMatIndex(delIndex,:) = [];
+            delIndexNo = find(delIndex);
+            si = 1;
+            delIndex2 = [];
+            for i = 1:size(obj.femutils.MatIndex,1)
+                if obj.femutils.MatIndex(i) == 1
+                    if any(si==delIndexNo)
+                        delIndex2 = [delIndex2,i];
+                    end
+                     si = si+1;
+                end
+            end
+            obj.femutils.MatIndex(delIndex2) = 0;
+
         end
 
-        function [delta,deltadot] = solveFem(obj,distLoad,selfLoadFlag)
+        function [delta,deltadot,S] = solveFem(obj,distLoad,selfLoadFlag)
             %distLoad:空力解析メッシュにかかる分布加重。圧力など
             if nargin < 3
                 selfLoadFlag = 1; %defaultは自重による荷重を含める。
             end
             %空力解析メッシュから構造解析メッシュへ圧力分布を投影
+            S = [];
             for iter = 1:size(distLoad,2)
                 Fp = sparse(6*size(obj.femutils.usedVerts,2),1);
                 interpLoad = obj.verts2centerMat'*(distLoad(:,iter).*obj.area);
@@ -3603,19 +3901,143 @@ classdef UNLSI
                 delta{iter}(obj.femutils.usedVerts,5)=disp_buff(4*obj.femutils.nbVerts+1:5*obj.femutils.nbVerts,1);
                 delta{iter}(obj.femutils.usedVerts,6)=disp_buff(5*obj.femutils.nbVerts+1:6*obj.femutils.nbVerts,1);
                 deltadot{iter} = zeros(size(obj.femtri.Points,1),6);
+                Ssolve = obj.femLHS*delta_p - femRHSp;
+                S = [S;Ssolve];
             end
         end
-        function [delta,deltadot]  = solveAeroelastic(obj,tspan,delta,deltadot,distLoad,selfLoadFlag)
+
+        function [delta,deltadot,z,zdot,S] = solveModalFem(obj,distLoad,selfLoadFlag)
+            modalNo = size(obj.femEigenVec,2);
+            Fmodal = obj.femEigenVec(:,1:modalNo);
             %distLoad:空力解析メッシュにかかる分布加重。圧力など
             if nargin < 3
                 selfLoadFlag = 1; %defaultは自重による荷重を含める。
             end
             %空力解析メッシュから構造解析メッシュへ圧力分布を投影
+            S = [];
             for iter = 1:size(distLoad,2)
-                if isempty(delta) || isempty(deltadot)
+                Fp = sparse(6*size(obj.femutils.usedVerts,2),1);
+                interpLoad = obj.verts2centerMat'*(distLoad(:,iter).*obj.area);
+                vNormal = vertexNormal(obj.tri);
+                %femPointLoad = obj.fem2aeroMat'*interpLoad;
+                vertsLoad = vNormal.*interpLoad;
+                if selfLoadFlag == 1
+                    selfLoad = obj.femverts2centerMat'*(9.8.*obj.femarea.*obj.femThn.*obj.femRho);
+                end
+                femPointLoad = zeros(size(obj.femtri.Points,1),3);
+                femPointLoad(obj.femutils.usedVerts,1) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,1);
+                femPointLoad(obj.femutils.usedVerts,2) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,2);
+                if selfLoadFlag == 1
+                    femPointLoad(obj.femutils.usedVerts,3) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,3) + selfLoad(obj.femutils.usedVerts,1);
+                else
+                    femPointLoad(obj.femutils.usedVerts,3) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,3);
+                end
+                for i = 1:size(obj.femutils.usedVerts,2) 
+                    Fp(i,1) = -femPointLoad(i,1);
+                    Fp(i+size(obj.femtri.Points,1),1) = -femPointLoad(i,2);
+                    Fp(i+2*size(obj.femtri.Points,1),1) = -femPointLoad(i,3);
+                end
+    
+                femRHSp = Fp(obj.femutils.MatIndex==1,1);
+                fmode = Fmodal'*femRHSp;
+                
+                z{iter} = lsqminnorm(Fmodal'*obj.femLHS*Fmodal,fmode,obj.settingUNLSI.lsqminnormTol);
+                zdot{iter} = zeros(size(z{iter}));
+                delta_p = Fmodal*z{iter};
+                %delta_p = obj.femMass\femRHSp;
+                disp_buff = zeros(size(obj.femtri.Points,1)*6,1);
+                disp_buff(obj.femutils.InvMatIndex,1)=delta_p;
+                delta{iter} = zeros(size(obj.femtri.Points,1),6);
+                delta{iter}(obj.femutils.usedVerts,1)=disp_buff(1:obj.femutils.nbVerts,1);
+                delta{iter}(obj.femutils.usedVerts,2)=disp_buff(obj.femutils.nbVerts+1:2*obj.femutils.nbVerts,1);
+                delta{iter}(obj.femutils.usedVerts,3)=disp_buff(2*obj.femutils.nbVerts+1:3*obj.femutils.nbVerts,1);
+                delta{iter}(obj.femutils.usedVerts,4)=disp_buff(3*obj.femutils.nbVerts+1:4*obj.femutils.nbVerts,1);
+                delta{iter}(obj.femutils.usedVerts,5)=disp_buff(4*obj.femutils.nbVerts+1:5*obj.femutils.nbVerts,1);
+                delta{iter}(obj.femutils.usedVerts,6)=disp_buff(5*obj.femutils.nbVerts+1:6*obj.femutils.nbVerts,1);
+                deltadot{iter} = zeros(size(obj.femtri.Points,1),6);
+                Ssolve = obj.femLHS*delta_p - femRHSp;
+                S = [S;Ssolve];
+            end
+        end
+
+        function [delta,deltadot,S,obj] = solveFemForAdjoint(obj,delta,distLoad,selfLoadFlag)
+            %distLoad:空力解析メッシュにかかる分布加重。圧力など
+            if nargin < 4
+                selfLoadFlag = 1; %defaultは自重による荷重を含める。
+            end
+            %空力解析メッシュから構造解析メッシュへ圧力分布を投影
+            S = [];
+            for iter = 1:size(distLoad,2)
+                Fp = sparse(6*size(obj.femutils.usedVerts,2),1);
+                interpLoad = obj.verts2centerMat'*(distLoad(:,iter).*obj.area);
+                vNormal = vertexNormal(obj.tri);
+                %femPointLoad = obj.fem2aeroMat'*interpLoad;
+                vertsLoad = vNormal.*interpLoad;
+                if selfLoadFlag == 1
+                    selfLoad = obj.femverts2centerMat'*(9.8.*obj.femarea.*obj.femThn.*obj.femRho);
+                end
+                femPointLoad = zeros(size(obj.femtri.Points,1),3);
+                femPointLoad(obj.femutils.usedVerts,1) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,1);
+                femPointLoad(obj.femutils.usedVerts,2) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,2);
+                if selfLoadFlag == 1
+                    femPointLoad(obj.femutils.usedVerts,3) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,3) + selfLoad(obj.femutils.usedVerts,1);
+                else
+                    femPointLoad(obj.femutils.usedVerts,3) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,3);
+                end
+                for i = 1:size(obj.femutils.usedVerts,2) 
+                    Fp(i,1) = -femPointLoad(i,1);
+                    Fp(i+size(obj.femtri.Points,1),1) = -femPointLoad(i,2);
+                    Fp(i+2*size(obj.femtri.Points,1),1) = -femPointLoad(i,3);
+                end
+    
+                femRHSp = Fp(obj.femutils.MatIndex==1,1);
+                yb = sparse(vertcat(delta{iter}(:,1),delta{iter}(:,2),delta{iter}(:,3),delta{iter}(:,4),delta{iter}(:,5),delta{iter}(:,6)));
+                delta_p = yb(obj.femutils.MatIndex==1,1);
+                Ssolve = obj.femLHS*delta_p - femRHSp;
+                %delta_p = lsqminnorm(obj.femLHS,femRHSp,obj.settingUNLSI.lsqminnormTol);
+                %delta_p = obj.femMass\femRHSp;
+                disp_buff = zeros(size(obj.femtri.Points,1)*6,1);
+                disp_buff(obj.femutils.InvMatIndex,1)=delta_p;
+                delta{iter} = zeros(size(obj.femtri.Points,1),6);
+                delta{iter}(obj.femutils.usedVerts,1)=disp_buff(1:obj.femutils.nbVerts,1);
+                delta{iter}(obj.femutils.usedVerts,2)=disp_buff(obj.femutils.nbVerts+1:2*obj.femutils.nbVerts,1);
+                delta{iter}(obj.femutils.usedVerts,3)=disp_buff(2*obj.femutils.nbVerts+1:3*obj.femutils.nbVerts,1);
+                delta{iter}(obj.femutils.usedVerts,4)=disp_buff(3*obj.femutils.nbVerts+1:4*obj.femutils.nbVerts,1);
+                delta{iter}(obj.femutils.usedVerts,5)=disp_buff(4*obj.femutils.nbVerts+1:5*obj.femutils.nbVerts,1);
+                delta{iter}(obj.femutils.usedVerts,6)=disp_buff(5*obj.femutils.nbVerts+1:6*obj.femutils.nbVerts,1);
+                deltadot{iter} = zeros(size(obj.femtri.Points,1),6);
+                S = [S;Ssolve];
+            end
+        end
+
+        function obj = femModalAnalysis(obj,modalNo)
+            [eigenVecBuff,eigenValBuff] = eigs(obj.femLHS,obj.femMass,modalNo,"smallestabs");
+
+            [obj.femEigenVal,I] = sort(full(diag(eigenValBuff)));
+            obj.femEigenVec = eigenVecBuff(:,I);
+            nanIndex = isnan(obj.femEigenVal);
+            obj.femEigenVal(nanIndex) = [];
+            obj.femEigenVec(:,nanIndex) = [];
+        end
+
+        function [delta,deltadot]  = solveAeroelastic(obj,tspan,delta,deltadot,distLoad,selfLoadFlag)
+            %distLoad:空力解析メッシュにかかる分布加重。圧力など
+            if nargin < 6
+                selfLoadFlag = 1; %defaultは自重による荷重を含める。
+            end
+            %空力解析メッシュから構造解析メッシュへ圧力分布を投影
+            if isempty(delta)
+                for iter = 1:size(distLoad,2)
                     delta{iter} = zeros(obj.femutils.nbVerts,6);
+                end
+            end
+            if isempty(deltadot)
+                for iter = 1:size(distLoad,2)
                     deltadot{iter} = zeros(obj.femutils.nbVerts,6);
                 end
+            end
+
+            for iter = 1:size(distLoad,2)
                 Fp = sparse(6*size(obj.femutils.usedVerts,2),1);
                 interpLoad = obj.verts2centerMat'*(distLoad(:,iter).*obj.area);
                 vNormal = vertexNormal(obj.tri);
@@ -3648,11 +4070,11 @@ classdef UNLSI
                 ydb = vertcat(deltadot{iter}(:,1),deltadot{iter}(:,2),deltadot{iter}(:,3),deltadot{iter}(:,4),deltadot{iter}(:,5),deltadot{iter}(:,6));
                 yd = ydb(obj.femutils.MatIndex==1,1);
                 warning('off','MATLAB:singularMatrix')
-                try
-                    [~,ybuff] = ode15s(@(t,d)(AEx*d+fEx),tspan,[y;yd],options);
-                catch
-                    [~,ybuff] = ode23s(@(t,d)(AEx*d+fEx),tspan,[y;yd],options);
-                end
+                %try
+                %    [~,ybuff] = ode15s(@(t,d)(AEx*d+fEx),tspan,[y;yd],options);
+                %catch
+                    [~,ybuff] = ode23(@(t,d)(AEx*d+fEx),tspan,[y;yd],options);
+                %end
                 disp_buff = zeros(size(obj.femtri.Points,1)*6,1);
                 disp_buff(obj.femutils.InvMatIndex,1)=ybuff(end,1:numel(y))';
                 disp_buff(isnan(disp_buff)) = 0;
@@ -3676,12 +4098,177 @@ classdef UNLSI
             end
         end
 
+        function [z,zdot,delta,deltadot]  = solveModalAeroelastic(obj,tspan,z,zdot,distLoad,selfLoadFlag)
+
+            modalNo = size(obj.femEigenVec,2);
+            %distLoad:空力解析メッシュにかかる分布加重。圧力など
+            %空力解析メッシュから構造解析メッシュへ圧力分布を投影
+            Fmodal = obj.femEigenVec(:,1:modalNo);
+            if isempty(z)
+                for iter = 1:size(distLoad,2)
+                    z{iter} = zeros(modalNo,1);
+                end
+            end
+            if isempty(zdot)
+                for iter = 1:size(distLoad,2)
+                    zdot{iter} = zeros(modalNo,1);
+                end
+            end
+
+            for iter = 1:size(distLoad,2)
+                Fp = sparse(6*size(obj.femutils.usedVerts,2),1);
+                interpLoad = obj.verts2centerMat'*(distLoad(:,iter).*obj.area);
+                vNormal = vertexNormal(obj.tri);
+                %femPointLoad = obj.fem2aeroMat'*interpLoad;
+                vertsLoad = vNormal.*interpLoad;
+                if selfLoadFlag == 1
+                    selfLoad = obj.femverts2centerMat'*(9.8.*obj.femarea.*obj.femThn.*obj.femRho);
+                end
+                femPointLoad = zeros(size(obj.femtri.Points,1),3);
+                femPointLoad(obj.femutils.usedVerts,1) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,1);
+                femPointLoad(obj.femutils.usedVerts,2) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,2);
+                if selfLoadFlag == 1
+                    femPointLoad(obj.femutils.usedVerts,3) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,3) + selfLoad(obj.femutils.usedVerts,1);
+                else
+                    femPointLoad(obj.femutils.usedVerts,3) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,3);
+                end
+                for i = 1:size(obj.femutils.usedVerts,2) 
+                    Fp(i,1) = -femPointLoad(i,1);
+                    Fp(i+size(obj.femtri.Points,1),1) = -femPointLoad(i,2);
+                    Fp(i+2*size(obj.femtri.Points,1),1) = -femPointLoad(i,3);
+                end
+                femRHSp = Fp(obj.femutils.MatIndex==1,1);
+                fmode = Fmodal'*femRHSp;
+                MassEx = blkdiag(eye(size(fmode,1)),Fmodal'*obj.femMass*Fmodal);
+                AEx = [zeros(size(fmode,1)),eye(size(fmode,1));-Fmodal'*obj.femLHS*Fmodal,-Fmodal'*obj.femDamp*Fmodal];
+                fEx = [zeros(size(fmode,1),1);fmode];
+                options = odeset('Mass',MassEx,"Jacobian",AEx,"Vectorized","on","RelTol",obj.settingUNLSI.ode23RelTol,"AbsTol",obj.settingUNLSI.ode23AbsTol,"NormControl","off");
+                %deltaから初期値の復元
+                warning('off','MATLAB:singularMatrix')
+                %try
+                %    [~,ybuff] = ode15s(@(t,d)(AEx*d+fEx),tspan,[y;yd],options);
+                %catch
+                    [~,ybuff] = ode23(@(t,d)(AEx*d+fEx),tspan,[z{iter}(:,1);zdot{iter}(:,1)],options);
+                %end
+                z{iter}(:,1) = ybuff(end,1:modalNo)';
+                zdot{iter}(:,1) = ybuff(end,modalNo+1:end);
+                warning('on')
+                if nargout>2
+                    delta{iter} = obj.femSol2Delta(Fmodal*z{iter});
+                    deltadot{iter} = obj.femSol2Delta(Fmodal*zdot{iter});
+                end
+            end
+        end
+
+        %空力弾性のフラッター速度解析用のdelta偏微分を取得する
+        function obj = calcAeroelasticDerivative(obj,obj2,delta,alpha,beta,Mach,Re)
+            %deltaから機体メッシュを再生成
+            calcCount = 1;
+            for iter = 1:numel(alpha)
+                %delta微分の計算
+                %dR_ddelta
+                deltap0_buff = delta{calcCount}(:);
+                deltap0 = deltap0_buff(obj.femutils.MatIndex==1,1);
+                %基準の解析
+                deltapf = deltap0;
+                disp_buff = zeros(size(obj.femtri.Points,1)*6,1);
+                disp_buff(obj.femutils.InvMatIndex,1)=deltapf;
+                delta0 = delta;
+                delta0{calcCount} = zeros(size(obj.femtri.Points,1),6);
+                delta0{calcCount}(obj.femutils.usedVerts,1)=disp_buff(1:obj.femutils.nbVerts,1);
+                delta0{calcCount}(obj.femutils.usedVerts,2)=disp_buff(obj.femutils.nbVerts+1:2*obj.femutils.nbVerts,1);
+                delta0{calcCount}(obj.femutils.usedVerts,3)=disp_buff(2*obj.femutils.nbVerts+1:3*obj.femutils.nbVerts,1);
+                delta0{calcCount}(obj.femutils.usedVerts,4)=disp_buff(3*obj.femutils.nbVerts+1:4*obj.femutils.nbVerts,1);
+                delta0{calcCount}(obj.femutils.usedVerts,5)=disp_buff(4*obj.femutils.nbVerts+1:5*obj.femutils.nbVerts,1);
+                delta0{calcCount}(obj.femutils.usedVerts,6)=disp_buff(5*obj.femutils.nbVerts+1:6*obj.femutils.nbVerts,1);
+                modVerts = obj.calcModifiedVerts(delta0{calcCount});
+                obj3 = obj2.makeApproximatedInstance(modVerts,1);
+                obj3 = obj3.solveFlow(alpha(iter),beta(iter),Mach(iter),Re(iter));
+                distLoad = obj3.getCp(alpha(iter),beta(iter),Mach(iter),Re(iter));
+                Fp = sparse(6*size(obj.femutils.usedVerts,2),1);
+                interpLoad = obj.verts2centerMat'*(distLoad.*obj.area);
+                vNormal = vertexNormal(obj.tri);
+                %femPointLoad = obj.fem2aeroMat'*interpLoad;
+                vertsLoad = vNormal.*interpLoad;
+                selfLoadFlag = 1;
+                if selfLoadFlag == 1
+                    selfLoad = obj.femverts2centerMat'*(9.8.*obj.femarea.*obj.femThn.*obj.femRho);
+                end
+                femPointLoad = zeros(size(obj.femtri.Points,1),3);
+                femPointLoad(obj.femutils.usedVerts,1) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,1);
+                femPointLoad(obj.femutils.usedVerts,2) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,2);
+                if selfLoadFlag == 1
+                    femPointLoad(obj.femutils.usedVerts,3) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,3) + selfLoad(obj.femutils.usedVerts,1);
+                else
+                    femPointLoad(obj.femutils.usedVerts,3) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,3);
+                end
+                for i = 1:size(obj.femutils.usedVerts,2) 
+                    Fp(i,1) = -femPointLoad(i,1);
+                    Fp(i+size(obj.femtri.Points,1),1) = -femPointLoad(i,2);
+                    Fp(i+2*size(obj.femtri.Points,1),1) = -femPointLoad(i,3);
+                end
+                femRHSp0 = Fp(obj.femutils.MatIndex==1,1);
+                pert = sqrt(eps);
+                for k = 1:size(deltap0,1)
+                    if k <= sum(obj.femutils.MatIndex(1:sub2ind(size(delta{calcCount}),1,4)))
+                        deltapf = deltap0;
+                        deltapf(k,1) = deltap0(k,1)+pert;
+                        disp_buff = zeros(size(obj.femtri.Points,1)*6,1);
+                        disp_buff(obj.femutils.InvMatIndex,1)=deltapf;
+                        deltaf = delta;
+                        deltaf{calcCount} = zeros(size(obj.femtri.Points,1),6);
+                        deltaf{calcCount}(obj.femutils.usedVerts,1)=disp_buff(1:obj.femutils.nbVerts,1);
+                        deltaf{calcCount}(obj.femutils.usedVerts,2)=disp_buff(obj.femutils.nbVerts+1:2*obj.femutils.nbVerts,1);
+                        deltaf{calcCount}(obj.femutils.usedVerts,3)=disp_buff(2*obj.femutils.nbVerts+1:3*obj.femutils.nbVerts,1);
+                        deltaf{calcCount}(obj.femutils.usedVerts,4)=disp_buff(3*obj.femutils.nbVerts+1:4*obj.femutils.nbVerts,1);
+                        deltaf{calcCount}(obj.femutils.usedVerts,5)=disp_buff(4*obj.femutils.nbVerts+1:5*obj.femutils.nbVerts,1);
+                        deltaf{calcCount}(obj.femutils.usedVerts,6)=disp_buff(5*obj.femutils.nbVerts+1:6*obj.femutils.nbVerts,1);
+                        modVerts = obj.calcModifiedVerts(deltaf{calcCount});
+                        obj3 = obj2.makeApproximatedInstance(modVerts,1);
+                        obj3 = obj3.solveFlow(alpha(iter),beta(iter),Mach(iter),Re(iter));
+                        distLoad = obj3.getCp(alpha(iter),beta(iter),Mach(iter),Re(iter));
+                        Fp = sparse(6*size(obj.femutils.usedVerts,2),1);
+                        interpLoad = obj.verts2centerMat'*(distLoad.*obj.area);
+                        vNormal = vertexNormal(obj.tri);
+                        %femPointLoad = obj.fem2aeroMat'*interpLoad;
+                        vertsLoad = vNormal.*interpLoad;
+                        if selfLoadFlag == 1
+                            selfLoad = obj.femverts2centerMat'*(9.8.*obj.femarea.*obj.femThn.*obj.femRho);
+                        end
+                        femPointLoad = zeros(size(obj.femtri.Points,1),3);
+                        femPointLoad(obj.femutils.usedVerts,1) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,1);
+                        femPointLoad(obj.femutils.usedVerts,2) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,2);
+                        if selfLoadFlag == 1
+                            femPointLoad(obj.femutils.usedVerts,3) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,3) + selfLoad(obj.femutils.usedVerts,1);
+                        else
+                            femPointLoad(obj.femutils.usedVerts,3) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,3);
+                        end
+                        for i = 1:size(obj.femutils.usedVerts,2) 
+                            Fp(i,1) = -femPointLoad(i,1);
+                            Fp(i+size(obj.femtri.Points,1),1) = -femPointLoad(i,2);
+                            Fp(i+2*size(obj.femtri.Points,1),1) = -femPointLoad(i,3);
+                        end
+                        femRHSp = Fp(obj.femutils.MatIndex==1,1);
+                        obj.df_ddelta(:,k) = (femRHSp-femRHSp0)./pert;
+                        disp(k);
+                    else
+                        obj.df_ddelta(:,k) = 0;
+                    end
+                end
+                calcCount = calcCount + 1;
+            end
+
+        end
+
         function delta = femSol2Delta(obj,femSol)
+            disp_buff = zeros(size(obj.femtri.Points,1)*6,1);
             disp_buff(obj.femutils.InvMatIndex,1)=femSol;
-            delta = zeros(size(obj.femtri.Points));
+            delta = zeros(size(obj.femtri.Points,1),6);
             delta(obj.femutils.usedVerts,1)=disp_buff(1:obj.femutils.nbVerts,1);
             delta(obj.femutils.usedVerts,2)=disp_buff(obj.femutils.nbVerts+1:2*obj.femutils.nbVerts,1);
             delta(obj.femutils.usedVerts,3)=disp_buff(2*obj.femutils.nbVerts+1:3*obj.femutils.nbVerts,1);
+            delta(obj.femutils.usedVerts,4)=disp_buff(3*obj.femutils.nbVerts+1:4*obj.femutils.nbVerts,1);
+            delta(obj.femutils.usedVerts,5)=disp_buff(4*obj.femutils.nbVerts+1:5*obj.femutils.nbVerts,1);
         end
 
         function deltaInterp = interpFemDelta(obj,delta,xyzinAeroMesh)
@@ -3715,9 +4302,132 @@ classdef UNLSI
             modVerts(obj.femutils.usedAeroVerts,2) = obj.tri.Points(obj.femutils.usedAeroVerts,2) + obj.fem2aeroMat*delta(obj.femutils.usedVerts,2);
             modVerts(obj.femutils.usedAeroVerts,3) = obj.tri.Points(obj.femutils.usedAeroVerts,3) + obj.fem2aeroMat*delta(obj.femutils.usedVerts,3);
         end
+        function  exportDrawing(obj,filename,exportID,intersectYpos,outputYpos)
+           exportTri.faces = obj.tri.ConnectivityList(any(obj.surfID==exportID(:)',2),:);
+           exportTri.vertices = obj.tri.Points;
+           cutBox = [min(exportTri.vertices(unique(exportTri.faces(:)),[1,3]));max(exportTri.vertices(unique(exportTri.faces(:)),[1,3]))];
+           cutSurf.vertices = [cutBox(1,1),intersectYpos,cutBox(1,2);cutBox(2,1),intersectYpos,cutBox(1,2);cutBox(1,1),intersectYpos,cutBox(2,2);cutBox(2,1),intersectYpos,cutBox(2,2)];
+           cutSurf.faces = [1,2,4;1,4,3];
+           [intMatrix, intSurface] = obj.SurfaceIntersection(obj,exportTri, cutSurf);
+           orgChord = [intSurface.vertices(:,1),intSurface.vertices(:,3)];
+           [~,LEindex] = min(orgChord(:,1));
+           xyorg = orgChord(LEindex,:);
+           [~,TEindex] = max(orgChord(:,1));
+           xymax = orgChord(TEindex,:);
+           alfa = -atan2(xymax(2)-xyorg(2),xymax(1)-xyorg(1));
+           chord = norm(xymax-xyorg);
+           modChord = (orgChord-xyorg)*[cos(alfa),sin(alfa);-sin(alfa),cos(alfa)]./chord;
+           %
+           A = [modChord(:,1).^4,modChord(:,1).^3,modChord(:,1).^2,modChord(:,1)];
+           c = [1,1,1,1];
+           g = [2.*A'*A,c';c,0];
+           b = [2.*A'*modChord(:,2);0];
+           w = g\b;
+           y = A*w(1:4);
+           isUpper = (modChord(:,2)-y)>0;
+           isLower = (modChord(:,2)-y)<0;
+
+           figure(1);clf;hold on;
+           plot(modChord(:,1),modChord(:,2));
+           plot(modChord(:,1),y);
+           %前縁後縁の点を配して
+           x0 = [-0.33,0.2,alfa,chord,0.126,0.3669,-0.13634,0.78991,-0.37624,0.71142,-0.02436,0.2844,0.3669,-0.13634,0.78991,-0.37624,0.71142,-0.02436,0.2844];
+           test = fminunc(@(x)obj.fittingCST(obj,x,orgChord,isUpper,isLower,xyorg,alfa,chord),x0);
+            x = linspace(0,1,100)';
+            wU = test(5:12);
+            wL = [-test(5),test(13:19)];
+            yU = obj.CSTClassShape(wU,x,0.5,1,0);
+            yL = obj.CSTClassShape(wL,x,0.5,1,0);
+            figure(1);clf;hold on;
+            plot(modChord(:,1),modChord(:,2));
+            plot(x,yL);
+            plot(x,yU);
+        end
+
 
     end        
     methods(Static)
+
+        function res = fittingCST(obj,x,orgChord,isUpper,isLower,xyorg,alfa,chord)
+            xyorg = x(1:2);
+            alfa = x(3);
+            chord = x(4);
+            wU = x(5:12);
+            wL = [-x(5),x(13:19)];
+            %変更上面下面の判定
+            modChord = (orgChord-xyorg)*[cos(alfa),sin(alfa);-sin(alfa),cos(alfa)]./chord;
+            yU = obj.CSTClassShape(wU,modChord(isUpper,1),0.5,1,0);
+            yL = obj.CSTClassShape(wL,modChord(isLower,1),0.5,1,0);
+            %canberlineを探す
+            res = sum((yU-modChord(isUpper,2)).^2)+sum((yL-modChord(isLower,2)).^2);
+            disp(res)
+            figure(1);clf;hold on;
+            plot(modChord(:,1),modChord(:,2));
+            plot(modChord(isUpper,1),yU);
+            plot(modChord(isLower,1),yL);
+        end
+        function [coord] = CSTAirfoil(wl,wu,dz,N)
+            %% Function to calculate class and shape function
+
+            % Description : Create a set of airfoil coordinates using CST parametrization method 
+            % Input  : wl = CST weight of lower surface
+            %          wu = CST weight of upper surface
+            %          dz = trailing edge thickness
+            % Output : coord = set of x-y coordinates of airfoil generated by CST
+            
+            
+            % Create x coordinate
+            x=ones(N+1,1);y=zeros(N+1,1);zeta=zeros(N+1,1);
+            for i=1:N+1
+                zeta(i)=2*pi/N*(i-1);
+                x(i)=0.5*(cos(zeta(i))+1);
+            end
+            
+            % N1 and N2 parameters (N1 = 0.5 and N2 = 1 for airfoil shape)
+            N1 = 0.5;
+            N2 = 1;
+            
+            zerind = find(x(:,1) == 0); % Used to separate upper and lower surfaces
+            
+            xl= x(1:zerind-1); % Lower surface x-coordinates
+            xu = x(zerind:end); % Upper surface x-coordinates
+            
+            [yl] = ClassShape(wl,xl,N1,N2,-dz); % Call ClassShape function to determine lower surface y-coordinates
+            [yu] = ClassShape(wu,xu,N1,N2,dz);  % Call ClassShape function to determine upper surface y-coordinates
+            
+            y = [yl;yu]; % Combine upper and lower y coordinates
+            
+            coord = [x y]; % Combine x and y into single output
+        end
+        
+        function [y] = CSTClassShape(w,x,N1,N2,dz)
+                % Class function; taking input of N1 and N2
+                for i = 1:size(x,1)
+                    C(i,1) = x(i)^N1*((1-x(i))^N2);
+                end
+                
+                % Shape function; using Bernstein Polynomials
+                n = size(w,2)-1; % Order of Bernstein polynomials
+                
+                for i = 1:n+1
+                     K(i) = factorial(n)/(factorial(i-1)*(factorial((n)-(i-1))));
+                end
+                
+                for i = 1:size(x,1)
+                    S(i,1) = 0;
+                    for j = 1:n+1
+                        S(i,1) = S(i,1) + w(j)*K(j)*x(i)^(j-1)*((1-x(i))^(n-(j-1)));
+                    end
+                end
+                
+                % Calculate y output
+                for i = 1:size(x,1)
+                   y(i,1) = C(i,1)*S(i,1) + x(i)*dz;
+                end
+            end
+
+
+
 
         function res = softplus(x,beta)
             res = 1./beta * log(1+exp(beta.*x));
@@ -6106,7 +6816,7 @@ end
             %M = val_interp*pp.val_samp';
             %r = sqrt(H1-2.*M+H2);
             r = obj.calcRMat(pp.val_samp,val_interp);
-            fi = phi(r,pp.R0)'*pp.w(:);
+            fi = phi(r,pp.R0)'*pp.w;
         end
 
         function [intMatrix, intSurface] = SurfaceIntersection(obj,surface1, surface2, varargin)
@@ -6939,8 +7649,182 @@ end
         b = mod(a+1,3)+1;  % b and c are vertices which are on the same side of the plane
         c = 6-a-b;         % a+b+c = 6
         end
+       
+
+        function [pVError, nError] = distanceVertex2Mesh(mesh, vertex)
+        % DISTANCEVERTEX2MESH - calculate the distance between vertices and a mesh
+        %
+        % Syntax: [pVError, nError] = distanceVertex2Mesh(mesh, vertice)
+        %
+        % Inputs:
+        %   mesh -  the mesh which is used as a reference for the distance
+        %           calculation. 'mesh' needs to be a structure with two fields
+        %           called 'vertices' and 'faces', where 'vertices' is a n x 3
+        %           matrix defining n vertices in 3D space, and faces is a m x 3
+        %           matrix defining m faces with 3 vertice ids each.
+        %   vertice(s) -    vertices is a q x 3 matrix defining q vertices in 3D
+        %                   space
+        %
+        % Outputs:
+        %   pVError -   q x 1 array containing the shortest distance for each of
+        %               the q input vertices to the surface of the 'mesh'
+        %   nError -    average normalized error: the error is normalized for a
+        %               densely sampled mesh of a unit sphere of radius 1 and
+        %               center 0,0,0
+        %
+        %
+        % Example:
+        % [x,y,z] = sphere(20); % create a unit sphere of 441 samples
+        % ball = surf2patch(x,y,z,'triangles');
+        %                       % create triangulation of vertices
+        %                       % ball is a structure with faces and vertices
+        % vertices = 1.1 .* [x(:),y(:),z(:)];
+        %                       % create list of vertices, where all vertices
+        %                       % are shifted by 0.1 outwards
+        % [pVError, nError] = distanceVertex2Mesh(ball, vertices);
+        %                       % pVError is a list of 441 x 1 with 0.1 per entry
+        %                       % nError is a single value of 0.1
+        %
+        % Other m-files required: none
+        % Subfunctions:
+        %   distance3DP2P (calculate distance of point to vertex)
+        %   distance3DP2E (calculate distance of point to edge)
+        %   distance3DP2F (calculate distance of point to face)
+        % MAT-files required: none
+        %
+        % See also: surf2patch
+        %
+        % Author: Christopher Haccius
+        % Telecommunications Lab, Saarland University, Germany
+        % email: haccius@nt.uni-saarland.de
+        % March 2015; Last revision: 26-March-2015
+                % Point-to-Point Distance in 3D Space
+        function dist = distance3DP2V(v1,v2)
+            dist = norm(v1-v2);% Euclidean distance
+        end
         
-
+        % Point-to-LineSegment Distance in 3D Space, Line defined by 2 Points (2,3)
+        function dist = distance3DP2E(v1,v2,v3)
+            d = norm(cross((v3-v2),(v2-v1)))/norm(v3 - v2);
+            % check if intersection is on edge
+            s = - (v2-v1)*(v3-v2)' / (norm(v3-v2))^2;
+            if (s>=0 && s<=1)
+                dist = d;
+            else
+                dist = inf;
+            end
+        end
+        
+        % Point-to-Face Distance in 3D Space, Face defined by 3 Points (2,3,4)
+        function dist = distance3DP2F(v1,v2,v3,v4)
+            n = cross((v4-v2),(v3-v2)) / norm(cross((v4-v2),(v3-v2)));
+            d = abs(n * (v1 - v2)');
+            % check if intersection is on face
+            n = cross((v4-v2),(v3-v2)) / norm(cross((v4-v2),(v3-v2)));
+            f1 = v1 + d * n;
+            f2 = v1 - d * n;
+            m = [v3-v2;v4-v2]';
+            try 
+                r1 = m\(f1-v2)';
+            catch
+                r1 = [inf;inf];
+            end
+            try
+                r2 = m\(f2-v2)';
+            catch
+                r2 = [inf;inf];
+            end
+            if ((sum(r1)<=1 && sum(r1)>=0 && all(r1 >=0) && all(r1 <=1)) || ...
+                    (sum(r2)<=1 && sum(r2)>=0 && all(r2 >=0) && all(r2 <=1)))
+                dist = d;
+            else
+                dist = inf;
+            end
+        end
+        warning ('off','MATLAB:rankDeficientMatrix'); % turn off warnings for 
+                    % defficient ranks occuring in point-to-face distance
+                    % calculation
+        
+        %vertices = mesh.vertices;
+        %faces = mesh.faces;
+        %morita Modified
+        vertices = mesh.Points;
+        faces = mesh.ConnectivityList;
+        
+        [numV,dim] = size(vertices);
+        [numF,pts] = size(faces);
+        
+        [tV,dimT] = size(vertex);
+        
+        if(pts~=3)
+            error('Only Triangulations allowed (Faces do not have 3 Vertices)!');
+        elseif (dim~=dimT || dim~=3)
+            error('Mesh and Vertices must be in 3D space!');
+        end
+        
+        % initialie minimal distance to infinty
+        d_min = Inf(tV,1);
+        
+        % first check: find closest vertex
+        for c1 = 1:tV % iterate over all test vertices
+            for c2 = 1:numV % iterate over all mesh vertices
+                v1 = vertex(c1,:);
+                v2 = vertices(c2,:);
+                d = distance3DP2V(v2,v1); % Euclidean distance
+                if d < d_min(c1)
+                    d_min(c1) = d;
+                end
+            end
+        end
+        
+        % second check: find closest edge
+        for c1 = 1:tV % iterate over all test vertices
+            for c2 = 1:numF % iterate over all faces
+                for c3 = 1:2 % iterate over all edges of the face
+                    for c4 = c3+1:3
+                        v1 = vertex(c1,:);
+                        v2 = vertices(faces(c2,c3),:);
+                        v3 = vertices(faces(c2,c4),:);
+                        % check if edge is possible
+                        if ( all(min(v2,v3) < (v1 + d_min(c1))) && ...
+                             all(max(v2,v3) > (v1 - d_min(c1))) )
+                            d = distance3DP2E(v1,v2,v3);
+                            if d < d_min(c1) % d is shorter than previous shortest
+                                d_min(c1) = d;
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        
+        % third check: find closest face
+        for c1 = 1:tV % iterate over all test vertices
+            for c2 = 1:numF % iterate over all faces
+                v1 = vertex(c1,:);
+                v2 = vertices(faces(c2,1),:);
+                v3 = vertices(faces(c2,2),:);
+                v4 = vertices(faces(c2,3),:);
+                % check if face is possible
+                if ( all(min([v2;v3;v4]) < (v1 + d_min(c1))) && ...
+                     all(max([v2;v3;v4]) > (v1 - d_min(c1))) )
+                    d = distance3DP2F(v1,v2,v3,v4);
+                    if d < d_min(c1)
+                        d_min(c1) = d;
+                    end
+        
+                end
+            end
+        end
+        
+        pVError = d_min; % output error per vertex is d_min
+        minS = min(vertices); % get size of mesh
+        maxS = max(vertices);
+        s = 1/sqrt(3) * norm(0.5 * (maxS - minS)); % calculate size of mesh
+        nError = sum(pVError) / (s * tV); % average and normalize error
+        end % end of function
+        
+       
+    
     end
-
 end

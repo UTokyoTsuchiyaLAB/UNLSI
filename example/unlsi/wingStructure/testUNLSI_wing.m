@@ -24,11 +24,13 @@ wing = wing.setFemMesh(verts,con,femID);%すべての空力メッシュIDとfem�
 disp("weight");
 disp(weight);
 wing = wing.makeFemEquation();
+wing = wing.femModalAnalysis(5);
 %
 
 wing2 = wing;
 for iter = 1
-    delta = wing.solveFem(wing2.getCp(alpha,0,0.001,Re).*Vinf.^2.*1.225.*0.5,1);
+    delta = wing.solveModalFem(wing2.getCp(alpha,0,0.001,Re).*Vinf.^2.*1.225.*0.5,1);
+    %delta = wing.solveFem(wing2.getCp(alpha,0,0.001,Re).*Vinf.^2.*1.225.*0.5,1);
     deltaInterp = wing.interpFemDelta(delta{1},[0,10,0;4,10,0]);
     disp("Tip twist(deg)");
     disp(atan2d(deltaInterp(1,3)-deltaInterp(2,3),4));

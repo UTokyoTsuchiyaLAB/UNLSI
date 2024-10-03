@@ -1,9 +1,0 @@
-void main()
-{
-    ReadApplyDESFile("mod.des");
-    Update();   
-    
-    string meshid = ExportFile( "modGeom.vspgeom", 0, EXPORT_VSPGEOM );
-    DeleteGeom( meshid );
- 
-}

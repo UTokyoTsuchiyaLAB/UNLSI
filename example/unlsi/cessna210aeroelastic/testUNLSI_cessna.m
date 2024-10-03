@@ -1,4 +1,4 @@
-%
+
 %%%%%%%%ここから
 clear;
 [con, p, uv1, uv2, uv3, wedata, id] = readvspgeom( "Cessna-210.vspgeom", 0);%形状の読み込み
@@ -11,10 +11,11 @@ cessna = cessna.makeEquation(); %パネル法行列の作成
 %}
 %
 cessna = cessna.setFemMesh(vertsfem,confem,idfem,[5]);%空力メッシュ5番とfemメッシュを対応付ける
-[cessna,weight] = cessna.setFemMaterials([1,2,3],[0.001,0.003,0.003],[73500000000,73500000000,73500000000],[2700,2700,2700],[100,100,100]);
+[cessna,weight] = cessna.setFemMaterials([1,2,3],[0.002,0.003,0.003],[73500000000,73500000000,73500000000],[2700,2700,2700],[100,100,100]);
 disp("weight");
 disp(weight);
 cessna = cessna.makeFemEquation();
+cessna = cessna.femModalAnalysis(15);%モード解析用の固有値解析
 %%%%%%%%ここまでは一度計算すればスキップできる
 %}
 %
@@ -23,16 +24,29 @@ cessna = cessna.setWakeShape([1,0,0]);
 cessna = cessna.solveFlow(alpha,0,0.001,2.3*10^6); %パネル法を解く
 cessna.plotGeometry(1,cessna.getCp(alpha),[-2,1]);%圧力係数のプロット
 disp(cessna.getAERODATA(alpha))
+%モード形状
+for i = 1:10
+    delta{1} = cessna.femSol2Delta(cessna.femEigenVec(:,i).*100);
+    modVerts = cessna.calcModifiedVerts(delta{1}); %構造メッシュの変形に従って空力メッシュを変形
+    cessna2 = cessna.setVerts(modVerts); %節点の移動のみ
+    cessna2.plotGeometry(i+2,cessna.getCp(alpha),[-3,1.5]);
+end
+%
+
+
+
 cessna2 = cessna; %空力弾性計算用に元のインスタンスを取っておく
 dt = 0.05; %時間区切り
-
+Vinf = 80;
 for i = 1:100
     disp(i);
     tic;
     if i == 1
-        [delta,deltadot]  = cessna2.solveAeroelastic([0,dt],[],[],cessna2.getCp(alpha,0,0.001,2.3*10^6).*80.^2.*1.225.*0.5,1); %空力弾性計算　初期値0
+        %[delta,deltadot]  = cessna2.solveAeroelastic([0,dt],[],[],cessna2.getCp(alpha,0,0.001,2.3*10^6).*80.^2.*1.225.*0.5,1); %空力弾性計算　初期値0
+        [z,zdot,delta,deltadot]  = cessna2.solveModalAeroelastic([0,dt],[],[],cessna2.getCp(alpha,0,0.001,2.3*10^6).*Vinf.^2.*1.225.*0.5,1); %空力弾性計算　初期値0
     else
-        [delta,deltadot]  = cessna2.solveAeroelastic([0,dt],delta,deltadot,cessna2.getCp(alpha,0,0.001,2.3*10^6).*80.^2.*1.225.*0.5,1);%空力弾性計算
+        %[delta,deltadot]  = cessna2.solveAeroelastic([0,dt],delta,deltadot,cessna2.getCp(alpha,0,0.001,2.3*10^6).*80.^2.*1.225.*0.5,1);%空力弾性計算
+        [z,zdot,delta,deltadot]  = cessna2.solveModalAeroelastic([0,dt],z,zdot,cessna2.getCp(alpha,0,0.001,2.3*10^6).*Vinf.^2.*1.225.*0.5,1);%空力弾性計算
     end
     toc;
     modVerts = cessna.calcModifiedVerts(delta{1}); %構造メッシュの変形に従って空力メッシュを変形
@@ -42,7 +56,7 @@ for i = 1:100
     cessna2 = cessna2.solveFlow(alpha,0,0.001,2.3*10^6);%パネル法を解く
     disp(cessna2.getAERODATA(alpha,0));
     cessna2.plotGeometry(2,cessna2.getCp(alpha,0,0.001,2.3*10^6),[-3,1.5]);
-    cessna2.plotWakeShape(2);
+    %cessna2.plotWakeShape(2);
     M(i) = getframe(gcf);
     videoMaker(M,"cessnaCalculating",1/dt)
 end
