@@ -1,13 +1,9 @@
 # VSPGEOM Tag Key File
-C:\Users\building13\Dropbox\UNLSI\example\unlsi\HPAstructure\FWpeller2.vspgeom
-8
+C:\Users\aerospace\Dropbox\research\UNLSI\example\unlsi\HPAaeroelastic\FWpeller2.vspgeom
+4
 
 # tag#,geom#,surf#,gname,gid,ssname1,ssname2,...,ssid1,ssid2,...
-1,7,0,WingGeom_S,CTJVKSGXSC
-2,6,0,WingGeom_S,CZDKEBBZLI
-3,3,0,WingGeom_S,KIVBEZRVSU
-4,1,0,PropGeom_S,ULFXPCRPAW
-5,0,0,StackGeom_S,XCFRVIYJQB
-6,4,0,FuselageGeom_S,IJQRFMHKDG
-7,5,0,StackGeom_S,DISTXDMEGM
-8,2,0,StackGeom_S,RPUXNTJAUN
+1,3,0,WingGeom_S,AFBDPTZPSY
+2,2,0,WingGeom_S,JTSWJWYJJC
+3,1,0,WingGeom_S,NZMXREBBMF
+4,0,0,StackGeom_S,RFXEFDARVP

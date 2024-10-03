@@ -7,5 +7,5 @@ function [res,con] = objFun(x,AERODATA,DYNCOEF,Cp,Cfe,SREF,BREF,CREF,XYZREF,argi
     J = 7/(rpm/60)/BREF;
     efficiency = CT*J/Cp;
     res = -efficiency;%効率の最大化
-    con(1,1) = -AERODATA{1}(15) * 0.5 * 7 ^2 * SREF * 1.225/100;%推力の制約
+    con(1,1) = -AERODATA{1}(15) * 0.5 * 7 ^2 * SREF * 1.225/10;%推力の制約
 end

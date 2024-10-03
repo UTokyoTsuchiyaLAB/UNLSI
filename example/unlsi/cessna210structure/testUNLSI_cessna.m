@@ -14,6 +14,7 @@ cessna = cessna.setFemMesh(vertsfem,confem,idfem,[5]);%空力メッシュ5番と
 disp("weight");
 disp(weight);
 cessna = cessna.makeFemEquation();
+cessna = cessna.femModalAnalysis(15);
 %%%%%%%%ここまでは一度計算すればスキップできる
 %}
 %
@@ -23,7 +24,8 @@ cessna.plotGeometry(1,cessna.getCp(alpha),[-2,1]);%圧力係数のプロット
 disp(cessna.getAERODATA(alpha))
 cessna2 = cessna;%変位後の空力解析用のインスタンスを準備
 for iter = 1
-    delta = cessna.solveFem(cessna2.getCp(alpha).*80.^2.*1.225.*0.5);
+    %delta = cessna.solveFem(cessna2.getCp(alpha).*80.^2.*1.225.*0.5);
+    delta = cessna.solveModalFem(cessna2.getCp(alpha).*80.^2.*1.225.*0.5);
     modVerts = cessna.calcModifiedVerts(delta{1});
     cessna2 = cessna2.setVerts(modVerts);
     cessna2 = cessna2.makeEquation(); %パネル法行列の作成

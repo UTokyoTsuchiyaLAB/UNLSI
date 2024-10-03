@@ -1,17 +1,17 @@
 
 %
 clear;
-orgVal = [ones(1,6)*30, ones(1,5)*0.2]; %設計変数の初期値
+orgVal = [ones(1,10)*30, ones(1,10)*0.2]; %設計変数の初期値
 
 Machrange = [0.001]; %解析するマッハ数
 alpharange = [0]; %解析する迎角
 betarange = [0]; %解析する横滑り角
 geomErr = 0.005;
 
-lb = [ones(1,6)* 0, ones(1,5)*0.05]; %設計変数の下限値
-ub = [ones(1,6)*90, ones(1,5)*0.3]; %設計変数の上限値
-cmin = [25/100]';%制約条件の下限値 //推力
-cmax = [30/100]';%制約条件の上限値
+lb = [ones(1,10)* 0, ones(1,10)*0.05]; %設計変数の下限値
+ub = [ones(1,10)*90, ones(1,10)*0.3]; %設計変数の上限値
+cmin = [23/10]';%制約条件の下限値 //推力
+cmax = [25/10]';%制約条件の上限値
 
 ungradetest = UNGRADE(@(x)vspMeshGen(x,"prop","org.des"),@(x)vspGeomGen(x,"prop","org.des"),orgVal,lb,ub,0);%コンストラクタの実行
 ungradetest.checkGeomGenWork(0.5);%設計変数が動いているかチェックする
