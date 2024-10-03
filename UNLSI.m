@@ -1338,9 +1338,10 @@ classdef UNLSI
                 end
                 % paneltype == 1以外を削除する
                 obj.approxFemMat.calcIndex{i} = vertAttach{i};
-                obj.approxFemMat.dLHSX{i} = sparse(size(obj.femLHS));
-                obj.approxFemMat.dLHSY{i} = sparse(size(obj.femLHS));
-                obj.approxFemMat.dLHSZ{i} = sparse(size(obj.femLHS));
+                matsize = size(obj.femLHS);
+                obj.approxFemMat.dLHSX{i} = sparse(matsize(1),matsize(2));
+                obj.approxFemMat.dLHSY{i} = sparse(matsize(1),matsize(2));
+                obj.approxFemMat.dLHSZ{i} = sparse(matsize(1),matsize(2));
                 j=1;%X
                 newVerts = obj.femtri.Points;
                 newVerts(i,j) = obj.femtri.Points(i,j)+pert;
@@ -3367,8 +3368,8 @@ classdef UNLSI
                 %基準メッシュから構造メッシュへの投影UNGRADE用
                 meshScaling = abs(max(obj.tri.Points(obj.femutils.usedAeroVerts,:),[],1)-min(obj.tri.Points(obj.femutils.usedAeroVerts,:),[],1));
                 meshScaling(meshScaling==0) = 1;
-                Agg = obj.phiRBF(obj.calcRMat(obj.tri.Points(obj.femutils.usedAeroVerts,:)./meshScaling,obj.tri.Points(obj.femutils.usedAeroVerts,:)./meshScaling));
-                Amg = obj.phiRBF(obj.calcRMat(obj.femtri.Points(obj.femutils.usedVerts,:)./meshScaling,obj.tri.Points(obj.femutils.usedAeroVerts,:)./meshScaling));
+                Agg = phi(obj.calcRMat(obj.tri.Points(obj.femutils.usedAeroVerts,:)./meshScaling,obj.tri.Points(obj.femutils.usedAeroVerts,:)./meshScaling));
+                Amg = phi(obj.calcRMat(obj.femtri.Points(obj.femutils.usedVerts,:)./meshScaling,obj.tri.Points(obj.femutils.usedAeroVerts,:)./meshScaling));
                 obj.aero2femMat = Amg*pinv(Agg);
             end
 
@@ -3413,6 +3414,9 @@ classdef UNLSI
         function obj = makeFemEquation(obj,calcID)
             if nargin<2
                 calcID = 1:size(obj.femtri.ConnectivityList,1);
+                skipFlag = 0;
+            else
+                skipFlag = 1;
             end
             nu = 0.34;
             qps = [1/6,1/6;2/3,1/6;1/6,2/3];
@@ -3630,27 +3634,29 @@ classdef UNLSI
             obj.femDamp(obj.femutils.MatIndex==0,:)=[];
             obj.femDamp(:,obj.femutils.MatIndex==0)=[];
 
-            %すべてが0の項の処理
-            delIndex = or(all(obj.femMass==0), all(obj.femLHS==0));
-            obj.femLHS(delIndex,:) = [];
-            obj.femLHS(:,delIndex) = [];
-            obj.femMass(delIndex,:) = [];
-            obj.femMass(:,delIndex) = [];
-            obj.femDamp(delIndex,:) = [];
-            obj.femDamp(:,delIndex) = [];
-            obj.femutils.InvMatIndex(delIndex,:) = [];
-            delIndexNo = find(delIndex);
-            si = 1;
-            delIndex2 = [];
-            for i = 1:size(obj.femutils.MatIndex,1)
-                if obj.femutils.MatIndex(i) == 1
-                    if any(si==delIndexNo)
-                        delIndex2 = [delIndex2,i];
+            if skipFlag == 0
+                %すべてが0の項の処理
+                delIndex = or(all(obj.femMass==0), all(obj.femLHS==0));
+                obj.femLHS(delIndex,:) = [];
+                obj.femLHS(:,delIndex) = [];
+                obj.femMass(delIndex,:) = [];
+                obj.femMass(:,delIndex) = [];
+                obj.femDamp(delIndex,:) = [];
+                obj.femDamp(:,delIndex) = [];
+                obj.femutils.InvMatIndex(delIndex,:) = [];
+                delIndexNo = find(delIndex);
+                si = 1;
+                delIndex2 = [];
+                for i = 1:size(obj.femutils.MatIndex,1)
+                    if obj.femutils.MatIndex(i) == 1
+                        if any(si==delIndexNo)
+                            delIndex2 = [delIndex2,i];
+                        end
+                         si = si+1;
                     end
-                     si = si+1;
                 end
+                obj.femutils.MatIndex(delIndex2) = 0;
             end
-            obj.femutils.MatIndex(delIndex2) = 0;
 
         end
 
@@ -4255,6 +4261,7 @@ classdef UNLSI
         end
 
         function delta = femSol2Delta(obj,femSol)
+            disp_buff = zeros(size(obj.femtri.Points,1)*6,1);
             disp_buff(obj.femutils.InvMatIndex,1)=femSol;
             delta = zeros(size(obj.femtri.Points,1),6);
             delta(obj.femutils.usedVerts,1)=disp_buff(1:obj.femutils.nbVerts,1);
