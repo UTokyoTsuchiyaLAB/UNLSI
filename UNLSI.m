@@ -107,7 +107,7 @@ classdef UNLSI
 
             % halfmeshの判定
             if all(verts(:,2) >=0) ||  all(verts(:,2) <=0)
-                if exist('halfmesh', 'var')
+                if exist('halfmesh', 'var') 
                     if halfmesh == 0
                         warning("Signatures of verts' y cordinates are all same, but the half mesh settingUNLSI is 0 (not halfmesh)");
                     end
@@ -122,6 +122,14 @@ classdef UNLSI
                 else
                     halfmesh = 0;
                end
+            end
+
+            if isempty(halfmesh)
+                if all(verts(:,2) >=0) ||  all(verts(:,2) <=0)
+                    halfmesh = 1;
+                else
+                    halfmesh = 0;
+                end
             end
 
             %%%%%%%%%%%settingUNLSIの初期設定%%%%%%%%%%%%%
@@ -329,8 +337,8 @@ classdef UNLSI
             %   - obj.deflGroup{groupNo}.IDにデフレクトグループのIDが格納されます。
             %   - obj.deflGroup{groupNo}.gainにデフレクトゲインが格納されます。
             obj.deflGroup{groupNo}.name = groupName;
-            obj.deflGroup{groupNo}.ID = groupID;
-            obj.deflGroup{groupNo}.gain = deflGain;
+            obj.deflGroup{groupNo}.ID = groupID(:)';
+            obj.deflGroup{groupNo}.gain = deflGain(:)';
         end
 
         function obj = setDeflAngle(obj,ID,rotAxis,angle)
@@ -339,6 +347,7 @@ classdef UNLSI
             %そのID上のパネルの法線ベクトルをロドリゲスの回転ベクトルによって回転する
             % 誤差については要検討。
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            rotAxis = rotAxis./vecnorm(rotAxis,2,2);
             for iter = 1:numel(ID)
                 i = find(obj.deflAngle(:,1)==ID(iter));
                 if isempty(i)
@@ -380,13 +389,18 @@ classdef UNLSI
             %   obj.plotGeometry(1, Cp, [-1, 1], "exact", "linear")
             %
             % See also: trisurf, colormap
-            figure(figureNo);clf;
+            if not(isa(figureNo, 'matlab.graphics.axis.Axes'))
+                figure(figureNo);clf;
+                ax = axes(gcf);
+            else
+                ax = figureNo;
+            end
             if nargin<3
-                trisurf(obj.tri,"FaceAlpha",0);
+                trisurf(obj.tri,"FaceAlpha",0 ,'Parent',ax);
                 if obj.halfmesh == 1
-                    hold on
-                    trisurf(obj.tri.ConnectivityList,obj.tri.Points(:,1),-obj.tri.Points(:,2),obj.tri.Points(:,3),"FaceAlpha",0);
-                    hold off;
+                    hold(ax,"on");
+                    trisurf(obj.tri.ConnectivityList,obj.tri.Points(:,1),-obj.tri.Points(:,2),obj.tri.Points(:,3),"FaceAlpha",0,'Parent',ax);
+                    hold(ax,"off");
                 end
             else
                 if nargin == 4
@@ -409,37 +423,37 @@ classdef UNLSI
 
                 if strcmpi(method,"exact")
                     %指定がexactの場合はパネル一枚一枚描画する
-                    hold on;
+                    hold(ax,"on");
                     for i = 1:numel(obj.surfID)
                         if obj.paneltype(i) == 1
-                            trisurf([1,2,3],affineverts(obj.tri(i,:),1),affineverts(obj.tri(i,:),2),affineverts(obj.tri(i,:),3),triColor(i),'EdgeAlpha',0.15);
+                            trisurf([1,2,3],affineverts(obj.tri(i,:),1),affineverts(obj.tri(i,:),2),affineverts(obj.tri(i,:),3),triColor(i),'EdgeAlpha',0.15,'Parent',ax);
                             if obj.halfmesh == 1
-                                trisurf([1,2,3],affineverts(obj.tri(i,:),1),-affineverts(obj.tri(i,:),2),affineverts(obj.tri(i,:),3),triColor(i),'EdgeAlpha',0.15);
+                                trisurf([1,2,3],affineverts(obj.tri(i,:),1),-affineverts(obj.tri(i,:),2),affineverts(obj.tri(i,:),3),triColor(i),'EdgeAlpha',0.15,'Parent',ax);
                             end
                         else
-                            trisurf([1,2,3],affineverts(obj.tri(i,:),1),affineverts(obj.tri(i,:),2),affineverts(obj.tri(i,:),3),0,'EdgeAlpha',0.15);
+                            trisurf([1,2,3],affineverts(obj.tri(i,:),1),affineverts(obj.tri(i,:),2),affineverts(obj.tri(i,:),3),0,'EdgeAlpha',0.15,'Parent',ax);
                             if obj.halfmesh == 1
-                                trisurf([1,2,3],affineverts(obj.tri(i,:),1),-affineverts(obj.tri(i,:),2),affineverts(obj.tri(i,:),3),0,'EdgeAlpha',0.15);
+                                trisurf([1,2,3],affineverts(obj.tri(i,:),1),-affineverts(obj.tri(i,:),2),affineverts(obj.tri(i,:),3),0,'EdgeAlpha',0.15,'Parent',ax);
                             end
                         end
                     end
-                    colormap jet;
-                    hold off;
-                    caxis(colorlim);
+                    colormap(ax,"jet");
+                    hold(ax,"off");
+                    caxis(ax,colorlim);
                 else
                     c = obj.verts2centerMat'*triColor;
-                    trisurf(obj.tri.ConnectivityList,affineverts(:,1),affineverts(:,2),affineverts(:,3),c,'FaceColor','interp','EdgeAlpha',0.15);
-                    colormap jet;
+                    trisurf(obj.tri.ConnectivityList,affineverts(:,1),affineverts(:,2),affineverts(:,3),c,'FaceColor','interp','EdgeAlpha',0.15,'Parent',ax);
+                    colormap(ax,"jet");
                     if obj.halfmesh == 1
-                        hold on;
-                        trisurf(obj.tri.ConnectivityList,affineverts(:,1),-affineverts(:,2),affineverts(:,3),c,'FaceColor','interp','EdgeAlpha',0.15);
-                        colormap jet;
-                        hold off
+                        hold(ax,"on");
+                        trisurf(obj.tri.ConnectivityList,affineverts(:,1),-affineverts(:,2),affineverts(:,3),c,'FaceColor','interp','EdgeAlpha',0.15,'Parent',ax);
+                        colormap(ax,"jet");
+                        hold(ax,"off");
                     end
-                    caxis(colorlim);
+                    caxis(ax,colorlim);
                 end
             end
-            axis equal;xlabel("x");ylabel("y");zlabel("z");
+            axis(ax,"equal");xlabel(ax,"x");ylabel(ax,"y");zlabel(ax,"z");grid(ax,"on")
             drawnow();pause(0.1);
         end
 
@@ -472,8 +486,8 @@ classdef UNLSI
             
             % deflAngleが空の場合、初期化
             if isempty(obj.deflAngle)
-                eyebuff = eye(3);
-                obj.deflAngle = [unique(obj.surfID), zeros(numel(unique(obj.surfID)), 4), repmat(eyebuff(:)', [numel(unique(obj.surfID)), 1])];
+                eyebuff = obj.rod2dcm([0,1,0],0);
+                obj.deflAngle = [unique(obj.surfID), zeros(numel(unique(obj.surfID)), 1),ones(numel(unique(obj.surfID)), 1),zeros(numel(unique(obj.surfID)), 2), repmat(eyebuff(:)', [numel(unique(obj.surfID)), 1])];
             end
             
             % paneltypeとcpcalctypeを初期化
@@ -1000,7 +1014,8 @@ classdef UNLSI
                 obj.RHS(:,si(i):ei(i)) = VortexBc;
             end
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
+            [U, S, V] = svds(obj.LHS,size(obj.LHS,1));
+            obj.LHS = U*S*V';
             %wakeパネル⇒機体パネルへの影響
             %
             for wakeNo = 1:numel(obj.wakeline)
@@ -1840,7 +1855,9 @@ classdef UNLSI
             end
             
             for iter = 1:numel(obj.prop)
-                obj = makePropEquation(obj,iter);
+                if not(isempty(obj.prop{iter}))
+                    obj = makePropEquation(obj,iter);
+                end
             end
         end
 
@@ -3295,6 +3312,8 @@ classdef UNLSI
                end
             end
             obj.femutils.InvMatIndex=[obj.femutils.InvMatIndex,1*obj.femutils.nbVerts+obj.femutils.InvMatIndex,2*obj.femutils.nbVerts+obj.femutils.InvMatIndex,3*obj.femutils.nbVerts+obj.femutils.InvMatIndex,4*obj.femutils.nbVerts+obj.femutils.InvMatIndex]';
+            %obj.femutils.InvMatIndex=[obj.femutils.InvMatIndex,1*obj.femutils.nbVerts+obj.femutils.InvMatIndex,2*obj.femutils.nbVerts+obj.femutils.InvMatIndex]';
+            %obj.femutils.InvMatIndex=[obj.femutils.InvMatIndex,1*obj.femutils.nbVerts+obj.femutils.InvMatIndex,2*obj.femutils.nbVerts+obj.femutils.InvMatIndex,3*obj.femutils.nbVerts+obj.femutils.InvMatIndex,4*obj.femutils.nbVerts+obj.femutils.InvMatIndex,5*obj.femutils.nbVerts+obj.femutils.InvMatIndex]';
             
             %構造メッシュと空力メッシュの変換行列の作成
             %Rstrを計算
@@ -3375,19 +3394,35 @@ classdef UNLSI
 
         end
         function plotFemMesh(obj,figID,delta,plotID)
+            if not(isa(figID, 'matlab.graphics.axis.Axes'))
+                figure(figID);clf;
+                ax = axes(gcf);
+            else
+                ax = figID;
+            end
             if nargin<4
                 plotID = unique(obj.femID);
             end
             if isempty(delta)
-                figure(figID);clf;hold on;
-                trimesh(obj.femtri.ConnectivityList(any(obj.femID == plotID(:)',2),:),obj.femtri.Points(:,1),obj.femtri.Points(:,2),obj.femtri.Points(:,3));
-                axis equal;grid on;view([-30,15])
+                trisurf(obj.femtri.ConnectivityList(any(obj.femID == plotID(:)',2),:),obj.femtri.Points(:,1),obj.femtri.Points(:,2),obj.femtri.Points(:,3),"FaceAlpha",0,'Parent',ax);
+                if obj.halfmesh == 1
+                     hold(ax,"on");
+                     trisurf(obj.femtri.ConnectivityList(any(obj.femID == plotID(:)',2),:),obj.femtri.Points(:,1),-obj.femtri.Points(:,2),obj.femtri.Points(:,3),"FaceAlpha",0,'Parent',ax);
+                end
+                axis(ax,"equal");grid(ax,"on");hold(ax,"off");
+
             else
-                figure(figID);clf;hold on;
                 modVerts = obj.femtri.Points + delta(:,1:3);
-                trimesh(obj.femtri.ConnectivityList(any(obj.femID == plotID(:)',2),:),modVerts(:,1),modVerts(:,2),modVerts(:,3));
-                axis equal;grid on;view([-30,15])
+                caxis = vecnorm(delta(:,1:3),2,2);
+                trisurf(obj.femtri.ConnectivityList(any(obj.femID == plotID(:)',2),:),modVerts(:,1),modVerts(:,2),modVerts(:,3),caxis,'FaceColor','interp','EdgeAlpha',0.15,'Parent',ax);
+                if obj.halfmesh == 1
+                     hold(ax,"on");
+                     trisurf(obj.femtri.ConnectivityList(any(obj.femID == plotID(:)',2),:),modVerts(:,1),-modVerts(:,2),modVerts(:,3),caxis,'FaceColor','interp','EdgeAlpha',0.15,'Parent',ax);
+                end
+                axis(ax,"equal");grid(ax,"on");hold(ax,"off");colormap(ax,"jet");
             end
+            axis(ax,"equal");xlabel(ax,"x");ylabel(ax,"y");zlabel(ax,"z");
+            drawnow();pause(0.1);
         end
 
         function [obj,weight] = setFemMaterials(obj,femID,thickness,youngModulus,rho,viscous)
@@ -3656,6 +3691,12 @@ classdef UNLSI
                     end
                 end
                 obj.femutils.MatIndex(delIndex2) = 0;
+                [U, S, V] = svds(obj.femLHS,size(obj.femLHS,1));
+                obj.femLHS = U*S*V';
+                [U, S, V] = svds(obj.femMass,size(obj.femMass,1));
+                obj.femMass = U*S*V';
+                [U, S, V] = svds(obj.femDamp,size(obj.femDamp,1));
+                obj.femDamp = U*S*V';
             end
 
         end
@@ -3855,6 +3896,13 @@ classdef UNLSI
                 end
             end
             obj.femutils.MatIndex(delIndex2) = 0;
+
+            [U, S, V] = svds(obj.femLHS,size(obj.femLHS,1));
+            obj.femLHS = U*S*V';
+            [U, S, V] = svds(obj.femMass,size(obj.femMass,1));
+            obj.femMass = U*S*V';
+            [U, S, V] = svds(obj.femDamp,size(obj.femDamp,1));
+            obj.femDamp = U*S*V';            
 
         end
 
@@ -4148,7 +4196,7 @@ classdef UNLSI
                 %try
                 %    [~,ybuff] = ode15s(@(t,d)(AEx*d+fEx),tspan,[y;yd],options);
                 %catch
-                    [~,ybuff] = ode23(@(t,d)(AEx*d+fEx),tspan,[z{iter}(:,1);zdot{iter}(:,1)],options);
+                    [~,ybuff] = ode45(@(t,d)(AEx*d+fEx),tspan,[z{iter}(:,1);zdot{iter}(:,1)],options);
                 %end
                 z{iter}(:,1) = ybuff(end,1:modalNo)';
                 zdot{iter}(:,1) = ybuff(end,modalNo+1:end);
@@ -4464,27 +4512,29 @@ classdef UNLSI
             muprop =  zeros(nPanel,1);
             RHVprop = zeros(nbPanel,1);
             for propNo = 1:numel(obj.prop)
-                VinfMag = dot(-obj.prop{propNo}.normal,obj.settingUNLSI.Vinf*(T*[1;0;0])');%角速度は後で
-                Jratio = VinfMag / ( 2*obj.prop{propNo}.rpm*(obj.prop{propNo}.diameter/2)/60);
-                Vh = -0.5*VinfMag + sqrt((0.5*VinfMag)^2 + obj.prop{propNo}.thrust/(2*obj.settingUNLSI.rho*obj.prop{propNo}.area));
-                omegaProp = obj.prop{propNo}.rpm*2*pi/60;
-                CT_h = obj.prop{propNo}.thrust/ ( obj.settingUNLSI.rho * obj.prop{propNo}.area * (omegaProp*obj.prop{propNo}.diameter/2)^2 );
-                Vo = Vh/sqrt(1+ CT_h*log(CT_h/2)+CT_h/2); 
-                eta_mom = 2/(1+sqrt(1+obj.prop{propNo}.CT));
-                eta_prop = Jratio*obj.prop{propNo}.CT/obj.prop{propNo}.CP;
-                dCpwakeval = (2*obj.settingUNLSI.rho*Vh^2*(omegaProp*(obj.prop{propNo}.diameter/2))^4/((omegaProp*(obj.prop{propNo}.diameter/2))^2+Vh^2)^2)/(0.5*obj.settingUNLSI.rho*VinfMag.^2)*eta_prop / eta_mom;
-                Vnprop = Vo/obj.settingUNLSI.Vinf;
-                for i = 1:nPanel
-                    if obj.surfID(i) == obj.prop{propNo}.ID 
-                        %プロペラ軸との最短距離を求める
-                        r = obj.center(i,:)-obj.prop{propNo}.center;
-                        dotCoef = dot(r,-obj.prop{propNo}.normal);
-                        shortestPoint = obj.prop{propNo}.center - dotCoef.*obj.prop{propNo}.normal;
-                        rs = norm(obj.center(i,:)-shortestPoint);
-                        muprop(i,1)= (2*obj.settingUNLSI.rho*Vh^2*(omegaProp*rs)^4/((omegaProp*rs)^2+Vh^2)^2)/(0.5*obj.settingUNLSI.rho*VinfMag.^2)*eta_prop / eta_mom;
+                if not(isempty(obj.prop{propNo}))
+                    VinfMag = dot(-obj.prop{propNo}.normal,obj.settingUNLSI.Vinf*(T*[1;0;0])');%角速度は後で
+                    Jratio = VinfMag / ( 2*obj.prop{propNo}.rpm*(obj.prop{propNo}.diameter/2)/60);
+                    Vh = -0.5*VinfMag + sqrt((0.5*VinfMag)^2 + obj.prop{propNo}.thrust/(2*obj.settingUNLSI.rho*obj.prop{propNo}.area));
+                    omegaProp = obj.prop{propNo}.rpm*2*pi/60;
+                    CT_h = obj.prop{propNo}.thrust/ ( obj.settingUNLSI.rho * obj.prop{propNo}.area * (omegaProp*obj.prop{propNo}.diameter/2)^2 );
+                    Vo = Vh/sqrt(1+ CT_h*log(CT_h/2)+CT_h/2); 
+                    eta_mom = 2/(1+sqrt(1+obj.prop{propNo}.CT));
+                    eta_prop = Jratio*obj.prop{propNo}.CT/obj.prop{propNo}.CP;
+                    dCpwakeval = (2*obj.settingUNLSI.rho*Vh^2*(omegaProp*(obj.prop{propNo}.diameter/2))^4/((omegaProp*(obj.prop{propNo}.diameter/2))^2+Vh^2)^2)/(0.5*obj.settingUNLSI.rho*VinfMag.^2)*eta_prop / eta_mom;
+                    Vnprop = Vo/obj.settingUNLSI.Vinf;
+                    for i = 1:nPanel
+                        if obj.surfID(i) == obj.prop{propNo}.ID 
+                            %プロペラ軸との最短距離を求める
+                            r = obj.center(i,:)-obj.prop{propNo}.center;
+                            dotCoef = dot(r,-obj.prop{propNo}.normal);
+                            shortestPoint = obj.prop{propNo}.center - dotCoef.*obj.prop{propNo}.normal;
+                            rs = norm(obj.center(i,:)-shortestPoint);
+                            muprop(i,1)= (2*obj.settingUNLSI.rho*Vh^2*(omegaProp*rs)^4/((omegaProp*rs)^2+Vh^2)^2)/(0.5*obj.settingUNLSI.rho*VinfMag.^2)*eta_prop / eta_mom;
+                        end
                     end
+                    RHVprop = RHVprop + (obj.prop{propNo}.LHSi-obj.prop{propNo}.LHSo)*muprop(obj.surfID == obj.prop{propNo}.ID,1) - 2*obj.prop{propNo}.wakeLHS*dCpwakeval + (obj.prop{propNo}.RHSi)*(Vnprop*ones(size(obj.prop{propNo}.RHSi,2),1));
                 end
-                RHVprop = RHVprop + (obj.prop{propNo}.LHSi-obj.prop{propNo}.LHSo)*muprop(obj.surfID == obj.prop{propNo}.ID,1) - 2*obj.prop{propNo}.wakeLHS*dCpwakeval + (obj.prop{propNo}.RHSi)*(Vnprop*ones(size(obj.prop{propNo}.RHSi,2),1));
             end
         end
 

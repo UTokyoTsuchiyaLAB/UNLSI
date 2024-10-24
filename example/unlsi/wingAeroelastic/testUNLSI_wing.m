@@ -14,7 +14,7 @@ wing = wing.makeEquation(); %パネル法行列の作成
 %%%%%%%%ここまでは一度計算すればスキップできる
 %
 alpha = 10;
-Vinf =140;
+Vinf =250;
 Re = Vinf * 4 / 1.512 * 1e5;
 wing = wing.setUNLSISettings("Vinf",Vinf);
 wing = wing.solveFlow(alpha,0,0.001,Re);%パネル法を解く
@@ -22,25 +22,25 @@ wing.plotGeometry(1,wing.getCp(alpha,0,0.001,Re),[-3,1.5]);%圧力係数のプ�
 disp(wing.getAERODATA(alpha,0));
 [con,verts,femID] = readFemMesh('wing_WingGeom_Struct0.msh');
 wing = wing.setFemMesh(verts,con,femID);%すべての空力メッシュIDとfemメッシュを関連付ける（第二引数省略）
-[wing,weight] = wing.setFemMaterials([1,2,3],[0.003,0.002,0.01],[73500000000,73500000000,73500000000],[2700,2700,2700],[1000,1000,1000]);
+[wing,weight] = wing.setFemMaterials([1,2,3],[0.01,0.001,0.001],[73500000000,73500000000,73500000000],[2700,2700,2700],[1000,1000,1000]);
 disp("weight");
 disp(weight);
 wing = wing.makeFemEquation();
 
-wing = wing.femModalAnalysis(5);%モード解析用の固有値解析
+wing = wing.femModalAnalysis(4);%モード解析用の固有値解析
 %wing = wing.calcApproximatedEquation();%空力近似マトリックスの作成
 %モード形状
-for i = 1:5
+for i = 1:4
     delta{1} = wing.femSol2Delta(wing.femEigenVec(:,i)./max(abs(wing.femEigenVec(:,i))));
-    modVerts = wing.calcModifiedVerts(delta{1}); %構造メッシュの変形に従って空力メッシュを変形
+    modVerts = wing.calcModifiedVerts(delta{1}.*10); %構造メッシュの変形に従って空力メッシュを変形
     wing2 = wing.setVerts(modVerts); %節点の移動のみ
     wing2.plotGeometry(i+2,wing.getCp(alpha,0,0.001,Re),[-3,1.5]);
 end
 %
 %%%%%%%以下空力弾性計算
-dt = 0.05;
+dt = 0.01;
 wing2 = wing;
-for i = 1:100
+for i = 1:500
     disp(i)
     tic;
     if i == 1
