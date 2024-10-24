@@ -9,6 +9,7 @@
 
 V7.01よりMATLABのApp Designerを用いたGUIアプリケーションを追加しました。こちらはMATLABがなくても（誰でも）Runtimeをインストールすることで使用することができます。
 GUI版はReleaseページで添付している.exeを用いてインストールしてください。（現在はWindowsのみ）
+
 UNLSIGUIフォルダには、アプリケーションをコンパイルする前の.mlapp（とGUI用のUNLSI.m、他バージョンとの競合を防ぐため）が入っています。
 
 ## 特徴(UNLSI)
