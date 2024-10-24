@@ -36,7 +36,7 @@ wing.plotGeometry(1,wing.getCp(alpha),[-3,1.5]);%圧力係数のプロット
 disp(wing.getAERODATA(alpha));
 for i = 1:10
     delta{1} = wing.femSol2Delta(wing.femEigenVec(:,i));
-    modVerts = wing.calcModifiedVerts(delta{1}); %構造メッシュの変形に従って空力メッシュを変形
+    modVerts = wing.calcModifiedVerts(delta{1}.*10); %構造メッシュの変形に従って空力メッシュを変形
     wing2 = wing.setVerts(modVerts); %節点の移動のみ
     wing2.plotGeometry(i+2,wing.getCp(alpha),[-3,1.5]);
 end
@@ -54,6 +54,7 @@ for i = 1:100
         %[delta,deltadot]  = wing2.solveAeroelastic([0,dt],delta,deltadot,wing2.getCp(alpha,beta,0.001,Re).*Vinf.^2.*1.225.*0.5,1);%空力弾性計算
         [z,zdot,delta,deltadot]  = wing.solveModalAeroelastic([0,dt],z,zdot,wing2.getCp(alpha).*Vinf.^2.*1.225.*0.5,1);%空力弾性計算
     end
+    disp(full(z{1}));
     toc;
     modVerts = wing.calcModifiedVerts(delta{1}); %構造メッシュの変形に従って空力メッシュを変形
     wing2 = wing.setVerts(modVerts); %節点の移動のみ
