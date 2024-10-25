@@ -5,12 +5,12 @@ clear;
 %パイプを等価な剛性を持つspar2本に変換
 [tspar,b,Rarea] = InatiaPipe2biRec(80,1.5,766*0.12); %mm単位
 %%%%%%%%%
-Vinf = 7.2;%飛行速度
-Re = Vinf * 0.88 /1.512 *1e5; %機体レイノルズ数
+Vinf = 10;%7.2;
+Re = Vinf * 0.375 /1.512 *1e5;%機体レイノルズ数
 alpha = 0; %迎え角
 beta = 0; %横滑り角
 
-[con, p, uv1, uv2, uv3, wedata, id] = readvspgeom( "FWpeller2.vspgeom", 0); %空力メッシュの作成
+[con, p, uv1, uv2, uv3, wedata, id] = readvspgeom("flora.vspgeom", 0); %空力メッシュの作成
 
 wing = UNLSI(p',con',id',wedata,1,0.005); %インスタンスの作成
 wing = wing.setREFS(25.44,33.75,0.766,[0,0,0]); %基準値をセット
@@ -44,7 +44,7 @@ end
 %
 wing2 = wing; %空力弾性計算用に元のインスタンスを取っておく
 dt = 0.05; %時間区切り
-for i = 1:100
+for i = 1:10
     disp(i);
     tic;
     if i == 1
@@ -68,4 +68,14 @@ for i = 1:100
     videoMaker(M,"hpaCalculating",1/dt)
 end
 movie(M,1,1/dt);
+%}
+%
+%空力係数の補間曲面の作成
+wing = wing.makeSurrogateModel([-10,-5,0,5,10],[-10,-5,0,5,10],0.0001,300000);
+[ppCoef,ppDyn] = wing.getSurrogateModel();
+wing.plotSurrogateModel(ppCoef,ppDyn,linspace(-10,10,100),linspace(-10,10,100),0.001,1);
+UREF = 7.2;
+Mach = 0.001;
+REFS = [wing.SREF,wing.BREF,wing.CREF];
+save aeroRBF.mat ppCoef ppDyn REFS mass Inatia UREF Mach -mat;
 %}
