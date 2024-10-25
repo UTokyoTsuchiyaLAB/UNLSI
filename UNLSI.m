@@ -620,8 +620,9 @@ classdef UNLSI
             end
             
             % メッシュのチェックと修正
-            fprintf("minimum area = %d",min(obj.area));
-            fprintf('maximum area = %d',max(obj.area));
+            fprintf("\n Panel Check\n");
+            fprintf("Minimum area = %d\n",min(obj.area));
+            fprintf('Maximum area = %d\n',max(obj.area));
             obj = obj.checkMesh(obj.settingUNLSI.checkMeshTol, "delete");
             % obj = obj.checkMesh(obj.settingUNLSI.checkMeshTol, "warning");
             obj = obj.checkWakeIntersect();
@@ -745,54 +746,7 @@ classdef UNLSI
             end
         end
         
-        function obj = checkWakeIntersect(obj)
-            for wakeNo = 1:numel(obj.wakeline)
-                for edgeNo = 1:size(obj.wakeline{wakeNo}.validedge,2)
-                    for i = 1:size(obj.wakeline{wakeNo}.wakeShape{edgeNo},1)
-                        if i == 1
-                            surface1.vertices(1,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:);
-                            surface1.vertices(2,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:);
-                            surface1.vertices(3,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+obj.wakeline{wakeNo}.wakeShape{edgeNo}(i,:);
-                            surface1.vertices(4,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+obj.wakeline{wakeNo}.wakeShape{edgeNo}(i,:);
-                        else
-                            surface1.vertices(1,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+obj.wakeline{wakeNo}.wakeShape{edgeNo}(i-1,:);
-                            surface1.vertices(2,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+obj.wakeline{wakeNo}.wakeShape{edgeNo}(i-1,:);
-                            surface1.vertices(3,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(2,edgeNo),:)+obj.wakeline{wakeNo}.wakeShape{edgeNo}(i,:);
-                            surface1.vertices(4,:) = obj.tri.Points(obj.wakeline{wakeNo}.validedge(1,edgeNo),:)+obj.wakeline{wakeNo}.wakeShape{edgeNo}(i,:);
-                        end
-                        surface1.faces = [1,2,3;3,4,1];
-                        surface2.vertices = obj.tri.Points;
-                        surface2.faces = obj.tri.ConnectivityList(obj.paneltype == 1,:);
-                        [~, Surf12] = obj.SurfaceIntersection(obj,surface1, surface2);
-                        if i == 1
-                            if size(Surf12.vertices,1) <= 2
-                                obj.wakeline{wakeNo}.validPanel{edgeNo}(i,1) = 1;
-                            else
-                                obj.wakeline{wakeNo}.validPanel{edgeNo}(i,1) = 0;
-                            end
-                        else
-                            if size(Surf12.vertices,1) < 2 
-                                obj.wakeline{wakeNo}.validPanel{edgeNo}(i,1) = 1;
-                            else
-                                obj.wakeline{wakeNo}.validPanel{edgeNo}(i,1) = 0;
-                            end
-                        end
-                    end
-                    
-                end
-                
-            end
-            index = unique(horzcat(modTri{:}));
-            obj.center(index,:) = (verts(obj.tri.ConnectivityList(index,1),:)+verts(obj.tri.ConnectivityList(index,2),:)+verts(obj.tri.ConnectivityList(index,3),:))./3;
-            obj.area(index,1) = 0.5 * sqrt(sum(cross(obj.tri.Points(obj.tri.ConnectivityList(index, 2), :) - obj.tri.Points(obj.tri.ConnectivityList(index, 1), :), obj.tri.Points(obj.tri.ConnectivityList(index, 3), :) - obj.tri.Points(obj.tri.ConnectivityList(index, 1), :), 2).^2, 2));
-            obj.orgNormal(index,:) = faceNormal(obj.tri,index(:));
-            for i = 1:numel(index)
-                obj.modNormal(index(i),:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(index(i),1)),6:14),[3,3])*obj.orgNormal(index(i),:)')';
-            end
-            %indices = arrayfun(@(x) find(obj.deflAngle(:, 1) == x), obj.surfID(:, 1), 'UniformOutput', false);      
-            %deflMatrices = cell2mat(cellfun(@(idx) reshape(obj.deflAngle(idx, 6:14), [3, 3]), indices, 'UniformOutput', false));
-            %obj.modNormal = cell2mat(arrayfun(@(i) (deflMatrices((i-1)*3+1:i*3, :) * obj.orgNormal(i, :)')', 1:numel(obj.paneltype), 'UniformOutput', false));
-        end
+
         
         function obj = checkWakeIntersect(obj)
             for wakeNo = 1:numel(obj.wakeline)
@@ -983,8 +937,9 @@ classdef UNLSI
                     error("some panel areas are too small");
                 end
             end
-            fprintf("minimum fem mesh area=%d \n",min(obj.femarea));
-            fprintf("maximum fem mesh area=%d \n",max(obj.femarea));
+            fprintf("\n Panel Check\n");
+            fprintf("Minimum FEM area=%d\n",min(obj.femarea));
+            fprintf("Maximum FEM area=%d\n",max(obj.femarea));
         end
         
         function obj = setPanelType(obj,ID,typename)
@@ -3486,19 +3441,6 @@ classdef UNLSI
             obj.fem2aeroMat = Aas * [Mp*Pss*invM;invM-invM*Pss'*Mp*Pss*invM];
             
 
-            %空力メッシュから構造メッシュへの変換行列の作成
-            aeromeshScaling = abs(max(obj.tri.Points(obj.femutils.usedAeroVerts,:),[],1)-min(obj.tri.Points(obj.femutils.usedAeroVerts,:),[],1));
-            aeromeshScaling(aeromeshScaling==0) = 1;
-            Raa = obj.calcRMat(obj.tri.Points(obj.femutils.usedAeroVerts,:)./aeromeshScaling,obj.tri.Points(obj.femutils.usedAeroVerts,:)./aeromeshScaling);
-            Maa = phi(Raa);
-            Paa = [ones(size(obj.tri.Points(obj.femutils.usedAeroVerts,:),1),1),obj.tri.Points(obj.femutils.usedAeroVerts,:)./aeromeshScaling ]';
-            Rsa = obj.calcRMat(obj.femtri.Points(obj.femutils.usedVerts,:)./aeromeshScaling,obj.tri.Points(obj.femutils.usedAeroVerts,:)./aeromeshScaling);
-            Asa = [ones(size(obj.femtri.Points(obj.femutils.usedVerts,:),1),1),obj.femtri.Points(obj.femutils.usedVerts,:)./aeromeshScaling,phi(Rsa)];
-            invM = pinv(Maa);
-            Mp = pinv(Paa*invM*Paa');
-            obj.aeroMat2fem = Asa * [Mp*Paa*invM;invM-invM*Paa'*Mp*Paa*invM];
-
-
             %femのパネル中心座標からメッシュノードへ投影する変換行列の作成
             phi = @(r)obj.phi3(r,1);
             Avv = phi(obj.calcRMat(obj.femtri.Points,obj.femtri.Points));
@@ -4326,121 +4268,6 @@ classdef UNLSI
             deltaLoad2 = deltaLoad;
         end
 
-        function [eigenList,V] = calcEigen(obj,deltaLoad)
-            disp('calculating eigen...')
-            Kmatrix = obj.femLHS;
-            % Mmatrix = obj.femMass;size:2385 rank 2084
-            % Dmatrix = obj.femDamp;
-            % Mmatrix = full(Mmatrix);  
-            deltaLoad(obj.femutils.MatIndex==0,:)=[];
-            deltaLoad(:,obj.femutils.MatIndex==0)=[];
-
-            %%%%%%%%%%%%%%%lsqminnorm%%%%%%%%%%%%%%%%%%%%
-            % A12 = lsqminnorm(obj.femMass,deltaLoad-Kmatrix,1e-12);
-            % A11 = lsqminnorm(obj.femMass,-obj.femDamp,1e-12);
-            % A11(isnan(A11)) = 0;
-            % A12(isnan(A12)) = 0;
-            % A11(~isfinite(A11)) = 0;
-            % A12(~isfinite(A12)) = 0;
-            % A11 = full(A11);
-            % A12 = full(A12);
-            % f = @(lamda) det([A11-lamda*eye(size(A11)),A12;eye(size(A11),1),-lamda*eye(size(A11),1)]);
-            % initial_eig = eig([A11,A12;eye(size(A11,1)),zeros(size(A11,1))]); 
-            % options = optimoptions('fsolve','Display','off');
-            % e = fsolve(f,initial_eig,options);
-            % e = sort(e,'descend','ComparisonMethod','real');
-            % eigenList = e;
-
-
-            %%%%%%%%%%%%%%%pinv%%%%%%%%%%%%%%%%%%%%
-            Mmat = full(obj.femMass);
-            invMmat = pinv(Mmat,1e-12);
-            invMmat(isnan(invMmat)) = 0;
-            A11 = -invMmat*obj.femDamp;
-            A12 = -invMmat*(-deltaLoad+Kmatrix);
-            % fprintf("rank A12 %d\n",rank(A12));
-
-            A = [A11 A12;eye(size(A11,1)) zeros(size(A11,1))];
-            % A = [zeros(size(A11,1)) eye(size(A11,1));A12 A11];
-            A = full(A);
-            % fprintf("size A %d %d \n",size(A));
-            fprintf("rank A %d\n",rank(A));
-            [V,e] = eig(A);
-            e(~isfinite(e)) = 0;
-            [d,ind] = sort(diag(e),'ComparisonMethod','real');
-            e = e(ind,ind);%固有値
-            eigenList = diag(e);
-            V =0;% V(:,ind);%固有ベクトル
-        end
-        function [eigenList,V] = calcEigenM(obj,deltaLoad)
-            disp('calculating eigen...')
-            Kmatrix = obj.femLHS;
- 
-            deltaLoad(obj.femutils.MatIndex==0,:)=[];
-            deltaLoad(:,obj.femutils.MatIndex==0)=[];
-            A12 = deltaLoad-Kmatrix;
-            A11 = -obj.femDamp;
-            A11(~isfinite(A11)) = 0;
-            A12(~isfinite(A12)) = 0;
-            fprintf("rank A12 %d\n",rank(A12));
-            A = [A11 A12;obj.femMass zeros(size(A11,1))];
-            A = full(A);
-            % fprintf("size A %d %d \n",size(A));
-            fprintf("rank A %d\n",rank(A));
-            [V,e] = eig(A);
-            e(~isfinite(e)) = 0;
-            [d,ind] = sort(diag(e),'ComparisonMethod','real');
-            e = e(ind,ind);%固有値
-            eigenList = diag(e);
-            V =0;% V(:,ind);%固有ベクトル
-        end
-
-        % function  [Vs,Ds] = getModeEig(Mmatrix,Kmatrix,numMode,method)
-        %     if nargin < 4
-        %         method = 1;
-        %     end
-        %     % method = 1;
-        %     realizationFlag = 1;
-        %     Mmatrix_svd = svdMat(Mmatrix);
-        %     Kmatrix_svd = svdMat(Kmatrix);
-        %     if method == 1
-        %         opts = struct();
-        %         opts.maxit = 1000;        % 最大反復回数
-        %         opts.tol = 1e-12;          % 収束許容誤差
-        %         opts.disp = 1;          % 途中経過を表示
-        %         [V,D] = eigs(Kmatrix_svd,Mmatrix_svd,numMode,'largestreal',opts);
-        %         % fprintf('flag: %d\n',flag);
-        %         fprintf('1')
-        %     else
-        %         [V,D] = eig(Kmatrix_svd,Mmatrix_svd);
-        %     end
-        %     D(isinf(D))=0;
-        %     [d,ind] = sort(diag(D));
-        %     D = D(ind,ind);
-        %     if realizationFlag == 1
-        %         Vs = real(V(:,ind));
-        %         Vs = normc(Vs);
-        %     end
-        %     % Vs = real(V(:,ind));
-        %     Ds = diag(D);
-        %     % Vs = normc(Vs);
-        %     % Vs = [1 1 1];
-        %     % Ds = [1 1 1];
-        %     % [V,D] = eig(Kmatrix,Mmatrix);
-        %     % [d,ind] = sort(diag(D),'ComparisonMethod','real');
-        %     % D = D(ind,ind);%固有値
-        %     % V = V(:,ind);%固有ベクトル
-        % end
-        % function svdMat = svdMat(matrix)
-        %     matrix = full(matrix);
-        %     [U, S, V] = svd(matrix);
-        %     svdMat = U*S*V';
-        %     singular_values = diag(S);
-        %     condition_number = max(singular_values) / min(singular_values);
-        %     fprintf('条件数: %e\n', condition_number);
-        % end
-        
-
         function [z,zdot,delta,deltadot]  = solveModalAeroelastic(obj,tspan,z,zdot,distLoad,selfLoadFlag)
 
             modalNo = size(obj.femEigenVec,2);
@@ -4612,30 +4439,6 @@ classdef UNLSI
             delta(obj.femutils.usedVerts,3)=disp_buff(2*obj.femutils.nbVerts+1:3*obj.femutils.nbVerts,1);
             delta(obj.femutils.usedVerts,4)=disp_buff(3*obj.femutils.nbVerts+1:4*obj.femutils.nbVerts,1);
             delta(obj.femutils.usedVerts,5)=disp_buff(4*obj.femutils.nbVerts+1:5*obj.femutils.nbVerts,1);
-        end
-
-        function deltaInterp = interpFemDelta(obj,delta,xyzinAeroMesh)
-            deltaAero = zeros(size(obj.tri.Points));
-            deltaAero(obj.femutils.usedAeroVerts,1) = obj.fem2aeroMat*delta(obj.femutils.usedVerts,1);
-            deltaAero(obj.femutils.usedAeroVerts,2) = obj.fem2aeroMat*delta(obj.femutils.usedVerts,2);
-            deltaAero(obj.femutils.usedAeroVerts,3) = obj.fem2aeroMat*delta(obj.femutils.usedVerts,3);
-            deltaAero(obj.femutils.usedAeroVerts,4) = obj.fem2aeroMat*delta(obj.femutils.usedVerts,4);
-            deltaAero(obj.femutils.usedAeroVerts,5) = obj.fem2aeroMat*delta(obj.femutils.usedVerts,5);
-            deltaAero(obj.femutils.usedAeroVerts,6) = obj.fem2aeroMat*delta(obj.femutils.usedVerts,6);
-
-            %空力メッシュから補間点への補間
-            phi = @(r)obj.phi3(r,1);
-            Avv = phi(obj.calcRMat(obj.tri.Points,obj.tri.Points));
-            Acv = phi(obj.calcRMat(obj.tri.Points,xyzinAeroMesh));
-            
-            interpMat = Acv'*pinv(Avv);
-            deltaInterp(:,1)  = interpMat*deltaAero(:,1);
-            deltaInterp(:,2)  = interpMat*deltaAero(:,2);
-            deltaInterp(:,3)  = interpMat*deltaAero(:,3);
-            deltaInterp(:,4)  = interpMat*deltaAero(:,4);
-            deltaInterp(:,5)  = interpMat*deltaAero(:,5);
-            deltaInterp(:,6)  = interpMat*deltaAero(:,6);
-
         end
 
         function deltaInterp = interpFemDelta(obj,delta,xyzinAeroMesh)
