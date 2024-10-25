@@ -3364,7 +3364,7 @@ classdef UNLSI
             if nargin<5
                 aeroIDLink = unique(obj.surfID);
             end
-            [verts,connectivity] = obj.mergeVerts(obj.settingUNLSI.vertsTol,verts,connectivity);
+            [verts,connectivity] = obj.mergeVerts(0.004,verts,connectivity);
             obj.femtri = triangulation(connectivity,verts);
             obj.femID = femID;
 
@@ -3410,13 +3410,15 @@ classdef UNLSI
                    obj.femutils.MatIndex(i,1) = 1;
                    obj.femutils.MatIndex(1*obj.femutils.nbVerts+i,1) = 1;
                    obj.femutils.MatIndex(2*obj.femutils.nbVerts+i,1) = 1;
-                   obj.femutils.MatIndex(3*obj.femutils.nbVerts+i,1) = 0;%0930修正
-                   obj.femutils.MatIndex(4*obj.femutils.nbVerts+i,1) = 0;%0930修正
+                   obj.femutils.MatIndex(3*obj.femutils.nbVerts+i,1) = 1;%0930修正
+                   obj.femutils.MatIndex(4*obj.femutils.nbVerts+i,1) = 1;%0930修正
                    obj.femutils.MatIndex(5*obj.femutils.nbVerts+i,1) = 0;
                    obj.femutils.InvMatIndex=[obj.femutils.InvMatIndex,i];
+                %    disp(size([obj.femutils.InvMatIndex,i]))
                end
             end
-            obj.femutils.InvMatIndex=[obj.femutils.InvMatIndex,1*obj.femutils.nbVerts+obj.femutils.InvMatIndex,2*obj.femutils.nbVerts+obj.femutils.InvMatIndex]';%0930修正
+            % obj.femutils.InvMatIndex=[obj.femutils.InvMatIndex,1*obj.femutils.nbVerts+obj.femutils.InvMatIndex,2*obj.femutils.nbVerts+obj.femutils.InvMatIndex]';%0930修正
+            obj.femutils.InvMatIndex=[obj.femutils.InvMatIndex,1*obj.femutils.nbVerts+obj.femutils.InvMatIndex,2*obj.femutils.nbVerts+obj.femutils.InvMatIndex,3*obj.femutils.nbVerts+obj.femutils.InvMatIndex,4*obj.femutils.nbVerts+obj.femutils.InvMatIndex]';%0930修正
             
             %構造メッシュと空力メッシュの変換行列の作成
             %Rstrを計算
@@ -3463,13 +3465,34 @@ classdef UNLSI
             end
             if isempty(delta)
                 figure(figID);clf;hold on;
-                trimesh(obj.femtri.ConnectivityList(any(obj.femID == plotID(:)',2),:),obj.femtri.Points(:,1),obj.femtri.Points(:,2),obj.femtri.Points(:,3));
-                axis equal;grid on;view([-30,15])
+                trimesh(obj.femtri.ConnectivityList(any(obj.femID == plotID(:)',2),:),obj.femtri.Points(:,1),obj.femtri.Points(:,2),obj.femtri.Points(:,3),'EdgeColor','k');   
+                hold on;
+                trimesh(obj.femtri.ConnectivityList(any(obj.femID == plotID(:)',2),:),obj.femtri.Points(:,1),-obj.femtri.Points(:,2),obj.femtri.Points(:,3),'EdgeColor','k');                
+                    % trisurf(obj.tri.ConnectivityList,affineverts(:,1),affineverts(:,2),affineverts(:,3),c,'FaceColor','interp','EdgeAlpha',0.15);
+                    % colormap jet;
+                % trisurf(obj.femtri.ConnectivityList(any(obj.femID == plotID(:)',2),:),obj.femtri.Points(:,1),obj.femtri.Points(:,2),obj.femtri.Points(:,3),0,'EdgeAlpha',0.15);
+                axis equal;grid on;view([-30,30])
+                ax = gca;
+                ax.GridAlpha = 0.5;
+                xlim([-0.2 0.2]);
+                ylim([-0.6 0.6]);
+                zlim([-0.03 0.03]);
+                % ax.GridColor = 'b';
             else
                 figure(figID);clf;hold on;
                 modVerts = obj.femtri.Points + delta(:,1:3);
-                trimesh(obj.femtri.ConnectivityList(any(obj.femID == plotID(:)',2),:),modVerts(:,1),modVerts(:,2),modVerts(:,3));
-                axis equal;grid on;view([-30,15])
+                c = vecnorm(transpose(delta(:,1:3)));
+                writematrix(c,"./delta.csv");
+                % trimesh(obj.femtri.ConnectivityList(any(obj.femID == plotID(:)',2),:),modVerts(:,1),modVerts(:,2),modVerts(:,3),c,'EdgeColor','k');  
+                trisurf(obj.femtri.ConnectivityList(any(obj.femID == plotID(:)',2),:),modVerts(:,1),modVerts(:,2),modVerts(:,3),c,'EdgeColor','w','FaceColor','interp','EdgeAlpha',0.5); 
+                colormap jet;
+                % trisurf(obj.femtri.ConnectivityList(any(obj.femID == plotID(:)',2),:),modVerts(:,1),modVerts(:,2),modVerts(:,3),0,'EdgeAlpha',0.15);
+                axis equal;
+                grid off;
+                view([-30,30])
+                ax = gca;
+                ax.GridAlpha = 0.5;
+                % ax.GridColor = 'b';
             end
         end
 
@@ -3932,7 +3955,7 @@ classdef UNLSI
                 deltap0_buff = delta{1}(:);
                 deltap0 = deltap0_buff(obj.femutils.MatIndex==1,1);
                 for k = 1:size(deltap0,1)
-                    disp(k)
+                    % disp(k)
                     if k < sum(obj.femutils.MatIndex(1:sub2ind(size(delta{1}),1,4)))
                         deltapf = deltap0;
                         deltapf(k,1) = deltap0(k,1)+pert;
