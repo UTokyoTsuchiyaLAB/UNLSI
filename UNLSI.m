@@ -4350,6 +4350,7 @@ classdef UNLSI
             modVerts(obj.femutils.usedAeroVerts,2) = obj.tri.Points(obj.femutils.usedAeroVerts,2) + obj.fem2aeroMat*delta(obj.femutils.usedVerts,2);
             modVerts(obj.femutils.usedAeroVerts,3) = obj.tri.Points(obj.femutils.usedAeroVerts,3) + obj.fem2aeroMat*delta(obj.femutils.usedVerts,3);
         end
+        
         function  exportDrawing(obj,filename,exportID,intersectYpos,outputYpos)
            exportTri.faces = obj.tri.ConnectivityList(any(obj.surfID==exportID(:)',2),:);
            exportTri.vertices = obj.tri.Points;
