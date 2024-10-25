@@ -1,5 +1,7 @@
 void main()
-{   
+{
+ ReadApplyDESFile("org.des");
+ Update();
  SetComputationFileName( CFD_VSPGEOM_TYPE, "orgMesh.vspgeom" );
- ComputeCFDMesh(0, 0, CFD_VSPGEOM_TYPE );
+ ComputeCFDMesh(0,0, CFD_VSPGEOM_TYPE );
 }

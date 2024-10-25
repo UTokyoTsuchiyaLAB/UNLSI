@@ -3,9 +3,8 @@
 %
 clear;
 [con, p, uv1, uv2, uv3, wedata, id] = readvspgeom( "wing.vspgeom", 0); %形状の読み込み
-wing = UNLSI(p',con',id',wedata); %コンストラクタの実行
-wing = wing.setREFS(80,20,4); %基準面積 基準長の設定
-wing = wing.setRotationCenter([0,0,0]); %回転中心の設定
+wing = UNLSI(p',con',id',wedata,1); %コンストラクタの実行
+wing = wing.setREFS(80,20,4,[0,0,0]); %基準面積 基準長の設定
 wing = wing.setUNLSISettings("nCalcDivide",2);%パネル法行列の作成における分割数を設定
 wing = wing.makeCluster(); %速度分布を求めるためのパネルクラスターを作成
 wing = wing.makeEquation(); %パネル法行列の作成
@@ -25,11 +24,16 @@ wing = wing.setFemMesh(verts,con,femID);%すべての空力メッシュIDとfem�
 disp("weight");
 disp(weight);
 wing = wing.makeFemEquation();
+wing = wing.femModalAnalysis(5);
 %
 
 wing2 = wing;
 for iter = 1
-    delta = wing.solveFem(wing2.getCp(alpha,0,0.001,Re).*Vinf.^2.*1.225.*0.5,1);
+    delta = wing.solveModalFem(wing2.getCp(alpha,0,0.001,Re).*Vinf.^2.*1.225.*0.5,1);
+    %delta = wing.solveFem(wing2.getCp(alpha,0,0.001,Re).*Vinf.^2.*1.225.*0.5,1);
+    deltaInterp = wing.interpFemDelta(delta{1},[0,10,0;4,10,0]);
+    disp("Tip twist(deg)");
+    disp(atan2d(deltaInterp(1,3)-deltaInterp(2,3),4));
     modVerts = wing.calcModifiedVerts(delta{1});
     wing2 = wing2.setVerts(modVerts);
     wing2 = wing2.makeEquation(); %パネル法行列の作成

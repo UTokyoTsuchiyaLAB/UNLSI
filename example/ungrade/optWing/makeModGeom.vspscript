@@ -1,5 +1,7 @@
 void main()
-{   
+{
+    ReadApplyDESFile("mod.des");
+    Update();   
     array<int> dirtype = GetIntAnalysisInput( "Projection", "DirectionType" );
     // Calculate Z projected Area
     dirtype[0] = Z_PROJ;

@@ -1,9 +1,15 @@
-8
-MEFLVSUHRFG:WingGeom:XSec_2:Span: 0.437
-PLBQLRYYEDP:WingGeom:XSec_2:Sweep: 42.965
-VGJGCRMAHAK:WingGeom:XSec_2:Tip_Chord: 0.140
-POAEWLNRSNT:WingGeom:XSec_2:Twist: -10.245
-TXUHRDTTOJJ:WingGeom:XForm:Y_Rel_Rotation: 5.566
-ENNDFHNLZPR:WingGeom:XSecCurve_0:Camber: -0.007
-YIZZQSWCDXM:WingGeom:XSec_1:Root_Chord: 0.397
-DWXANMHGLEF:WingGeom:XSec_1:Span: 0.195
+14
+UJNIQZOMKNW:WingGeom:LowerCoeff_2:Al_1: 0.085
+RTPXYIBWXTI:WingGeom:LowerCoeff_2:Al_2: 0.085
+RWZDLZYFMXG:WingGeom:UpperCoeff_2:Au_0: 0.388
+HNJHUSJDMSW:WingGeom:UpperCoeff_2:Au_1: 0.385
+HBRCOWQSRGO:WingGeom:UpperCoeff_2:Au_2: 0.385
+ADLQVLICRZC:WingGeom:XSec_2:Sweep: 24.118
+MWNXMRZGPCK:WingGeom:XSec_2:Tip_Chord: 0.441
+QTRIVRFKDCJ:WingGeom:XSec_2:Twist: -0.294
+AQTCTAWJUBL:WingGeom:LowerCoeff_0:Al_1: 0.085
+NHIXMOOUPZF:WingGeom:LowerCoeff_0:Al_2: 0.085
+DUPYUSBVNTK:WingGeom:UpperCoeff_0:Au_0: 0.388
+PTNCLCKMPXZ:WingGeom:UpperCoeff_0:Au_1: 0.385
+ASVYYSPDSFL:WingGeom:UpperCoeff_0:Au_2: 0.385
+CUJIDCGIMLY:WingGeom:XSec_1:Root_Chord: 0.521

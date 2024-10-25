@@ -1,0 +1,10 @@
+# VSPGEOM Tag Key File
+C:\Users\aerospace\Dropbox\research\UNLSI\example\ungrade\cessna210\Cessna-210_opt.vspgeom
+5
+
+# tag#,geom#,surf#,gname,gid,ssname1,ssname2,...,ssid1,ssid2,...
+1,4,0,Fuselage_S,IPKETGGBAT
+2,2,0,Hub_S,SROGCQERWL
+3,1,0,Vert_S,TQKIBVAXHW
+4,0,0,Horz_S,YSRSLAZHKU
+5,3,0,NormalWing_S,MSFMMQSVWG
