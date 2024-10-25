@@ -4330,6 +4330,117 @@ classdef UNLSI
             end
         end
 
+        function [f,jac] = calcStrongCouplingJaccobian(obj,u,delta)
+            %deltaから機体メッシュを再生成
+            nflowVar = size(obj.LHS,1);
+            dS_du = [];
+            dR_ddelta = [];
+            calcCount = 1;
+            R0all = [];
+            S0all = [];
+            for iter = 1:numel(obj.flow)
+                alphabuff = obj.settingUNGRADE.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
+                betabuff = obj.settingUNGRADE.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
+                dynbuff = obj.settingUNGRADE.dynPress(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
+                for jter = 1:numel(alphabuff)
+                    modVerts = obj.calcModifiedVerts(delta{calcCount});
+                    obj2 = obj.makeApproximatedInstance(modVerts);
+                    u0 = u(nflowVar*(calcCount-1)+1:nflowVar*calcCount,1);
+                    [AERODATA,Cp,Cfe,R0,obj2] = obj2.solveFlowForAdjoint(u0,iter,alphabuff(jter),betabuff(jter));
+                    R0all = [R0all;R0];
+                    obj2.plotGeometry(3,Cp{iter},[-2,1]);
+                    %[deltaOut,~,S0] = obj.solveFem(Cp{i}(:,j).*obj.settingUNGRADE.dynPress(1),0);
+                    %delta{i,j} = deltaOut{1};
+                    deltaIn{1} = delta{calcCount};
+                    [~,~,S0] = obj.solveFemForAdjoint(deltaIn,Cp{iter}.*dynbuff(jter),obj.settingUNGRADE.selfLoadFlag);
+                    S0all = [S0all;S0];
+                    if nargout>1
+                        %u微分
+                        tic;
+                        pert = eps^(1/3);
+                        for k = 1:numel(u0)
+                            uf = u0;
+                            uf(k) = uf(k)+pert;
+                            [AERODATA,Cp,Cfe,Rf,~] = obj2.solveFlowForAdjoint(uf,iter,alphabuff(jter),betabuff(jter));
+                            deltaIn{1} = delta{calcCount};
+                            [~,~,Sf] = obj.solveFemForAdjoint(deltaIn,Cp{iter}.*dynbuff(jter),obj.settingUNGRADE.selfLoadFlag);
+                            dS_du_buff(:,k) = (Sf-S0)/pert;
+                        end
+                        if calcCount == 1
+                            dS_du = dS_du_buff;
+                        else
+                            dS_du = blkdiag(dS_du,dS_du_buff);
+                        end
+                        toc;
+                        tic;
+                        %delta微分の計算
+                        %dR_ddelta
+                        deltap0_buff = delta{calcCount}(:);
+                        deltap0 = deltap0_buff(obj.femutils.MatIndex==1,1);
+                        nfem = size(obj.femLHS,1);
+                        for k = 1:size(deltap0,1)
+                            if k < sum(obj.femutils.MatIndex(1:sub2ind(size(delta{calcCount}),1,4)))
+                                deltapf = deltap0;
+                                deltapf(k,1) = deltap0(k,1)+pert;
+                                disp_buff = zeros(size(obj.femtri.Points,1)*6,1);
+                                disp_buff(obj.femutils.InvMatIndex,1)=deltapf;
+                                deltaf = delta;
+                                deltaf{calcCount} = zeros(size(obj.femtri.Points,1),6);
+                                deltaf{calcCount}(obj.femutils.usedVerts,1)=disp_buff(1:obj.femutils.nbVerts,1);
+                                deltaf{calcCount}(obj.femutils.usedVerts,2)=disp_buff(obj.femutils.nbVerts+1:2*obj.femutils.nbVerts,1);
+                                deltaf{calcCount}(obj.femutils.usedVerts,3)=disp_buff(2*obj.femutils.nbVerts+1:3*obj.femutils.nbVerts,1);
+                                deltaf{calcCount}(obj.femutils.usedVerts,4)=disp_buff(3*obj.femutils.nbVerts+1:4*obj.femutils.nbVerts,1);
+                                deltaf{calcCount}(obj.femutils.usedVerts,5)=disp_buff(4*obj.femutils.nbVerts+1:5*obj.femutils.nbVerts,1);
+                                deltaf{calcCount}(obj.femutils.usedVerts,6)=disp_buff(5*obj.femutils.nbVerts+1:6*obj.femutils.nbVerts,1);
+                                modVerts = obj.calcModifiedVerts(deltaf{calcCount});
+                                obj3 = obj2.makeApproximatedInstance(modVerts,1);
+                                [AERODATA,Cp,Cfe,Rf,~] = obj3.solveFlowForAdjoint(u0,iter,alphabuff(jter),betabuff(jter));
+                                deltaIn{1} = deltaf{calcCount};
+                                [~,~,Sf] = obj.solveFemForAdjoint(deltaIn,Cp{iter}.*dynbuff(jter),obj.settingUNGRADE.selfLoadFlag);
+                                dR_ddelta_buff(:,k) = (Rf-R0)./pert;
+                                dS_ddelta_buff(:,k) = (Sf-S0)./pert;
+                            else
+                                dR_ddelta_buff(:,k) = 0;
+                                dS_ddelta_buff(:,k) = obj.femLHS(:,k);
+                            end
+                        end
+                        toc;
+                        if calcCount == 1
+                            dR_ddelta = dR_ddelta_buff;
+                            dS_ddelta = dS_ddelta_buff;
+                        else
+                            dR_ddelta = blkdiag(dR_ddelta,dR_ddelta_buff);
+                            dS_ddelta = blkdiag(dS_ddelta,dS_ddelta_buff);
+                        end
+                    end
+                    calcCount = calcCount + 1;
+                end
+            end
+
+            for i = 1:size(obj.flowNoList,1)
+                if i == 1
+                    if obj.flowNoList(i,3) == 1
+                        dR_du = (obj2.LHS+obj2.wakeLHS); %亜音速
+                    else
+                        dR_du = eye(nbPanel);
+                    end
+                else
+                    if obj.flowNoList(i,3) == 1
+                        dR_du = blkdiag(dR_du,(obj2.LHS+obj2.wakeLHS));
+                    else
+                        nbPanel = sum(obj.paneltype == 1);
+                        dR_du = blkdiag(dR_du,eye(nbPanel));
+                    end
+                end
+            end
+            if nargout>1
+                jac= [dR_du,dR_ddelta;dS_du./10000,dS_ddelta./10000];
+            end
+            f = [R0all;S0all./10000];
+
+        end
+
+
         %空力弾性のフラッター速度解析用のdelta偏微分を取得する
         function obj = calcAeroelasticDerivative(obj,obj2,delta,alpha,beta,Mach,Re)
             %deltaから機体メッシュを再生成
