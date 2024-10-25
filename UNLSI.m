@@ -49,7 +49,8 @@ classdef UNLSI
         modNormal %舵角等によって変更した法線ベクトル
         center %各パネルの中心
         area %各パネルの面積
-        angularVelocity %各パネルの回転角速度
+        angularVelocity %各パネルの回転角速度（無次元）
+        localVelocity %各パネルの並行移動速度（無次元）
         flowNoTable %flowNoが整理されたMatrix
         flow %各flowconditionが格納されたセル配列
         prop %各プロペラ方程式情報が格納されたセル配列
@@ -175,6 +176,7 @@ classdef UNLSI
             obj.CREF = 1;
             obj.BREF = 1;
             obj.XYZREF = [0,0,0];
+
 
 
             obj = obj.setMesh(verts,connectivity,surfID,wakelineID);
@@ -314,6 +316,13 @@ classdef UNLSI
                     obj.angularVelocity(obj.surfID == ID(iter),1:3) = repmat(angularVel(:)',[sum(obj.surfID == ID(iter)),1]);
                 end
             end
+        end
+
+        function obj = setLocalVelocity(obj,localVelin)
+            %%%%%%%%%%%Rotation Center settingUNLSI%%%%%%%%%%%%%
+            %各パネルの速度を設定する
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            obj.localVelocity =  localVelin;
         end
 
         function obj = setDeflGroup(obj,groupNo,groupName,groupID,deflGain)
@@ -512,6 +521,7 @@ classdef UNLSI
             obj.center = zeros(numel(obj.paneltype), 3);
             obj.rotCenter = zeros(numel(obj.paneltype), 3);
             obj.angularVelocity = zeros(numel(obj.paneltype), 3);
+            obj.localVelocity = zeros(numel(obj.paneltype), 3);
             
             % Cp, Cfe, LHS, RHSを初期化
             obj.Cp = {};
@@ -2181,7 +2191,7 @@ classdef UNLSI
                 Vinf = zeros(nPanel,3);
                 for i = 1:nPanel
                    rvec = obj.center(i,:)'-obj.rotCenter(i,:)';
-                   Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0])-(cross(obj.angularVelocity(i,:)./180.*pi,rvec(:)')'))';
+                   Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0])-(cross(obj.angularVelocity(i,:)./180.*pi,rvec(:)')')-obj.localVelocity(i,:)')';
                 end
                 
                 
@@ -2350,7 +2360,7 @@ classdef UNLSI
                 Vinf = zeros(nPanel,3);
                 for i = 1:nPanel
                    rvec = obj.center(i,:)'-obj.rotCenter(i,:)';
-                   Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0])-(cross(obj.angularVelocity(i,:)./180.*pi,rvec(:)')'))';
+                   Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0])-(cross(obj.angularVelocity(i,:)./180.*pi,rvec(:)')')-obj.localVelocity(i,:)')';
                 end
                 if obj.flow{flowNo}.Mach < 1
                     %亜音速
@@ -2503,7 +2513,7 @@ classdef UNLSI
                 Vinf = zeros(nPanel,3);
                 for i = 1:nPanel
                    rvec = obj.center(i,:)'-obj.rotCenter(i,:)';
-                   Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0])-(cross(obj.angularVelocity(i,:)./180.*pi,rvec(:)')'))';
+                   Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0])-(cross(obj.angularVelocity(i,:)./180.*pi,rvec(:)')')-obj.localVelocity(i,:)')';
                 end
                 Tvec(:,1) = obj.modNormal(:,2).* Vinf(:,3)-obj.modNormal(:,3).* Vinf(:,2);
                 Tvec(:,2) = obj.modNormal(:,3).* Vinf(:,1)-obj.modNormal(:,1).* Vinf(:,3);
@@ -4430,7 +4440,7 @@ classdef UNLSI
 
         end
 
-        function delta = femSol2Delta(obj,femSol)
+        function [delta,deltadot] = femSol2Delta(obj,femSol,femSoldot)
             disp_buff = zeros(size(obj.femtri.Points,1)*6,1);
             disp_buff(obj.femutils.InvMatIndex,1)=femSol;
             delta = zeros(size(obj.femtri.Points,1),6);
@@ -4439,6 +4449,25 @@ classdef UNLSI
             delta(obj.femutils.usedVerts,3)=disp_buff(2*obj.femutils.nbVerts+1:3*obj.femutils.nbVerts,1);
             delta(obj.femutils.usedVerts,4)=disp_buff(3*obj.femutils.nbVerts+1:4*obj.femutils.nbVerts,1);
             delta(obj.femutils.usedVerts,5)=disp_buff(4*obj.femutils.nbVerts+1:5*obj.femutils.nbVerts,1);
+            deltadot = [];
+            if nargin > 2
+                disp_buff = zeros(size(obj.femtri.Points,1)*6,1);
+                disp_buff(obj.femutils.InvMatIndex,1)=femSoldot;
+                deltadot = zeros(size(obj.femtri.Points,1),6);
+                deltadot(obj.femutils.usedVerts,1)=disp_buff(1:obj.femutils.nbVerts,1);
+                deltadot(obj.femutils.usedVerts,2)=disp_buff(obj.femutils.nbVerts+1:2*obj.femutils.nbVerts,1);
+                deltadot(obj.femutils.usedVerts,3)=disp_buff(2*obj.femutils.nbVerts+1:3*obj.femutils.nbVerts,1);
+                deltadot(obj.femutils.usedVerts,4)=disp_buff(3*obj.femutils.nbVerts+1:4*obj.femutils.nbVerts,1);
+                deltadot(obj.femutils.usedVerts,5)=disp_buff(4*obj.femutils.nbVerts+1:5*obj.femutils.nbVerts,1);
+            end
+        end
+
+        function localVel = deltadot2localVel(obj,deltadot,Vinf)
+            modVerts = zeros(size(obj.tri.Points));
+            modVerts(obj.femutils.usedAeroVerts,1) = obj.fem2aeroMat*(deltadot(obj.femutils.usedVerts,1)./Vinf);
+            modVerts(obj.femutils.usedAeroVerts,2) = obj.fem2aeroMat*(deltadot(obj.femutils.usedVerts,2)./Vinf);
+            modVerts(obj.femutils.usedAeroVerts,3) = obj.fem2aeroMat*(deltadot(obj.femutils.usedVerts,3)./Vinf);
+            localVel = obj.verts2centerMat*modVerts;
         end
 
         function deltaInterp = interpFemDelta(obj,delta,xyzinAeroMesh)
