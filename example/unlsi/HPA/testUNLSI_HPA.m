@@ -25,7 +25,7 @@ beta = [0,0,0];
 wing = wing.solveFlow(alpha,beta,0.001,300000);
 wing.plotGeometry(1,wing.getCp(0,0,0.001,300000),[-2,1]);%圧力係数のプロット
 disp(wing.getAERODATA(alpha,beta,0.001,300000));
-%{
+%
 %空力係数の補間曲面の作成
 wing = wing.makeSurrogateModel([-10,-5,0,5,10],[-10,-5,0,5,10],0.0001,300000);
 [ppCoef,ppDyn] = wing.getSurrogateModel();
