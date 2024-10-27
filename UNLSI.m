@@ -4359,7 +4359,14 @@ classdef UNLSI
             delta0{1}(obj.femutils.usedVerts,5)=disp_buff(4*obj.femutils.nbVerts+1:5*obj.femutils.nbVerts,1);
             delta0{1}(obj.femutils.usedVerts,6)=disp_buff(5*obj.femutils.nbVerts+1:6*obj.femutils.nbVerts,1);
             modVerts = obj.calcModifiedVerts(delta0{1});
-            obj3 = obj2.makeApproximatedInstance(modVerts,1);
+            calcMethod = "chain";
+            if strcmpi(calcMethod,"chain")
+                obj3 = obj2.makeApproximatedInstance(modVerts,1);
+            else
+                obj3 = obj2.setVerts(modVerts);
+                obj3 = obj3.makeEquation();
+            end
+
             obj3 = obj3.solveFlow(alpha,beta,Mach,Re);
             distLoad = obj3.getCp(alpha,beta,Mach,Re);
             Fp = sparse(6*size(obj.femutils.usedVerts,2),1);
@@ -4402,7 +4409,12 @@ classdef UNLSI
                         deltaf{1}(obj.femutils.usedVerts,5)=disp_buff(4*obj.femutils.nbVerts+1:5*obj.femutils.nbVerts,1);
                         deltaf{1}(obj.femutils.usedVerts,6)=disp_buff(5*obj.femutils.nbVerts+1:6*obj.femutils.nbVerts,1);
                         modVerts = obj.calcModifiedVerts(deltaf{1});
-                        obj3 = obj2.makeApproximatedInstance(modVerts,1);
+                        if strcmpi(calcMethod,"chain")
+                            obj3 = obj2.makeApproximatedInstance(modVerts,1);
+                        else
+                            obj3 = obj2.setVerts(modVerts);
+                            obj3 = obj3.makeEquation();
+                        end
                         obj3 = obj3.solveFlow(alpha,beta,Mach,Re);
                         distLoad = obj3.getCp(alpha,beta,Mach,Re);
                         Fp = sparse(6*size(obj.femutils.usedVerts,2),1);
