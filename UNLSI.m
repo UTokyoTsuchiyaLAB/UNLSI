@@ -90,6 +90,7 @@ classdef UNLSI
         df_ddelta %FEMにおける力の変位に関する微分
         femEigenVec %Femの結果を固有値解析した固有ベクトル
         femEigenVal %固有値
+        selfLoadFlag
     end
 
     methods(Access = public)
@@ -166,6 +167,7 @@ classdef UNLSI
             obj.settingUNLSI.pnThreshold = sqrt(eps);
             obj.settingUNLSI.defaultCpLimit = [-1000,1000];
             obj.settingUNLSI.CpSlope = 5;
+            obj.settingUNLSI.selfLoadFlag = 0;
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             obj.halfmesh = halfmesh;
             obj.flowNoTable = [];
@@ -175,6 +177,7 @@ classdef UNLSI
             obj.CREF = 1;
             obj.BREF = 1;
             obj.XYZREF = [0,0,0];
+            
 
 
             obj = obj.setMesh(verts,connectivity,surfID,wakelineID);
@@ -4330,7 +4333,7 @@ classdef UNLSI
             end
         end
 
-        function [f,jac] = calcStrongCouplingJaccobian(obj,u,delta)
+        function [f,jac] = calcStrongCouplingJaccobian(obj,u,delta,alpha,beta,dynPress)
             %deltaから機体メッシュを再生成
             nflowVar = size(obj.LHS,1);
             dS_du = [];
@@ -4339,9 +4342,9 @@ classdef UNLSI
             R0all = [];
             S0all = [];
             for iter = 1:numel(obj.flow)
-                alphabuff = obj.settingUNGRADE.alpha(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
-                betabuff = obj.settingUNGRADE.beta(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
-                dynbuff = obj.settingUNGRADE.dynPress(obj.flowNoList(:,2)==obj.flow{iter}.Mach);
+                alphabuff = alpha;
+                betabuff = beta;
+                dynbuff = dynPress;
                 for jter = 1:numel(alphabuff)
                     modVerts = obj.calcModifiedVerts(delta{calcCount});
                     obj2 = obj.makeApproximatedInstance(modVerts);
@@ -4352,7 +4355,7 @@ classdef UNLSI
                     %[deltaOut,~,S0] = obj.solveFem(Cp{i}(:,j).*obj.settingUNGRADE.dynPress(1),0);
                     %delta{i,j} = deltaOut{1};
                     deltaIn{1} = delta{calcCount};
-                    [~,~,S0] = obj.solveFemForAdjoint(deltaIn,Cp{iter}.*dynbuff(jter),obj.settingUNGRADE.selfLoadFlag);
+                    [~,~,S0] = obj.solveFemForAdjoint(deltaIn,Cp{iter}.*dynbuff(jter),obj.settingUNLSI.selfLoadFlag);
                     S0all = [S0all;S0];
                     if nargout>1
                         %u微分
@@ -4363,7 +4366,7 @@ classdef UNLSI
                             uf(k) = uf(k)+pert;
                             [AERODATA,Cp,Cfe,Rf,~] = obj2.solveFlowForAdjoint(uf,iter,alphabuff(jter),betabuff(jter));
                             deltaIn{1} = delta{calcCount};
-                            [~,~,Sf] = obj.solveFemForAdjoint(deltaIn,Cp{iter}.*dynbuff(jter),obj.settingUNGRADE.selfLoadFlag);
+                            [~,~,Sf] = obj.solveFemForAdjoint(deltaIn,Cp{iter}.*dynbuff(jter),obj.settingUNLSI.selfLoadFlag);
                             dS_du_buff(:,k) = (Sf-S0)/pert;
                         end
                         if calcCount == 1
@@ -4396,7 +4399,7 @@ classdef UNLSI
                                 obj3 = obj2.makeApproximatedInstance(modVerts,1);
                                 [AERODATA,Cp,Cfe,Rf,~] = obj3.solveFlowForAdjoint(u0,iter,alphabuff(jter),betabuff(jter));
                                 deltaIn{1} = deltaf{calcCount};
-                                [~,~,Sf] = obj.solveFemForAdjoint(deltaIn,Cp{iter}.*dynbuff(jter),obj.settingUNGRADE.selfLoadFlag);
+                                [~,~,Sf] = obj.solveFemForAdjoint(deltaIn,Cp{iter}.*dynbuff(jter),obj.settingUNLSI.selfLoadFlag);
                                 dR_ddelta_buff(:,k) = (Rf-R0)./pert;
                                 dS_ddelta_buff(:,k) = (Sf-S0)./pert;
                             else
@@ -4417,21 +4420,21 @@ classdef UNLSI
                 end
             end
 
-            for i = 1:size(obj.flowNoList,1)
-                if i == 1
-                    if obj.flowNoList(i,3) == 1
+            for i = 1:1
+                % if i == 1
+                    % if obj.flowNoList(i,3) == 1
                         dR_du = (obj2.LHS+obj2.wakeLHS); %亜音速
-                    else
-                        dR_du = eye(nbPanel);
-                    end
-                else
-                    if obj.flowNoList(i,3) == 1
-                        dR_du = blkdiag(dR_du,(obj2.LHS+obj2.wakeLHS));
-                    else
-                        nbPanel = sum(obj.paneltype == 1);
-                        dR_du = blkdiag(dR_du,eye(nbPanel));
-                    end
-                end
+                    % else
+                        % dR_du = eye(nbPanel);
+                    % end
+                % else
+                %     if obj.flowNoList(i,3) == 1
+                %         dR_du = blkdiag(dR_du,(obj2.LHS+obj2.wakeLHS));
+                %     else
+                %         nbPanel = sum(obj.paneltype == 1);
+                %         dR_du = blkdiag(dR_du,eye(nbPanel));
+                %     end
+                % end
             end
             if nargout>1
                 jac= [dR_du,dR_ddelta;dS_du./10000,dS_ddelta./10000];
