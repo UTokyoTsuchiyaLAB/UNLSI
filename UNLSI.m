@@ -49,7 +49,8 @@ classdef UNLSI
         modNormal %舵角等によって変更した法線ベクトル
         center %各パネルの中心
         area %各パネルの面積
-        angularVelocity %各パネルの回転角速度
+        angularVelocity %各パネルの回転角速度（無次元）
+        localVelocity %各パネルの並行移動速度（無次元）
         flowNoTable %flowNoが整理されたMatrix
         flow %各flowconditionが格納されたセル配列
         prop %各プロペラ方程式情報が格納されたセル配列
@@ -87,7 +88,6 @@ classdef UNLSI
         fem2aeroMat
         aero2femMat
         femverts2centerMat %femメッシュでの節点量⇛パネルセンター量への変換行列
-        df_ddelta %FEMにおける力の変位に関する微分
         femEigenVec %Femの結果を固有値解析した固有ベクトル
         femEigenVal %固有値
         selfLoadFlag
@@ -178,6 +178,7 @@ classdef UNLSI
             obj.BREF = 1;
             obj.XYZREF = [0,0,0];
             
+
 
 
             obj = obj.setMesh(verts,connectivity,surfID,wakelineID);
@@ -317,6 +318,13 @@ classdef UNLSI
                     obj.angularVelocity(obj.surfID == ID(iter),1:3) = repmat(angularVel(:)',[sum(obj.surfID == ID(iter)),1]);
                 end
             end
+        end
+
+        function obj = setLocalVelocity(obj,localVelin)
+            %%%%%%%%%%%Rotation Center settingUNLSI%%%%%%%%%%%%%
+            %各パネルの速度を設定する
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            obj.localVelocity =  localVelin;
         end
 
         function obj = setDeflGroup(obj,groupNo,groupName,groupID,deflGain)
@@ -515,6 +523,7 @@ classdef UNLSI
             obj.center = zeros(numel(obj.paneltype), 3);
             obj.rotCenter = zeros(numel(obj.paneltype), 3);
             obj.angularVelocity = zeros(numel(obj.paneltype), 3);
+            obj.localVelocity = zeros(numel(obj.paneltype), 3);
             
             % Cp, Cfe, LHS, RHSを初期化
             obj.Cp = {};
@@ -2184,7 +2193,7 @@ classdef UNLSI
                 Vinf = zeros(nPanel,3);
                 for i = 1:nPanel
                    rvec = obj.center(i,:)'-obj.rotCenter(i,:)';
-                   Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0])-(cross(obj.angularVelocity(i,:)./180.*pi,rvec(:)')'))';
+                   Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0]-(cross(obj.angularVelocity(i,:)./180.*pi,rvec(:)')')-obj.localVelocity(i,:)'))';
                 end
                 
                 
@@ -2353,7 +2362,7 @@ classdef UNLSI
                 Vinf = zeros(nPanel,3);
                 for i = 1:nPanel
                    rvec = obj.center(i,:)'-obj.rotCenter(i,:)';
-                   Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0])-(cross(obj.angularVelocity(i,:)./180.*pi,rvec(:)')'))';
+                   Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0]-(cross(obj.angularVelocity(i,:)./180.*pi,rvec(:)')')-obj.localVelocity(i,:)'))';
                 end
                 if obj.flow{flowNo}.Mach < 1
                     %亜音速
@@ -2506,7 +2515,7 @@ classdef UNLSI
                 Vinf = zeros(nPanel,3);
                 for i = 1:nPanel
                    rvec = obj.center(i,:)'-obj.rotCenter(i,:)';
-                   Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0])-(cross(obj.angularVelocity(i,:)./180.*pi,rvec(:)')'))';
+                   Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0]-(cross(obj.angularVelocity(i,:)./180.*pi,rvec(:)')')-obj.localVelocity(i,:)'))';
                 end
                 Tvec(:,1) = obj.modNormal(:,2).* Vinf(:,3)-obj.modNormal(:,3).* Vinf(:,2);
                 Tvec(:,2) = obj.modNormal(:,3).* Vinf(:,1)-obj.modNormal(:,1).* Vinf(:,3);
@@ -4445,72 +4454,83 @@ classdef UNLSI
 
 
         %空力弾性のフラッター速度解析用のdelta偏微分を取得する
-        function obj = calcAeroelasticDerivative(obj,obj2,delta,alpha,beta,Mach,Re)
+        function [df_ddelta,df_ddeltadot] = calcAeroelasticDerivative(obj,obj2,delta,deltadot,alpha,beta,Mach,Re)
             %deltaから機体メッシュを再生成
-            calcCount = 1;
-            for iter = 1:numel(alpha)
-                %delta微分の計算
-                %dR_ddelta
-                deltap0_buff = delta{calcCount}(:);
-                deltap0 = deltap0_buff(obj.femutils.MatIndex==1,1);
-                %基準の解析
-                deltapf = deltap0;
-                disp_buff = zeros(size(obj.femtri.Points,1)*6,1);
-                disp_buff(obj.femutils.InvMatIndex,1)=deltapf;
-                delta0 = delta;
-                delta0{calcCount} = zeros(size(obj.femtri.Points,1),6);
-                delta0{calcCount}(obj.femutils.usedVerts,1)=disp_buff(1:obj.femutils.nbVerts,1);
-                delta0{calcCount}(obj.femutils.usedVerts,2)=disp_buff(obj.femutils.nbVerts+1:2*obj.femutils.nbVerts,1);
-                delta0{calcCount}(obj.femutils.usedVerts,3)=disp_buff(2*obj.femutils.nbVerts+1:3*obj.femutils.nbVerts,1);
-                delta0{calcCount}(obj.femutils.usedVerts,4)=disp_buff(3*obj.femutils.nbVerts+1:4*obj.femutils.nbVerts,1);
-                delta0{calcCount}(obj.femutils.usedVerts,5)=disp_buff(4*obj.femutils.nbVerts+1:5*obj.femutils.nbVerts,1);
-                delta0{calcCount}(obj.femutils.usedVerts,6)=disp_buff(5*obj.femutils.nbVerts+1:6*obj.femutils.nbVerts,1);
-                modVerts = obj.calcModifiedVerts(delta0{calcCount});
+            %delta微分の計算
+            %dR_ddelta
+            deltap0_buff = delta{1}(:);
+            deltap0 = deltap0_buff(obj.femutils.MatIndex==1,1);
+            %基準の解析
+            deltapf = deltap0;
+            disp_buff = zeros(size(obj.femtri.Points,1)*6,1);
+            disp_buff(obj.femutils.InvMatIndex,1)=deltapf;
+            delta0 = delta;
+            delta0{1} = zeros(size(obj.femtri.Points,1),6);
+            delta0{1}(obj.femutils.usedVerts,1)=disp_buff(1:obj.femutils.nbVerts,1);
+            delta0{1}(obj.femutils.usedVerts,2)=disp_buff(obj.femutils.nbVerts+1:2*obj.femutils.nbVerts,1);
+            delta0{1}(obj.femutils.usedVerts,3)=disp_buff(2*obj.femutils.nbVerts+1:3*obj.femutils.nbVerts,1);
+            delta0{1}(obj.femutils.usedVerts,4)=disp_buff(3*obj.femutils.nbVerts+1:4*obj.femutils.nbVerts,1);
+            delta0{1}(obj.femutils.usedVerts,5)=disp_buff(4*obj.femutils.nbVerts+1:5*obj.femutils.nbVerts,1);
+            delta0{1}(obj.femutils.usedVerts,6)=disp_buff(5*obj.femutils.nbVerts+1:6*obj.femutils.nbVerts,1);
+            modVerts = obj.calcModifiedVerts(delta0{1});
+            calcMethod = "chain";
+            if strcmpi(calcMethod,"chain")
                 obj3 = obj2.makeApproximatedInstance(modVerts,1);
-                obj3 = obj3.solveFlow(alpha(iter),beta(iter),Mach(iter),Re(iter));
-                distLoad = obj3.getCp(alpha(iter),beta(iter),Mach(iter),Re(iter));
-                Fp = sparse(6*size(obj.femutils.usedVerts,2),1);
-                interpLoad = obj.verts2centerMat'*(distLoad.*obj.area);
-                vNormal = vertexNormal(obj.tri);
-                %femPointLoad = obj.fem2aeroMat'*interpLoad;
-                vertsLoad = vNormal.*interpLoad;
-                selfLoadFlag = 1;
-                if selfLoadFlag == 1
-                    selfLoad = obj.femverts2centerMat'*(9.8.*obj.femarea.*obj.femThn.*obj.femRho);
-                end
-                femPointLoad = zeros(size(obj.femtri.Points,1),3);
-                femPointLoad(obj.femutils.usedVerts,1) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,1);
-                femPointLoad(obj.femutils.usedVerts,2) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,2);
-                if selfLoadFlag == 1
-                    femPointLoad(obj.femutils.usedVerts,3) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,3) + selfLoad(obj.femutils.usedVerts,1);
-                else
-                    femPointLoad(obj.femutils.usedVerts,3) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,3);
-                end
-                for i = 1:size(obj.femutils.usedVerts,2) 
-                    Fp(i,1) = -femPointLoad(i,1);
-                    Fp(i+size(obj.femtri.Points,1),1) = -femPointLoad(i,2);
-                    Fp(i+2*size(obj.femtri.Points,1),1) = -femPointLoad(i,3);
-                end
-                femRHSp0 = Fp(obj.femutils.MatIndex==1,1);
+            else
+                obj3 = obj2.setVerts(modVerts);
+                obj3 = obj3.makeEquation();
+            end
+
+            obj3 = obj3.solveFlow(alpha,beta,Mach,Re);
+            distLoad = obj3.getCp(alpha,beta,Mach,Re);
+            Fp = sparse(6*size(obj.femutils.usedVerts,2),1);
+            interpLoad = obj.verts2centerMat'*(distLoad.*obj.area);
+            vNormal = vertexNormal(obj.tri);
+            %femPointLoad = obj.fem2aeroMat'*interpLoad;
+            vertsLoad = vNormal.*interpLoad;
+            selfLoadFlag = 1;
+            if selfLoadFlag == 1
+                selfLoad = obj.femverts2centerMat'*(9.8.*obj.femarea.*obj.femThn.*obj.femRho);
+            end
+            femPointLoad = zeros(size(obj.femtri.Points,1),3);
+            femPointLoad(obj.femutils.usedVerts,1) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,1);
+            femPointLoad(obj.femutils.usedVerts,2) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,2);
+            if selfLoadFlag == 1
+                femPointLoad(obj.femutils.usedVerts,3) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,3) + selfLoad(obj.femutils.usedVerts,1);
+            else
+                femPointLoad(obj.femutils.usedVerts,3) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,3);
+            end
+            for i = 1:size(obj.femutils.usedVerts,2) 
+                Fp(i,1) = -femPointLoad(i,1);
+                Fp(i+size(obj.femtri.Points,1),1) = -femPointLoad(i,2);
+                Fp(i+2*size(obj.femtri.Points,1),1) = -femPointLoad(i,3);
+            end
+            femRHSp0 = Fp(obj.femutils.MatIndex==1,1);
+            if not(isempty(delta))
                 pert = sqrt(eps);
                 for k = 1:size(deltap0,1)
-                    if k <= sum(obj.femutils.MatIndex(1:sub2ind(size(delta{calcCount}),1,4)))
+                    if k <= sum(obj.femutils.MatIndex(1:sub2ind(size(delta{1}),1,4)))
                         deltapf = deltap0;
                         deltapf(k,1) = deltap0(k,1)+pert;
                         disp_buff = zeros(size(obj.femtri.Points,1)*6,1);
                         disp_buff(obj.femutils.InvMatIndex,1)=deltapf;
                         deltaf = delta;
-                        deltaf{calcCount} = zeros(size(obj.femtri.Points,1),6);
-                        deltaf{calcCount}(obj.femutils.usedVerts,1)=disp_buff(1:obj.femutils.nbVerts,1);
-                        deltaf{calcCount}(obj.femutils.usedVerts,2)=disp_buff(obj.femutils.nbVerts+1:2*obj.femutils.nbVerts,1);
-                        deltaf{calcCount}(obj.femutils.usedVerts,3)=disp_buff(2*obj.femutils.nbVerts+1:3*obj.femutils.nbVerts,1);
-                        deltaf{calcCount}(obj.femutils.usedVerts,4)=disp_buff(3*obj.femutils.nbVerts+1:4*obj.femutils.nbVerts,1);
-                        deltaf{calcCount}(obj.femutils.usedVerts,5)=disp_buff(4*obj.femutils.nbVerts+1:5*obj.femutils.nbVerts,1);
-                        deltaf{calcCount}(obj.femutils.usedVerts,6)=disp_buff(5*obj.femutils.nbVerts+1:6*obj.femutils.nbVerts,1);
-                        modVerts = obj.calcModifiedVerts(deltaf{calcCount});
-                        obj3 = obj2.makeApproximatedInstance(modVerts,1);
-                        obj3 = obj3.solveFlow(alpha(iter),beta(iter),Mach(iter),Re(iter));
-                        distLoad = obj3.getCp(alpha(iter),beta(iter),Mach(iter),Re(iter));
+                        deltaf{1} = zeros(size(obj.femtri.Points,1),6);
+                        deltaf{1}(obj.femutils.usedVerts,1)=disp_buff(1:obj.femutils.nbVerts,1);
+                        deltaf{1}(obj.femutils.usedVerts,2)=disp_buff(obj.femutils.nbVerts+1:2*obj.femutils.nbVerts,1);
+                        deltaf{1}(obj.femutils.usedVerts,3)=disp_buff(2*obj.femutils.nbVerts+1:3*obj.femutils.nbVerts,1);
+                        deltaf{1}(obj.femutils.usedVerts,4)=disp_buff(3*obj.femutils.nbVerts+1:4*obj.femutils.nbVerts,1);
+                        deltaf{1}(obj.femutils.usedVerts,5)=disp_buff(4*obj.femutils.nbVerts+1:5*obj.femutils.nbVerts,1);
+                        deltaf{1}(obj.femutils.usedVerts,6)=disp_buff(5*obj.femutils.nbVerts+1:6*obj.femutils.nbVerts,1);
+                        modVerts = obj.calcModifiedVerts(deltaf{1});
+                        if strcmpi(calcMethod,"chain")
+                            obj3 = obj2.makeApproximatedInstance(modVerts,1);
+                        else
+                            obj3 = obj2.setVerts(modVerts);
+                            obj3 = obj3.makeEquation();
+                        end
+                        obj3 = obj3.solveFlow(alpha,beta,Mach,Re);
+                        distLoad = obj3.getCp(alpha,beta,Mach,Re);
                         Fp = sparse(6*size(obj.femutils.usedVerts,2),1);
                         interpLoad = obj.verts2centerMat'*(distLoad.*obj.area);
                         vNormal = vertexNormal(obj.tri);
@@ -4533,124 +4553,234 @@ classdef UNLSI
                             Fp(i+2*size(obj.femtri.Points,1),1) = -femPointLoad(i,3);
                         end
                         femRHSp = Fp(obj.femutils.MatIndex==1,1);
-                        obj.df_ddelta(:,k) = (femRHSp-femRHSp0)./pert;
+                        df_ddelta(:,k) = (femRHSp-femRHSp0)./pert;
                         disp(k);
                     else
-                        obj.df_ddelta(:,k) = 0;
+                        df_ddelta(:,k) = 0;
                     end
                 end
-                calcCount = calcCount + 1;
             end
-
+            if not(isempty(deltadot))
+                deltadotp0_buff = deltadot{1}(:);
+                deltadotp0 = deltadotp0_buff(obj.femutils.MatIndex==1,1);
+                pert = sqrt(eps);
+                for k = 1:size(deltadotp0,1)
+                    if k <= sum(obj.femutils.MatIndex(1:sub2ind(size(deltadot{1}),1,4)))
+                        deltadotpf = deltadotp0;
+                        deltadotpf(k,1) = deltadotp0(k,1)+pert;
+                        disp_buff = zeros(size(obj.femtri.Points,1)*6,1);
+                        disp_buff(obj.femutils.InvMatIndex,1)=deltadotpf;
+                        deltadotf = deltadot;
+                        deltadotf{1} = zeros(size(obj.femtri.Points,1),6);
+                        deltadotf{1}(obj.femutils.usedVerts,1)=disp_buff(1:obj.femutils.nbVerts,1);
+                        deltadotf{1}(obj.femutils.usedVerts,2)=disp_buff(obj.femutils.nbVerts+1:2*obj.femutils.nbVerts,1);
+                        deltadotf{1}(obj.femutils.usedVerts,3)=disp_buff(2*obj.femutils.nbVerts+1:3*obj.femutils.nbVerts,1);
+                        deltadotf{1}(obj.femutils.usedVerts,4)=disp_buff(3*obj.femutils.nbVerts+1:4*obj.femutils.nbVerts,1);
+                        deltadotf{1}(obj.femutils.usedVerts,5)=disp_buff(4*obj.femutils.nbVerts+1:5*obj.femutils.nbVerts,1);
+                        deltadotf{1}(obj.femutils.usedVerts,6)=disp_buff(5*obj.femutils.nbVerts+1:6*obj.femutils.nbVerts,1);
+                        obj3 = obj2.setLocalVelocity(obj2.deltadot2localVel(deltadotf{1},1));
+                        obj3 = obj3.solveFlow(alpha,beta,Mach,Re);
+                        distLoad = obj3.getCp(alpha,beta,Mach,Re);
+                        Fp = sparse(6*size(obj.femutils.usedVerts,2),1);
+                        interpLoad = obj.verts2centerMat'*(distLoad.*obj.area);
+                        vNormal = vertexNormal(obj.tri);
+                        vertsLoad = vNormal.*interpLoad;
+                        if selfLoadFlag == 1
+                            selfLoad = obj.femverts2centerMat'*(9.8.*obj.femarea.*obj.femThn.*obj.femRho);
+                        end
+                        femPointLoad = zeros(size(obj.femtri.Points,1),3);
+                        femPointLoad(obj.femutils.usedVerts,1) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,1);
+                        femPointLoad(obj.femutils.usedVerts,2) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,2);
+                        if selfLoadFlag == 1
+                            femPointLoad(obj.femutils.usedVerts,3) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,3) + selfLoad(obj.femutils.usedVerts,1);
+                        else
+                            femPointLoad(obj.femutils.usedVerts,3) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,3);
+                        end
+                        for i = 1:size(obj.femutils.usedVerts,2) 
+                            Fp(i,1) = -femPointLoad(i,1);
+                            Fp(i+size(obj.femtri.Points,1),1) = -femPointLoad(i,2);
+                            Fp(i+2*size(obj.femtri.Points,1),1) = -femPointLoad(i,3);
+                        end
+                        femRHSp = Fp(obj.femutils.MatIndex==1,1);
+                        df_ddeltadot(:,k) = (femRHSp-femRHSp0)./pert;
+                        disp(k);
+                    else
+                        df_ddeltadot(:,k) = 0;
+                    end
+                end
+            end
+        end
+function [df_dz,df_dzdot] = calcModalAeroelasticDerivative(obj,z,zdot,alpha,beta,Mach,Re)
+            %deltaから機体メッシュを再生成
+            %delta微分の計算
+            %基準の解析
+            z0 = z;
+            zdot0 = zdot;
+            [delta0,deltadot0] = obj.femSol2Delta(obj.femEigenVec*z0,obj.femEigenVec*zdot0);
+            modVerts = obj.calcModifiedVerts(delta0);
+            obj0 = obj.setVerts(modVerts);
+            obj0 = obj0.makeEquation();
+            obj0 = obj0.setLocalVelocity(obj.deltadot2localVel(deltadot0,1));
+            obj0 = obj0.solveFlow(alpha,beta,Mach,Re);
+            distLoad = obj0.getCp(alpha,beta,Mach,Re);
+            Fp = sparse(6*size(obj.femutils.usedVerts,2),1);
+            interpLoad = obj.verts2centerMat'*(distLoad.*obj.area);
+            vNormal = vertexNormal(obj.tri);
+            %femPointLoad = obj.fem2aeroMat'*interpLoad;
+            vertsLoad = vNormal.*interpLoad;
+            selfLoadFlag = 1;
+            if selfLoadFlag == 1
+                selfLoad = obj.femverts2centerMat'*(9.8.*obj.femarea.*obj.femThn.*obj.femRho);
+            end
+            femPointLoad = zeros(size(obj.femtri.Points,1),3);
+            femPointLoad(obj.femutils.usedVerts,1) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,1);
+            femPointLoad(obj.femutils.usedVerts,2) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,2);
+            if selfLoadFlag == 1
+                femPointLoad(obj.femutils.usedVerts,3) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,3) + selfLoad(obj.femutils.usedVerts,1);
+            else
+                femPointLoad(obj.femutils.usedVerts,3) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,3);
+            end
+            for i = 1:size(obj.femutils.usedVerts,2) 
+                Fp(i,1) = -femPointLoad(i,1);
+                Fp(i+size(obj.femtri.Points,1),1) = -femPointLoad(i,2);
+                Fp(i+2*size(obj.femtri.Points,1),1) = -femPointLoad(i,3);
+            end
+            femRHSp0 = obj.femEigenVec'*Fp(obj.femutils.MatIndex==1,1);
+            if not(isempty(z))
+                pert = sqrt(eps);
+                for k = 1:size(z,1)
+                    zf = z0;
+                    zf(k,1) = zf(k)+pert;
+                    deltaf = obj.femSol2Delta(obj.femEigenVec*zf);
+                    modVerts = obj.calcModifiedVerts(deltaf);
+                    obj2 = obj.setVerts(modVerts);
+                    obj2 = obj2.makeEquation();
+                    obj2 = obj2.setLocalVelocity(obj2.deltadot2localVel(deltadot0,1));
+                    obj2 = obj2.solveFlow(alpha,beta,Mach,Re);
+                    distLoad = obj2.getCp(alpha,beta,Mach,Re);
+                    Fp = sparse(6*size(obj.femutils.usedVerts,2),1);
+                    interpLoad = obj.verts2centerMat'*(distLoad.*obj.area);
+                    vNormal = vertexNormal(obj.tri);
+                    %femPointLoad = obj.fem2aeroMat'*interpLoad;
+                    vertsLoad = vNormal.*interpLoad;
+                    if selfLoadFlag == 1
+                        selfLoad = obj.femverts2centerMat'*(9.8.*obj.femarea.*obj.femThn.*obj.femRho);
+                    end
+                    femPointLoad = zeros(size(obj.femtri.Points,1),3);
+                    femPointLoad(obj.femutils.usedVerts,1) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,1);
+                    femPointLoad(obj.femutils.usedVerts,2) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,2);
+                    if selfLoadFlag == 1
+                        femPointLoad(obj.femutils.usedVerts,3) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,3) + selfLoad(obj.femutils.usedVerts,1);
+                    else
+                        femPointLoad(obj.femutils.usedVerts,3) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,3);
+                    end
+                    for i = 1:size(obj.femutils.usedVerts,2) 
+                        Fp(i,1) = -femPointLoad(i,1);
+                        Fp(i+size(obj.femtri.Points,1),1) = -femPointLoad(i,2);
+                        Fp(i+2*size(obj.femtri.Points,1),1) = -femPointLoad(i,3);
+                    end
+                    femRHSp = obj.femEigenVec'*Fp(obj.femutils.MatIndex==1,1);
+                    df_dz(:,k) = (femRHSp-femRHSp0)./pert;
+                    disp(k);
+                end
+            end
+            if not(isempty(zdot))
+                pert = sqrt(eps);
+                for k = 1:size(zdot,1)
+                    zdotf = zdot0;
+                    zdotf(k) = zdotf(k)+pert;
+                    [~,deltadotf] = obj.femSol2Delta([],obj.femEigenVec*zdotf);
+                    obj2 = obj0.setLocalVelocity(obj.deltadot2localVel(deltadotf,1));
+                    obj2 = obj2.solveFlow(alpha,beta,Mach,Re);
+                    distLoad = obj2.getCp(alpha,beta,Mach,Re);
+                    Fp = sparse(6*size(obj.femutils.usedVerts,2),1);
+                    interpLoad = obj.verts2centerMat'*(distLoad.*obj.area);
+                    vNormal = vertexNormal(obj.tri);
+                    vertsLoad = vNormal.*interpLoad;
+                    if selfLoadFlag == 1
+                        selfLoad = obj.femverts2centerMat'*(9.8.*obj.femarea.*obj.femThn.*obj.femRho);
+                    end
+                    femPointLoad = zeros(size(obj.femtri.Points,1),3);
+                    femPointLoad(obj.femutils.usedVerts,1) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,1);
+                    femPointLoad(obj.femutils.usedVerts,2) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,2);
+                    if selfLoadFlag == 1
+                        femPointLoad(obj.femutils.usedVerts,3) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,3) + selfLoad(obj.femutils.usedVerts,1);
+                    else
+                        femPointLoad(obj.femutils.usedVerts,3) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,3);
+                    end
+                    for i = 1:size(obj.femutils.usedVerts,2) 
+                        Fp(i,1) = -femPointLoad(i,1);
+                        Fp(i+size(obj.femtri.Points,1),1) = -femPointLoad(i,2);
+                        Fp(i+2*size(obj.femtri.Points,1),1) = -femPointLoad(i,3);
+                    end
+                    femRHSp = obj.femEigenVec'*Fp(obj.femutils.MatIndex==1,1);
+                    df_dzdot(:,k) = (femRHSp-femRHSp0)./pert;
+                    disp(k);
+                end
+            end
         end
 
-        % function obj = calcfemModalDerivative(obj,obj2,z0,alpha,beta,Mach,Re)
-        %     %deltaから機体メッシュを再生成
-        %     calcCount = 1;
-        %     for iter = 1:numel(alpha)
-        %         %delta微分の計算
-        %         %dR_ddelta
-        %         deltap0_buff = z0;%基準z0
-        %         deltap0 = obj.femEigenVec*z0;%V*z0
-        %         %基準の解析
-        %         deltapf = deltap0;
-        %         disp_buff = zeros(size(obj.femtri.Points,1)*6,1);
-        %         disp_buff(obj.femutils.InvMatIndex,1)=deltapf;
-        %         delta0 = delta;
-        %         delta0{calcCount} = zeros(size(obj.femtri.Points,1),6);
-        %         delta0{calcCount}(obj.femutils.usedVerts,1)=disp_buff(1:obj.femutils.nbVerts,1);
-        %         delta0{calcCount}(obj.femutils.usedVerts,2)=disp_buff(obj.femutils.nbVerts+1:2*obj.femutils.nbVerts,1);
-        %         delta0{calcCount}(obj.femutils.usedVerts,3)=disp_buff(2*obj.femutils.nbVerts+1:3*obj.femutils.nbVerts,1);
-        %         delta0{calcCount}(obj.femutils.usedVerts,4)=disp_buff(3*obj.femutils.nbVerts+1:4*obj.femutils.nbVerts,1);
-        %         delta0{calcCount}(obj.femutils.usedVerts,5)=disp_buff(4*obj.femutils.nbVerts+1:5*obj.femutils.nbVerts,1);
-        %         delta0{calcCount}(obj.femutils.usedVerts,6)=disp_buff(5*obj.femutils.nbVerts+1:6*obj.femutils.nbVerts,1);
-        %         modVerts = obj.calcModifiedVerts(delta0{calcCount});
-        %         obj3 = obj2.makeApproximatedInstance(modVerts,1);
-        %         obj3 = obj3.solveFlow(alpha(iter),beta(iter),Mach(iter),Re(iter));
-        %         distLoad = obj3.getCp(alpha(iter),beta(iter),Mach(iter),Re(iter));
-        %         Fp = sparse(6*size(obj.femutils.usedVerts,2),1);
-        %         interpLoad = obj.verts2centerMat'*(distLoad.*obj.area);
-        %         vNormal = vertexNormal(obj.tri);
-        %         %femPointLoad = obj.fem2aeroMat'*interpLoad;
-        %         vertsLoad = vNormal.*interpLoad;
-        %         selfLoadFlag = 1;
-        %         if selfLoadFlag == 1
-        %             selfLoad = obj.femverts2centerMat'*(9.8.*obj.femarea.*obj.femThn.*obj.femRho);
-        %         end
-        %         femPointLoad = zeros(size(obj.femtri.Points,1),3);
-        %         femPointLoad(obj.femutils.usedVerts,1) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,1);
-        %         femPointLoad(obj.femutils.usedVerts,2) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,2);
-        %         if selfLoadFlag == 1
-        %             femPointLoad(obj.femutils.usedVerts,3) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,3) + selfLoad(obj.femutils.usedVerts,1);
-        %         else
-        %             femPointLoad(obj.femutils.usedVerts,3) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,3);
-        %         end
-        %         for i = 1:size(obj.femutils.usedVerts,2) 
-        %             Fp(i,1) = -femPointLoad(i,1);
-        %             Fp(i+size(obj.femtri.Points,1),1) = -femPointLoad(i,2);
-        %             Fp(i+2*size(obj.femtri.Points,1),1) = -femPointLoad(i,3);
-        %         end
-        %         femRHSp0 = Fp(obj.femutils.MatIndex==1,1);
-        %         pert = sqrt(eps);
-        %         for k = 1:size(deltap0,1)
-        %             if k <= sum(obj.femutils.MatIndex(1:sub2ind(size(delta{calcCount}),1,4)))
-        %                 deltapf = deltap0;
-        %                 deltapf(k,1) = deltap0(k,1)+pert;%pert→(z0+pert)*V
-        %                 disp_buff = zeros(size(obj.femtri.Points,1)*6,1);
-        %                 disp_buff(obj.femutils.InvMatIndex,1)=deltapf;
-        %                 deltaf = delta;
-        %                 deltaf{calcCount} = zeros(size(obj.femtri.Points,1),6);
-        %                 deltaf{calcCount}(obj.femutils.usedVerts,1)=disp_buff(1:obj.femutils.nbVerts,1);
-        %                 deltaf{calcCount}(obj.femutils.usedVerts,2)=disp_buff(obj.femutils.nbVerts+1:2*obj.femutils.nbVerts,1);
-        %                 deltaf{calcCount}(obj.femutils.usedVerts,3)=disp_buff(2*obj.femutils.nbVerts+1:3*obj.femutils.nbVerts,1);
-        %                 deltaf{calcCount}(obj.femutils.usedVerts,4)=disp_buff(3*obj.femutils.nbVerts+1:4*obj.femutils.nbVerts,1);
-        %                 deltaf{calcCount}(obj.femutils.usedVerts,5)=disp_buff(4*obj.femutils.nbVerts+1:5*obj.femutils.nbVerts,1);
-        %                 deltaf{calcCount}(obj.femutils.usedVerts,6)=disp_buff(5*obj.femutils.nbVerts+1:6*obj.femutils.nbVerts,1);
-        %                 modVerts = obj.calcModifiedVerts(deltaf{calcCount});
-        %                 obj3 = obj2.makeApproximatedInstance(modVerts,1);
-        %                 obj3 = obj3.solveFlow(alpha(iter),beta(iter),Mach(iter),Re(iter));
-        %                 distLoad = obj3.getCp(alpha(iter),beta(iter),Mach(iter),Re(iter));
-        %                 Fp = sparse(6*size(obj.femutils.usedVerts,2),1);
-        %                 interpLoad = obj.verts2centerMat'*(distLoad.*obj.area);
-        %                 vNormal = vertexNormal(obj.tri);
-        %                 %femPointLoad = obj.fem2aeroMat'*interpLoad;
-        %                 vertsLoad = vNormal.*interpLoad;
-        %                 if selfLoadFlag == 1
-        %                     selfLoad = obj.femverts2centerMat'*(9.8.*obj.femarea.*obj.femThn.*obj.femRho);
-        %                 end
-        %                 femPointLoad = zeros(size(obj.femtri.Points,1),3);
-        %                 femPointLoad(obj.femutils.usedVerts,1) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,1);
-        %                 femPointLoad(obj.femutils.usedVerts,2) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,2);
-        %                 if selfLoadFlag == 1
-        %                     femPointLoad(obj.femutils.usedVerts,3) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,3) + selfLoad(obj.femutils.usedVerts,1);
-        %                 else
-        %                     femPointLoad(obj.femutils.usedVerts,3) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,3);
-        %                 end
-        %                 for i = 1:size(obj.femutils.usedVerts,2) 
-        %                     Fp(i,1) = -femPointLoad(i,1);
-        %                     Fp(i+size(obj.femtri.Points,1),1) = -femPointLoad(i,2);
-        %                     Fp(i+2*size(obj.femtri.Points,1),1) = -femPointLoad(i,3);
-        %                 end
-        %                 femRHSp = Fp(obj.femutils.MatIndex==1,1);
-        %                 obj.df_ddelta(:,k) = (femRHSp-femRHSp0)./pert;
-        %                 disp(k);
-        %             else
-        %                 obj.df_ddelta(:,k) = 0;
-        %             end
-        %         end
-        %         calcCount = calcCount + 1;
-        %     end
 
 
-        function delta = femSol2Delta(obj,femSol)
-            disp_buff = zeros(size(obj.femtri.Points,1)*6,1);
-            disp_buff(obj.femutils.InvMatIndex,1)=femSol;
-            delta = zeros(size(obj.femtri.Points,1),6);
-            delta(obj.femutils.usedVerts,1)=disp_buff(1:obj.femutils.nbVerts,1);
-            delta(obj.femutils.usedVerts,2)=disp_buff(obj.femutils.nbVerts+1:2*obj.femutils.nbVerts,1);
-            delta(obj.femutils.usedVerts,3)=disp_buff(2*obj.femutils.nbVerts+1:3*obj.femutils.nbVerts,1);
-            delta(obj.femutils.usedVerts,4)=disp_buff(3*obj.femutils.nbVerts+1:4*obj.femutils.nbVerts,1);
-            delta(obj.femutils.usedVerts,5)=disp_buff(4*obj.femutils.nbVerts+1:5*obj.femutils.nbVerts,1);
+        % function delta = femSol2Delta(obj,femSol)
+        %     disp_buff = zeros(size(obj.femtri.Points,1)*6,1);
+        %     disp_buff(obj.femutils.InvMatIndex,1)=femSol;
+        %     delta = zeros(size(obj.femtri.Points,1),6);
+        %     delta(obj.femutils.usedVerts,1)=disp_buff(1:obj.femutils.nbVerts,1);
+        %     delta(obj.femutils.usedVerts,2)=disp_buff(obj.femutils.nbVerts+1:2*obj.femutils.nbVerts,1);
+        %     delta(obj.femutils.usedVerts,3)=disp_buff(2*obj.femutils.nbVerts+1:3*obj.femutils.nbVerts,1);
+        %     delta(obj.femutils.usedVerts,4)=disp_buff(3*obj.femutils.nbVerts+1:4*obj.femutils.nbVerts,1);
+        %     delta(obj.femutils.usedVerts,5)=disp_buff(4*obj.femutils.nbVerts+1:5*obj.femutils.nbVerts,1);
+        function [eigFlutter,freq,eta] = solveFlutter(obj,df_ddelta,df_ddeltadot,Vinf)
+            %フラッター方程式を解き、固有値を求める
+            Mflu = [obj.femEigenVec'*obj.femMass*obj.femEigenVec,zeros(size(obj.femEigenVec,2));zeros(size(obj.femEigenVec,2)),eye(size(obj.femEigenVec,2))];
+            DKflu = [-obj.femEigenVec'*(obj.femDamp-df_ddeltadot.*(0.5*obj.settingUNLSI.rho*Vinf))*obj.femEigenVec,-obj.femEigenVec'*(obj.femLHS-df_ddelta.*(0.5*obj.settingUNLSI.rho*Vinf^2))*obj.femEigenVec;eye(size(obj.femEigenVec,2)),zeros(size(obj.femEigenVec,2))];
+            eigFlutter = eig(DKflu,Mflu);
+            freq = abs(imag(eigFlutter))/pi/2;
+            eta = -2*real(eigFlutter)./abs(imag(eigFlutter));
+        end
+
+        function [eigFlutter,freq,eta] = solveModalFlutter(obj,df_dz,df_dzdot,Vinf)
+            %フラッター方程式を解き、固有値を求める
+            Mflu = [obj.femEigenVec'*obj.femMass*obj.femEigenVec,zeros(size(obj.femEigenVec,2));zeros(size(obj.femEigenVec,2)),eye(size(obj.femEigenVec,2))];
+            DKflu = [-obj.femEigenVec'*obj.femDamp*obj.femEigenVec+df_dzdot.*(0.5*obj.settingUNLSI.rho*Vinf),-obj.femEigenVec'*obj.femLHS*obj.femEigenVec+df_dz.*(0.5*obj.settingUNLSI.rho*Vinf^2);eye(size(obj.femEigenVec,2)),zeros(size(obj.femEigenVec,2))];
+            eigFlutter = eig(DKflu,Mflu);
+            freq = abs(imag(eigFlutter))/pi/2;
+            eta = -2*real(eigFlutter)./abs(imag(eigFlutter));
+        end
+
+        function [delta,deltadot] = femSol2Delta(obj,femSol,femSoldot)
+            if not(isempty(femSol))
+                disp_buff = zeros(size(obj.femtri.Points,1)*6,1);
+                disp_buff(obj.femutils.InvMatIndex,1)=femSol;
+                delta = zeros(size(obj.femtri.Points,1),6);
+                delta(obj.femutils.usedVerts,1)=disp_buff(1:obj.femutils.nbVerts,1);
+                delta(obj.femutils.usedVerts,2)=disp_buff(obj.femutils.nbVerts+1:2*obj.femutils.nbVerts,1);
+                delta(obj.femutils.usedVerts,3)=disp_buff(2*obj.femutils.nbVerts+1:3*obj.femutils.nbVerts,1);
+                delta(obj.femutils.usedVerts,4)=disp_buff(3*obj.femutils.nbVerts+1:4*obj.femutils.nbVerts,1);
+                delta(obj.femutils.usedVerts,5)=disp_buff(4*obj.femutils.nbVerts+1:5*obj.femutils.nbVerts,1);
+                deltadot = [];
+            else
+                delta = [];
+            end
+            if nargin > 2
+                disp_buff = zeros(size(obj.femtri.Points,1)*6,1);
+                disp_buff(obj.femutils.InvMatIndex,1)=femSoldot;
+                deltadot = zeros(size(obj.femtri.Points,1),6);
+                deltadot(obj.femutils.usedVerts,1)=disp_buff(1:obj.femutils.nbVerts,1);
+                deltadot(obj.femutils.usedVerts,2)=disp_buff(obj.femutils.nbVerts+1:2*obj.femutils.nbVerts,1);
+                deltadot(obj.femutils.usedVerts,3)=disp_buff(2*obj.femutils.nbVerts+1:3*obj.femutils.nbVerts,1);
+                deltadot(obj.femutils.usedVerts,4)=disp_buff(3*obj.femutils.nbVerts+1:4*obj.femutils.nbVerts,1);
+                deltadot(obj.femutils.usedVerts,5)=disp_buff(4*obj.femutils.nbVerts+1:5*obj.femutils.nbVerts,1);
+            end
+        end
+
+        function localVel = deltadot2localVel(obj,deltadot,Vinf)
+            modVerts = zeros(size(obj.tri.Points));
+            modVerts(obj.femutils.usedAeroVerts,1) = obj.fem2aeroMat*(deltadot(obj.femutils.usedVerts,1)./Vinf);
+            modVerts(obj.femutils.usedAeroVerts,2) = obj.fem2aeroMat*(deltadot(obj.femutils.usedVerts,2)./Vinf);
+            modVerts(obj.femutils.usedAeroVerts,3) = obj.fem2aeroMat*(deltadot(obj.femutils.usedVerts,3)./Vinf);
+            localVel = obj.verts2centerMat*modVerts;
         end
 
         function deltaInterp = interpFemDelta(obj,delta,xyzinAeroMesh)
