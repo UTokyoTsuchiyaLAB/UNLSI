@@ -162,7 +162,7 @@ classdef UNLSI
             obj.settingUNLSI.lsqminnormTol = 1e-12;% 最小二乗法における正規方程式の解を求める際の許容誤差を設定します。
             obj.settingUNLSI.xWakeAttach = 0.1;
             obj.settingUNLSI.defaultWakeLength = 100; % デフォルトの各wakeパネルの長さ（機体基準長基準）
-            obj.settingUNLSI.nWakeMax = 20;%marchwakeにおけるwakeの最大個数
+            obj.settingUNLSI.nWakeMax = 10;%marchwakeにおけるwakeの最大個数
             obj.settingUNLSI.deltaVortexCore = 0.1;
             obj.settingUNLSI.pnThreshold = sqrt(eps);
             obj.settingUNLSI.defaultCpLimit = [-1000,1000];
@@ -4280,7 +4280,7 @@ classdef UNLSI
             deltaLoad2 = deltaLoad;
         end
 
-        function [z,zdot,delta,deltadot]  = solveModalAeroelastic(obj,tspan,z,zdot,distLoad,selfLoadFlag)
+        function [z,zdot,delta,deltadot]  = solveModalAeroelastic(obj,tspan,z,zdot,distLoad,selfLoadFlag,df_dz,df_dzdot,Vinf,rho)
 
             modalNo = size(obj.femEigenVec,2);
             %distLoad:空力解析メッシュにかかる分布加重。圧力など
@@ -4323,8 +4323,9 @@ classdef UNLSI
                 fmode = Fmodal'*femRHSp;
                 MassEx = blkdiag(eye(size(fmode,1)),Fmodal'*obj.femMass*Fmodal);
                 AEx = [zeros(size(fmode,1)),eye(size(fmode,1));-Fmodal'*obj.femLHS*Fmodal,-Fmodal'*obj.femDamp*Fmodal];
+                AExJac = [zeros(size(fmode,1)),eye(size(fmode,1));-Fmodal'*obj.femLHS*Fmodal+df_dz.*0.5.*rho.*Vinf^2,-Fmodal'*obj.femDamp*Fmodal+df_dzdot.*0.5.*rho.*Vinf];
                 fEx = [zeros(size(fmode,1),1);fmode];
-                options = odeset('Mass',MassEx,"Jacobian",AEx,"Vectorized","on","RelTol",obj.settingUNLSI.ode23RelTol,"AbsTol",obj.settingUNLSI.ode23AbsTol,"NormControl","off");
+                options = odeset('Mass',MassEx,"Jacobian",AExJac,"Vectorized","on","RelTol",obj.settingUNLSI.ode23RelTol,"AbsTol",obj.settingUNLSI.ode23AbsTol,"NormControl","off");
                 %deltaから初期値の復元
                 warning('off','MATLAB:singularMatrix')
                 %try
@@ -4740,11 +4741,12 @@ function [df_dz,df_dzdot] = calcModalAeroelasticDerivative(obj,z,zdot,alpha,beta
             eta = -2*real(eigFlutter)./abs(imag(eigFlutter));
         end
 
-        function [eigFlutter,freq,eta] = solveModalFlutter(obj,df_dz,df_dzdot,Vinf)
+        function [eigFlutter,freq,eta,eigVec] = solveModalFlutter(obj,df_dz,df_dzdot,Vinf)
             %フラッター方程式を解き、固有値を求める
             Mflu = [obj.femEigenVec'*obj.femMass*obj.femEigenVec,zeros(size(obj.femEigenVec,2));zeros(size(obj.femEigenVec,2)),eye(size(obj.femEigenVec,2))];
             DKflu = [-obj.femEigenVec'*obj.femDamp*obj.femEigenVec+df_dzdot.*(0.5*obj.settingUNLSI.rho*Vinf),-obj.femEigenVec'*obj.femLHS*obj.femEigenVec+df_dz.*(0.5*obj.settingUNLSI.rho*Vinf^2);eye(size(obj.femEigenVec,2)),zeros(size(obj.femEigenVec,2))];
-            eigFlutter = eig(DKflu,Mflu);
+            [eigVec,eigFlutter] = eig(DKflu,Mflu);
+            eigFlutter = diag(eigFlutter);
             freq = abs(imag(eigFlutter))/pi/2;
             eta = -2*real(eigFlutter)./abs(imag(eigFlutter));
         end
