@@ -91,6 +91,7 @@ classdef UNLSI
         femEigenVec %Femの結果を固有値解析した固有ベクトル
         femEigenVal %固有値
         selfLoadFlag
+        weights%f-zのRBF補間曲面の重み関数
     end
 
     methods(Access = public)
@@ -4280,7 +4281,7 @@ classdef UNLSI
             deltaLoad2 = deltaLoad;
         end
 
-        function [z,zdot,delta,deltadot]  = solveModalAeroelastic(obj,tspan,z,zdot,distLoad,selfLoadFlag,df_dz,df_dzdot,Vinf,rho)
+        function [z,zdot,delta,deltadot,fmode]  = solveModalAeroelastic(obj,tspan,z,zdot,distLoad,selfLoadFlag,df_dz,df_dzdot,Vinf,rho)
 
             modalNo = size(obj.femEigenVec,2);
             %distLoad:空力解析メッシュにかかる分布加重。圧力など
@@ -4342,6 +4343,59 @@ classdef UNLSI
                 end
             end
         end
+
+
+        function [z,zdot,delta,deltadot,fmode]  = solveModalAeroelasticResponse(obj,tspan,z,zdot,fmode,selfLoadFlag,df_dz,df_dzdot,Vinf,rho)
+
+            modalNo = size(obj.femEigenVec,2);
+            %distLoad:空力解析メッシュにかかる分布加重。圧力など
+            %空力解析メッシュから構造解析メッシュへ圧力分布を投影
+            Fmodal = obj.femEigenVec(:,1:modalNo);
+            if isempty(z)
+                for iter = 1
+                    z{iter} = zeros(modalNo,1);
+                end
+            end
+            if isempty(zdot)
+                for iter = 1
+                    zdot{iter} = zeros(modalNo,1);
+                end
+            end
+
+            for iter = 1
+                MassEx = blkdiag(eye(size(fmode,1)),Fmodal'*obj.femMass*Fmodal);
+                AEx = [zeros(size(fmode,1)),eye(size(fmode,1));-Fmodal'*obj.femLHS*Fmodal,-Fmodal'*obj.femDamp*Fmodal];
+                AExJac = [zeros(size(fmode,1)),eye(size(fmode,1));-Fmodal'*obj.femLHS*Fmodal+df_dz.*0.5.*rho.*Vinf^2,-Fmodal'*obj.femDamp*Fmodal+df_dzdot.*0.5.*rho.*Vinf];
+                fEx = [zeros(size(fmode,1),1);fmode];
+                options = odeset('Mass',MassEx,"Jacobian",AExJac,"Vectorized","on","RelTol",obj.settingUNLSI.ode23RelTol,"AbsTol",obj.settingUNLSI.ode23AbsTol,"NormControl","off");
+                %deltaから初期値の復元
+                warning('off','MATLAB:singularMatrix')
+                %try
+                %    [~,ybuff] = ode15s(@(t,d)(AEx*d+fEx),tspan,[y;yd],options);
+                %catch
+                    [~,ybuff] = ode45(@(t,d)(AEx*d+fEx),tspan,[z{iter}(:,1);zdot{iter}(:,1)],options);
+                %end
+                z{iter}(:,1) = ybuff(end,1:modalNo)';
+                zdot{iter}(:,1) = ybuff(end,modalNo+1:end);
+                warning('on')
+                if nargout>2
+                    delta{iter} = obj.femSol2Delta(Fmodal*z{iter});
+                    deltadot{iter} = obj.femSol2Delta(Fmodal*zdot{iter});
+                end
+            end
+        end
+        function weights = calculateWeights(~,zData, fData, rbfFunction, epsilon)
+            % epsilonが指定されていない場合はデフォルト値を設定
+            if nargin < 4
+                epsilon = 1;
+            end
+            D = pdist2(zData, zData);%Dij = dist(zData(i),zData(j))
+            phi = rbfFunction(D, epsilon);
+            weights = phi\ fData;
+            % obj.weights = weights;
+        end
+
+
 
         function [f,jac] = calcStrongCouplingJaccobian(obj,u,delta,alpha,beta,dynPress)
             %deltaから機体メッシュを再生成
@@ -4719,6 +4773,45 @@ function [df_dz,df_dzdot] = calcModalAeroelasticDerivative(obj,z,zdot,alpha,beta
                     disp(k);
                 end
             end
+        end
+
+        function [f] = calcModalAeroelasticf(obj,z,zdot,alpha,beta,Mach,Re)
+            %deltaから機体メッシュを再生成
+            %delta微分の計算
+            %基準の解析
+            z0 = z;
+            zdot0 = zdot;
+            [delta0,deltadot0] = obj.femSol2Delta(obj.femEigenVec*z0,obj.femEigenVec*zdot0);
+            modVerts = obj.calcModifiedVerts(delta0);
+            obj0 = obj.setVerts(modVerts);
+            obj0 = obj0.makeEquation();
+            obj0 = obj0.setLocalVelocity(obj.deltadot2localVel(deltadot0,1));
+            obj0 = obj0.solveFlow(alpha,beta,Mach,Re);
+            distLoad = obj0.getCp(alpha,beta,Mach,Re);
+            Fp = sparse(6*size(obj.femutils.usedVerts,2),1);
+            interpLoad = obj.verts2centerMat'*(distLoad.*obj.area);
+            vNormal = vertexNormal(obj.tri);
+            %femPointLoad = obj.fem2aeroMat'*interpLoad;
+            vertsLoad = vNormal.*interpLoad;
+            selfLoadFlag = 1;
+            if selfLoadFlag == 1
+                selfLoad = obj.femverts2centerMat'*(9.8.*obj.femarea.*obj.femThn.*obj.femRho);
+            end
+            femPointLoad = zeros(size(obj.femtri.Points,1),3);
+            femPointLoad(obj.femutils.usedVerts,1) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,1);
+            femPointLoad(obj.femutils.usedVerts,2) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,2);
+            if selfLoadFlag == 1
+                femPointLoad(obj.femutils.usedVerts,3) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,3) + selfLoad(obj.femutils.usedVerts,1);
+            else
+                femPointLoad(obj.femutils.usedVerts,3) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,3);
+            end
+            for i = 1:size(obj.femutils.usedVerts,2) 
+                Fp(i,1) = -femPointLoad(i,1);
+                Fp(i+size(obj.femtri.Points,1),1) = -femPointLoad(i,2);
+                Fp(i+2*size(obj.femtri.Points,1),1) = -femPointLoad(i,3);
+            end
+            femRHSp0 = obj.femEigenVec'*Fp(obj.femutils.MatIndex==1,1);
+            f = femRHSp0;
         end
 
 
