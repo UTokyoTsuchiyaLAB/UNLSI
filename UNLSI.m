@@ -4322,6 +4322,8 @@ classdef UNLSI
                 end
                 femRHSp = Fp(obj.femutils.MatIndex==1,1);
                 fmode = Fmodal'*femRHSp;
+                fprintf('fmode\n');
+                disp(fmode)
                 MassEx = blkdiag(eye(size(fmode,1)),Fmodal'*obj.femMass*Fmodal);
                 AEx = [zeros(size(fmode,1)),eye(size(fmode,1));-Fmodal'*obj.femLHS*Fmodal,-Fmodal'*obj.femDamp*Fmodal];
                 AExJac = [zeros(size(fmode,1)),eye(size(fmode,1));-Fmodal'*obj.femLHS*Fmodal+df_dz.*0.5.*rho.*Vinf^2,-Fmodal'*obj.femDamp*Fmodal+df_dzdot.*0.5.*rho.*Vinf];
@@ -4779,15 +4781,16 @@ function [df_dz,df_dzdot] = calcModalAeroelasticDerivative(obj,z,zdot,alpha,beta
             %deltaから機体メッシュを再生成
             %delta微分の計算
             %基準の解析
+            Vinf = obj.settingUNLSI.Vinf;
             z0 = z;
             zdot0 = zdot;
             [delta0,deltadot0] = obj.femSol2Delta(obj.femEigenVec*z0,obj.femEigenVec*zdot0);
             modVerts = obj.calcModifiedVerts(delta0);
             obj0 = obj.setVerts(modVerts);
             obj0 = obj0.makeEquation();
-            obj0 = obj0.setLocalVelocity(obj.deltadot2localVel(deltadot0,1));
+            obj0 = obj0.setLocalVelocity(obj.deltadot2localVel(deltadot0,Vinf));
             obj0 = obj0.solveFlow(alpha,beta,Mach,Re);
-            distLoad = obj0.getCp(alpha,beta,Mach,Re);
+            distLoad = obj0.getCp(alpha,beta,Mach,Re).*Vinf.^2.*1.225.*0.5;
             Fp = sparse(6*size(obj.femutils.usedVerts,2),1);
             interpLoad = obj.verts2centerMat'*(distLoad.*obj.area);
             vNormal = vertexNormal(obj.tri);
@@ -4811,7 +4814,9 @@ function [df_dz,df_dzdot] = calcModalAeroelasticDerivative(obj,z,zdot,alpha,beta
                 Fp(i+2*size(obj.femtri.Points,1),1) = -femPointLoad(i,3);
             end
             femRHSp0 = obj.femEigenVec'*Fp(obj.femutils.MatIndex==1,1);
+
             f = femRHSp0;
+ 
         end
 
 
