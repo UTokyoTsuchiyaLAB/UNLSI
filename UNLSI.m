@@ -370,6 +370,9 @@ classdef UNLSI
                 end
                 dcm = obj.rod2dcm(rotAxis(iter,:),angle(iter));
                 obj.deflAngle(i,2:end) = [rotAxis(iter,:),angle(iter),dcm(:)'];
+                if iter == 1
+                    disp(size(angle));
+                end
             end
             indices = arrayfun(@(x) find(obj.deflAngle(:, 1) == x), obj.surfID(:, 1), 'UniformOutput', false);      
             deflMatrices = cell2mat(cellfun(@(idx) reshape(obj.deflAngle(idx, 6:14), [3, 3]), indices, 'UniformOutput', false));
@@ -2074,6 +2077,14 @@ classdef UNLSI
             obj.flowNoTable(flowNo,:) = [Mach,Re]; 
         end
 
+        function obj = setflowNoTable(obj,numSamples_dot,Mach,Re)
+            for i = 1:numSamples_dot
+                obj.flow{i}.Mach = Mach;
+            end
+            obj.flowNoTable = [linspace(1,numSamples_dot,numSamples_dot)',repmat([Mach,Re],[numSamples_dot,1])];
+        end
+
+
         function obj = setCf(obj,flowNo,Re)
             %%%%%%%%%%%%%%%%%%%%%Cf計算における設定%%%%%%%%%%%%%%%%%%%
             %Cf計算の詳細はhttps://openvsp.org/wiki/doku.php?id=parasitedragが詳しい
@@ -2338,6 +2349,131 @@ classdef UNLSI
             end
         end
         
+        function obj = solveFlowLocalVel(obj,alpha,beta,Mach,Re,deltadotNum,localVel)
+            %%%%%%%%%%%%%LSIの求解%%%%%%%%%%%%%%%%%%%%%
+            %結果はobj.AERODATAに格納される。
+            % 1:Beta 2:Mach 3:AoA 4:Re/1e6 5:CL 6:CLt 7:CDo 8:CDi 9:CDtot 10:CDt 11:CDtot_t 12:CS 13:L/D 14:E(翼効率) 15:CFx 16:CFy 17:CFz 18:CMx 19:CMy 20:CMz 21:CMl 22:CMm 23:CMn 24:FOpt 
+            %上記で求めていないものは0が代入される
+            %flowNo:解きたい流れのID
+            %alpha:迎角[deg]
+            %beta:横滑り角[deg]
+            %omega:主流の回転角速度(deg/s)
+            %obj.localVelocity(i,:)に複数のzdotにおける値を格納
+
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            
+            % if isempty(obj.flowNoTable)
+            %     if nargin > 4
+            %         obj = obj.flowCondition(1,Mach,Re);
+            %     else
+            %         obj = obj.flowCondition(1,Mach);
+            %     end
+            %     flowNo = 1;
+            % else
+            %     flowNo = 0;
+            %     for i = 1:size(obj.flowNoTable,1)
+            %         if obj.flowNoTable(i,1) == Mach && obj.flowNoTable(i,2) == Re
+            %             flowNo = i;
+            %         end
+            %     end
+            %     if flowNo == 0
+            %         if nargin > 4
+            %             obj = obj.flowCondition(size(obj.flowNoTable,1)+1,Mach,Re);
+            %         else
+            %             obj = obj.flowCondition(size(obj.flowNoTable,1)+1,Mach);
+            %         end
+            %         flowNo = size(obj.flowNoTable,1);
+            %     end
+            % end
+            if any(size(alpha) ~= size(beta))
+                error("analysis points are not match");
+            end
+            nPanel = numel(obj.paneltype);
+            nbPanel = sum(obj.paneltype == 1);
+            
+            for iterflow = 1:numel(alpha)
+                T(1,1) = cosd(alpha(iterflow))*cosd(beta(iterflow));
+                T(1,2) = cosd(alpha(iterflow))*sind(beta(iterflow));
+                T(1,3) = -sind(alpha(iterflow));
+                T(2,1) = -sind(beta(iterflow));
+                T(2,2) = cosd(beta(iterflow));
+                T(2,3) = 0;
+                T(3,1) = sind(alpha(iterflow))*cosd(beta(iterflow));
+                T(3,2) = sind(alpha(iterflow))*sind(beta(iterflow));
+                T(3,3) = cosd(alpha(iterflow));
+                for j = 1:deltadotNum
+                    flowNo = j;
+                    obj.Cp{flowNo} = zeros(nPanel,numel(alpha));
+                    Vinf = zeros(nPanel,3);
+                    for i = 1:nPanel
+                        rvec = obj.center(i,:)'-obj.rotCenter(i,:)';
+                       Vinf(i,:) = (reshape(obj.deflAngle(find(obj.deflAngle(:,1)==obj.surfID(i,1)),6:14),[3,3])'*(T*[1;0;0]-(cross(obj.angularVelocity(i,:)./180.*pi,rvec(:)')')-localVel(i,:,j)'))';
+                    end
+                    % Vinf{j} = Vinftemp;
+                
+
+                    
+                    Tvec(:,1) = obj.modNormal(:,2).* Vinf(:,3)-obj.modNormal(:,3).* Vinf(:,2);
+                    Tvec(:,2) = obj.modNormal(:,3).* Vinf(:,1)-obj.modNormal(:,1).* Vinf(:,3);
+                    Tvec(:,3) = obj.modNormal(:,1).* Vinf(:,2)-obj.modNormal(:,2).* Vinf(:,1);
+                    s(:,1) = Tvec(:,2).*obj.modNormal(:,3)-Tvec(:,3).*obj.modNormal(:,2);
+                    s(:,2) = Tvec(:,3).*obj.modNormal(:,1)-Tvec(:,1).*obj.modNormal(:,3);
+                    s(:,3) = Tvec(:,1).*obj.modNormal(:,2)-Tvec(:,2).*obj.modNormal(:,1);
+                    if Mach < 1
+                        %亜音速
+                        sigmas = zeros(nbPanel,1);
+                        iter = 1;
+                        for i = 1:nPanel
+                            if obj.paneltype(i) == 1
+                                sigmas(iter,1) = dot(Vinf(i,:)',obj.orgNormal(i,:)');
+                                iter = iter+1;
+                            end
+                                                        
+                        end
+                        
+                        if obj.settingUNLSI.propCalcFlag == 1
+                            RHV = obj.RHS*sigmas;
+                            RHVprop = obj.calcPropRHV(obj,T);
+                            RHV = RHV + RHVprop;
+                        else
+                            RHV = obj.RHS*sigmas;
+                        end
+                        u =  -(obj.LHS+obj.wakeLHS)\RHV;
+                        %u = -lsqminnorm((obj.LHS+obj.wakeLHS),RHV,obj.settingUNLSI.lsqminnormTol);
+                        %figure(2);clf;
+                        %plot(u);
+                        dv = zeros(nPanel,3);
+                        for i = 1:3
+                            dv(:,i) = obj.mu2v{i}*u;
+                        end
+                        dv = Vinf + dv;
+                        dv = dv - obj.orgNormal.*(dot(obj.orgNormal,dv,2));
+                        obj.Cp{flowNo}(obj.paneltype==1 & obj.cpcalctype == 1,iterflow) = (1-(sqrt(sum(dv(obj.paneltype==1 & obj.cpcalctype == 1,:).^2,2))).^2)./(1-obj.flow{flowNo}.Mach^2);
+                        obj.Cp{flowNo}(obj.paneltype==1 & obj.cpcalctype == 3,iterflow) = (-2*(dv(obj.paneltype==1 & obj.cpcalctype == 3,1))-dv(obj.paneltype==1 & obj.cpcalctype == 3,2).^2-dv(obj.paneltype==1 & obj.cpcalctype == 3,3).^2)./(1-obj.flow{flowNo}.Mach^2);
+                        obj.Cp{flowNo}(obj.paneltype==1 & obj.cpcalctype == 2,iterflow) = (-2*(dv(obj.paneltype==1 & obj.cpcalctype == 2,1)-Vinf(obj.paneltype==1 & obj.cpcalctype == 2,1)))./(1-obj.flow{flowNo}.Mach^2);
+                        obj.Cp{flowNo}(obj.paneltype==2,iterflow) = (-0.139-0.419.*(obj.flow{flowNo}.Mach-0.161).^2);
+                        obj.Cp{flowNo} = obj.valLimiter(obj.Cp{flowNo},obj.CpLimit(:,1),obj.CpLimit(:,2),obj.settingUNLSI.CpSlope);
+
+                    else
+                        %超音速
+                        delta = zeros(nbPanel,1);
+                        iter = 1;
+                        %各パネルが主流となす角度を求める
+                        for i = 1:nPanel
+                            if obj.paneltype(i) == 1
+                                delta(iter,1) = acos(dot(obj.orgNormal(i,:)',Vinf(i,:)')/norm(Vinf(i,:)))-pi/2;%パネル角度
+                                iter = iter+1;
+                            end
+                        end
+                        %用意された応答曲面をもちいてパネルの角度からCpを求める
+                        obj.Cp{flowNo}(obj.paneltype==1,iterflow) = obj.flow{flowNo}.pp(delta);%Cp
+                        obj.Cp{flowNo}(obj.paneltype==2,iterflow) = (-obj.flow{flowNo}.Mach.^(-2)+0.57.*obj.flow{flowNo}.Mach.^(-4));
+                    end
+                end
+            end
+        end
+
+
         function [u,R] = solvePertPotential(obj,flowNo,alpha,beta)
             %%%%%%%%%%%%%LSIの求解%%%%%%%%%%%%%%%%%%%%%
             %Adjoint法実装のためポテンシャルの変動値のみ求める。
@@ -2726,6 +2862,14 @@ classdef UNLSI
                 else
                     Cp = [];
                 end
+            end
+        end
+        function Cp = getCpNo(obj,alpha,beta,Mach,Re,flowNo)
+            allCp = horzcat(obj.Cp{:});
+            if nargin == 1
+                Cp = obj.Cp;
+            else
+                Cp = allCp(:,flowNo);
             end
         end
 
@@ -4777,46 +4921,48 @@ function [df_dz,df_dzdot] = calcModalAeroelasticDerivative(obj,z,zdot,alpha,beta
             end
         end
 
-        function [f] = calcModalAeroelasticf(obj,z,zdot,alpha,beta,Mach,Re)
-            %deltaから機体メッシュを再生成
-            %delta微分の計算
+        function [fList] = calcModalAeroelasticf(obj,z,zdot,alpha,beta,Mach,Re,numzdot)
             %基準の解析
             Vinf = obj.settingUNLSI.Vinf;
             z0 = z;
             zdot0 = zdot;
-            [delta0,deltadot0] = obj.femSol2Delta(obj.femEigenVec*z0,obj.femEigenVec*zdot0);
+            [delta0,~] = obj.femSol2Delta(obj.femEigenVec*z0,obj.femEigenVec*zdot0(:,1));
             modVerts = obj.calcModifiedVerts(delta0);
             obj0 = obj.setVerts(modVerts);
             obj0 = obj0.makeEquation();
-            obj0 = obj0.setLocalVelocity(obj.deltadot2localVel(deltadot0,Vinf));
-            obj0 = obj0.solveFlow(alpha,beta,Mach,Re);
-            distLoad = obj0.getCp(alpha,beta,Mach,Re).*Vinf.^2.*1.225.*0.5;
-            Fp = sparse(6*size(obj.femutils.usedVerts,2),1);
-            interpLoad = obj.verts2centerMat'*(distLoad.*obj.area);
-            vNormal = vertexNormal(obj.tri);
-            %femPointLoad = obj.fem2aeroMat'*interpLoad;
-            vertsLoad = vNormal.*interpLoad;
-            selfLoadFlag = 1;
-            if selfLoadFlag == 1
-                selfLoad = obj.femverts2centerMat'*(9.8.*obj.femarea.*obj.femThn.*obj.femRho);
+            for i = 1:numzdot
+                [~,deltadot0] = obj.femSol2Delta(obj.femEigenVec*z0,obj.femEigenVec*zdot0(:,i));
+                localVel(:,:,i) = obj.deltadot2localVel(deltadot0,Vinf);
             end
-            femPointLoad = zeros(size(obj.femtri.Points,1),3);
-            femPointLoad(obj.femutils.usedVerts,1) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,1);
-            femPointLoad(obj.femutils.usedVerts,2) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,2);
-            if selfLoadFlag == 1
-                femPointLoad(obj.femutils.usedVerts,3) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,3) + selfLoad(obj.femutils.usedVerts,1);
-            else
-                femPointLoad(obj.femutils.usedVerts,3) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,3);
-            end
-            for i = 1:size(obj.femutils.usedVerts,2) 
-                Fp(i,1) = -femPointLoad(i,1);
-                Fp(i+size(obj.femtri.Points,1),1) = -femPointLoad(i,2);
-                Fp(i+2*size(obj.femtri.Points,1),1) = -femPointLoad(i,3);
-            end
-            femRHSp0 = obj.femEigenVec'*Fp(obj.femutils.MatIndex==1,1);
+            obj0 = obj0.solveFlowLocalVel(alpha,beta,Mach,Re,numzdot,localVel);
 
-            f = femRHSp0;
- 
+            for iter = 1:numzdot
+                distLoad = obj0.getCpNo(alpha,beta,Mach,Re,iter).*Vinf.^2.*1.225.*0.5;
+                Fp = sparse(6*size(obj.femutils.usedVerts,2),1);
+                interpLoad = obj.verts2centerMat'*(distLoad.*obj.area);
+                vNormal = vertexNormal(obj.tri);
+                %femPointLoad = obj.fem2aeroMat'*interpLoad;
+                vertsLoad = vNormal.*interpLoad;
+                selfLoadFlag = 1;
+                if selfLoadFlag == 1
+                    selfLoad = obj.femverts2centerMat'*(9.8.*obj.femarea.*obj.femThn.*obj.femRho);
+                end
+                femPointLoad = zeros(size(obj.femtri.Points,1),3);
+                femPointLoad(obj.femutils.usedVerts,1) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,1);
+                femPointLoad(obj.femutils.usedVerts,2) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,2);
+                if selfLoadFlag == 1
+                    femPointLoad(obj.femutils.usedVerts,3) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,3) + selfLoad(obj.femutils.usedVerts,1);
+                else
+                    femPointLoad(obj.femutils.usedVerts,3) = obj.fem2aeroMat'*vertsLoad(obj.femutils.usedAeroVerts,3);
+                end
+                for i = 1:size(obj.femutils.usedVerts,2) 
+                    Fp(i,1) = -femPointLoad(i,1);
+                    Fp(i+size(obj.femtri.Points,1),1) = -femPointLoad(i,2);
+                    Fp(i+2*size(obj.femtri.Points,1),1) = -femPointLoad(i,3);
+                end
+                femRHSp0 = obj.femEigenVec'*Fp(obj.femutils.MatIndex==1,1);
+                fList(:,iter) = femRHSp0;
+            end
         end
 
 

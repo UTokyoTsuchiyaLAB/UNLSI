@@ -15,6 +15,7 @@ wing = wing.setUNLSISettings("propCalcFlag",1,"nGriddedInterp",10);
 wing = wing.setPropState(1,0.4,0.6,8000); %プロペラの回転状況を指定
 wing = wing.setDeflAngle(6,[0,1,0],0);%6番のIDを回転軸[0,1,0]、角度0degに設定（動翼として登録）
 wing = wing.setDeflAngle(7,[0,1,0],0);%7番のIDを回転軸[0,1,0]、角度0degに設定（動翼として登録）
+wing.deflAngle
 wing = wing.setDeflGroup(1,"elev",[6,7],[1,1]); % ID6番7番をgain[1,1](軸が同じなら同じ方向）に動かすことをelevatorとして登録(動翼ID1番） 
 wing = wing.setDeflGroup(2,"ail",[6,7],[1,-1]); % ID6番7番をgain[1,1](軸が同じなら同じ方向）に動かすことをelevatorとして登録(動翼ID2番
 wing = wing.solveFlow(0,0,0.001,200000);
