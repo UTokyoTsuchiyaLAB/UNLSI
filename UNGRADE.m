@@ -607,6 +607,7 @@ classdef UNGRADE < UNLSI
             if any(cmax-cmin<0)
                 error("check the cmin and cmax setting");
             end
+            cScale = cmax-cmin;        
             if nargin>4
                 obj = obj.setUNGRADESettings(varargin{:});
             end
@@ -760,8 +761,9 @@ classdef UNGRADE < UNLSI
             end
 
             [I0,con0] = objandConsFun(geom,aero,fem);
+            con0 = (con0-cmin)./cScale;
             fprintf("Orginal Objective Value and Constraints:\n")
-            disp([I0,con0(:)']);
+            disp([I0,((con0.*cScale)+cmin)']);
             obj.history.objVal(obj.iteration) = I0;
             obj.history.conVal(:,obj.iteration) = con0(:);
             fprintf("AERODATA of iteration No.%d ->\n",obj.iteration);
@@ -818,7 +820,7 @@ classdef UNGRADE < UNLSI
                             [geom,aero,fem] = obj.makeObjArguments(obj,desOrg,AERODATA,DYNCOEF,Cp,Cfe,obj.SREF,obj.BREF,obj.CREF,obj.XYZREF,obj.argin_x,[],invR);
                         end
                         [If,conf] = objandConsFun(geom,aero,fem);
-
+                        conf = (conf-cmin)./cScale;
 
                         [AERODATAbuff,Cpbuff,Cfebuff,~,aeroObj{calcCount}] = aeroObj{calcCount}.solveFlowForAdjoint(ur,iter,alphabuff(jter),betabuff(jter));
                         AERODATA = AERODATA0;
@@ -845,6 +847,7 @@ classdef UNGRADE < UNLSI
                             [geom,aero,fem] = obj.makeObjArguments(obj,desOrg,AERODATA,DYNCOEF,Cp,Cfe,obj.SREF,obj.BREF,obj.CREF,obj.XYZREF,obj.argin_x,[],invR);
                         end
                         [Ir,conr] = objandConsFun(geom,aero,fem);
+                        conr = (conr-cmin)./cScale;
 
                         dI_du_buff(i) = (If-Ir)/pert/2;%評価関数のポテンシャルに関する偏微分
                         if not(isempty(con0))
@@ -943,6 +946,7 @@ classdef UNGRADE < UNLSI
                                 end
                                 [geom,aero,fem] = obj.makeObjArguments(obj,desOrg,AERODATA,DYNCOEF,Cp,Cfe,obj.SREF,obj.BREF,obj.CREF,obj.XYZREF,obj.argin_x,deltaf,invR);
                                 [If,conf] = objandConsFun(geom,aero,fem);
+                                conf = (conf-cmin)./cScale;
                                 clear aeroObj2
 
                                 deltapr = deltap0;
@@ -986,6 +990,7 @@ classdef UNGRADE < UNLSI
                                 end
                                 [geom,aero,fem] = obj.makeObjArguments(obj,desOrg,AERODATA,DYNCOEF,Cp,Cfe,obj.SREF,obj.BREF,obj.CREF,obj.XYZREF,obj.argin_x,deltar,invR);
                                 [Ir,conr] = objandConsFun(geom,aero,fem);
+                                conr = (conr-cmin)./cScale;
                                 clear aeroObj2
 
                                 dI_ddelta_buff(i) = (If-Ir)/pert/2;%評価関数のポテンシャルに関する偏微分
@@ -1108,7 +1113,7 @@ classdef UNGRADE < UNLSI
                     [geom,aero,fem] = obj2.makeObjArguments(obj2,des,AERODATA,DYNCOEF,Cp,Cfe,SREF2,BREF2,CREF2,XYZREF2,argin_x2,[]);
                 end
                 [If,conf] = objandConsFun(geom,aero,fem);
-
+                conf = (conf-cmin)./cScale;
                 clear obj2 aeroDesObj femObj
 
 
@@ -1195,6 +1200,7 @@ classdef UNGRADE < UNLSI
                     [geom,aero,fem] = obj2.makeObjArguments(obj2,des,AERODATA,DYNCOEF,Cp,Cfe,SREF2,BREF2,CREF2,XYZREF2,argin_x2,[]);
                 end
                 [Ir,conr] = objandConsFun(geom,aero,fem);
+                conr = (conr-cmin)./cScale;
                 clear obj2 aeroDesObj femObj
 
                 dI_dx(i) = (If-Ir)./pert/2;%評価関数の設計変数に関する偏微分
@@ -1240,8 +1246,8 @@ classdef UNGRADE < UNLSI
             ubflin = ubf;
             ubflin(obj.LagrangianInfo.uactiveBound==0) =  Inf;
             if not(isempty(conf))
-                obj.LagrangianInfo.clactiveBound = con0 <= cmin-errorMod;
-                obj.LagrangianInfo.cuactiveBound = con0 >= cmax-errorMod;
+                obj.LagrangianInfo.clactiveBound = con0 <= 0-errorMod;
+                obj.LagrangianInfo.cuactiveBound = con0 >= 1-errorMod;
                 bothInacitve = and(obj.LagrangianInfo.clactiveBound==0,obj.LagrangianInfo.cuactiveBound==0);
                 obj.LagrangianInfo.clactiveBound(bothInacitve) = 1;
                 obj.LagrangianInfo.cuactiveBound(bothInacitve) = 1;
@@ -1252,7 +1258,7 @@ classdef UNGRADE < UNLSI
             end
             if not(isempty(conf))
                 obj.LagrangianInfo.alin = [-conTotalGrad;conTotalGrad];
-                obj.LagrangianInfo.blin = [con0(:)-cmin(:)+errorMod;cmax(:)-con0(:)-errorMod];
+                obj.LagrangianInfo.blin = [con0(:)-0+errorMod;1-con0(:)-errorMod];
                 alinlin = obj.LagrangianInfo.alin;
                 blinlin = obj.LagrangianInfo.blin;
                 alinlin([obj.LagrangianInfo.clactiveBound;obj.LagrangianInfo.cuactiveBound]==0,:) = [];
@@ -1278,7 +1284,7 @@ classdef UNGRADE < UNLSI
                     lambdaRS = lsqminnorm(-([dR_du,dR_ddelta;dS_du./10000,dS_ddelta./10000]'),([dI_du,dI_ddelta]+(lambdaC'*diag([obj.LagrangianInfo.clactiveBound;obj.LagrangianInfo.cuactiveBound]))*[-[dcon_du,dcon_ddelta];[dcon_du,dcon_ddelta]])',obj.settingUNLSI.lsqminnormTol) ;
                     lambdaR = lambdaRS(1:size(dR_du,1),1);
                     lambdaS = lambdaRS(size(dR_du,1)+1:end,1);
-                    obj.LagrangianInfo.Lorg = I0 + (lambdaC'*diag([obj.LagrangianInfo.clactiveBound;obj.LagrangianInfo.cuactiveBound]))*[cmin-con0;con0-cmax;]+((obj.LagrangianInfo.lambda.upper.*obj.LagrangianInfo.uactiveBound)'*(obj.scaledVar'-1))'+((obj.LagrangianInfo.lambda.lower.*obj.LagrangianInfo.lactiveBound)'*(-obj.scaledVar'))';
+                    obj.LagrangianInfo.Lorg = I0 + (lambdaC'*diag([obj.LagrangianInfo.clactiveBound;obj.LagrangianInfo.cuactiveBound]))*[0-con0;con0-1;]+((obj.LagrangianInfo.lambda.upper.*obj.LagrangianInfo.uactiveBound)'*(obj.scaledVar'-1))'+((obj.LagrangianInfo.lambda.lower.*obj.LagrangianInfo.lactiveBound)'*(-obj.scaledVar'))';
                     obj.LagrangianInfo.dL_dx = dI_dx+lambdaR'*dR_dx+lambdaS'*dS_dx./10000+(lambdaC'*diag([obj.LagrangianInfo.clactiveBound;obj.LagrangianInfo.cuactiveBound]))*[-dcon_dx;dcon_dx]+(obj.LagrangianInfo.lambda.upper.*obj.LagrangianInfo.uactiveBound)'-(obj.LagrangianInfo.lambda.lower.*obj.LagrangianInfo.lactiveBound)';
                 else
                     lambdaRS = lsqminnorm(-([dR_du,dR_ddelta;dS_du./10000,dS_ddelta./10000]'),[dI_du,dI_ddelta]',obj.settingUNLSI.lsqminnormTol);
@@ -1294,7 +1300,7 @@ classdef UNGRADE < UNLSI
                         lambdaC([obj.LagrangianInfo.clactiveBound;obj.LagrangianInfo.cuactiveBound]==1,1) = obj.LagrangianInfo.lambda.ineqlin;
                     end
                     lambdaR = lsqminnorm(-(dR_du'),(dI_du+(lambdaC'*diag([obj.LagrangianInfo.clactiveBound;obj.LagrangianInfo.cuactiveBound]))*[-dcon_du;dcon_du])',obj.settingUNLSI.lsqminnormTol);
-                    obj.LagrangianInfo.Lorg = I0 + (lambdaC'*diag([obj.LagrangianInfo.clactiveBound;obj.LagrangianInfo.cuactiveBound]))*[cmin-con0;con0-cmax;]+((obj.LagrangianInfo.lambda.upper.*obj.LagrangianInfo.uactiveBound)'*(obj.scaledVar'-1))'+((obj.LagrangianInfo.lambda.lower.*obj.LagrangianInfo.lactiveBound)'*(-obj.scaledVar'))';
+                    obj.LagrangianInfo.Lorg = I0 + (lambdaC'*diag([obj.LagrangianInfo.clactiveBound;obj.LagrangianInfo.cuactiveBound]))*[0-con0;con0-1;]+((obj.LagrangianInfo.lambda.upper.*obj.LagrangianInfo.uactiveBound)'*(obj.scaledVar'-1))'+((obj.LagrangianInfo.lambda.lower.*obj.LagrangianInfo.lactiveBound)'*(-obj.scaledVar'))';
                     obj.LagrangianInfo.dL_dx = dI_dx+lambdaR'*dR_dx+(lambdaC'*diag([obj.LagrangianInfo.clactiveBound;obj.LagrangianInfo.cuactiveBound]))*[-dcon_dx;dcon_dx]+(obj.LagrangianInfo.lambda.upper.*obj.LagrangianInfo.uactiveBound)'-(obj.LagrangianInfo.lambda.lower.*obj.LagrangianInfo.lactiveBound)';
                 else
                     lambdaR = lsqminnrom(-(dR_du'),dI_du',obj.settingUNLSI.lsqminnormTol);
@@ -1401,12 +1407,14 @@ classdef UNGRADE < UNLSI
 
         function [Lval,I,con,obj] = calcLagrangian(obj,objandConsFun,cmin,cmax)
             [I,con,obj] = evaluateObjFun(obj,objandConsFun);
+            cScale = cmax-cmin;
+            con = (con-cmin)./cScale;
             if not(isempty(con))
                 lambdaC = zeros(numel(con)*2,1);
                 if not(isempty(obj.LagrangianInfo.lambda.ineqlin))
                     lambdaC([obj.LagrangianInfo.clactiveBound;obj.LagrangianInfo.cuactiveBound]==1,1) = obj.LagrangianInfo.lambda.ineqlin;
                 end
-                Lval = I + (lambdaC'*diag([obj.LagrangianInfo.clactiveBound;obj.LagrangianInfo.cuactiveBound]))*[cmin-con;con-cmax;]+((obj.LagrangianInfo.lambda.upper.*obj.LagrangianInfo.uactiveBound)'*(obj.scaledVar'-1))'+((obj.LagrangianInfo.lambda.lower.*obj.LagrangianInfo.lactiveBound)'*(-obj.scaledVar'))';
+                Lval = I + (lambdaC'*diag([obj.LagrangianInfo.clactiveBound;obj.LagrangianInfo.cuactiveBound]))*[0-con;con-1;]+((obj.LagrangianInfo.lambda.upper.*obj.LagrangianInfo.uactiveBound)'*(obj.scaledVar'-1))'+((obj.LagrangianInfo.lambda.lower.*obj.LagrangianInfo.lactiveBound)'*(-obj.scaledVar'))';
             else
                 Lval = I+((obj.LagrangianInfo.lambda.upper.*obj.LagrangianInfo.uactiveBound)'*(obj.scaledVar'-1))'+((obj.LagrangianInfo.lambda.lower.*obj.LagrangianInfo.lactiveBound)'*(-obj.scaledVar'))';
             end

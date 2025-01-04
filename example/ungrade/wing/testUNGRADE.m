@@ -15,7 +15,7 @@ cmax = [2.5,10,10,10,10,10,0.50]';%制約条件の上限値
 ungradetest = UNGRADE(@(x)vspMeshGen(x,"wing","org.des"),@(x)vspGeomGen(x,"wing","org.des"),orgVal,lb,ub,1);%コンストラクタの実行
 ungradetest.checkGeomGenWork(0.5);%設計変数が動いているかチェックする
 %%%%%%%%%%%%%%%%%%ここで種々の設定をする%%%%%%%%%%%%%%%%%%%
-ungradetest = ungradetest.setUNGRADESettings('femCouplingFlag',1);%強連成最適化
+ungradetest = ungradetest.setUNGRADESettings('femCouplingFlag',1);%弱連成最適化
 [con,verts,femID] = readFemMesh('wing_WingGeom_Struct0.msh');
 ungradetest = ungradetest.setFemMesh(verts,con,femID);%すべての空力メッシュIDとfemメッシュを関連付ける（第二引数省略）
 [ungradetest,weight] = ungradetest.setFemMaterials([1,2,3],[0.002,0.003,0.01],[73500000000,73500000000,73500000000],[2700,2700,2700]);
